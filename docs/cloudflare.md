@@ -9,7 +9,8 @@ and 14 are the ones this builds on.
 A test project, then talebrary, deploying to Cloudflare from inside a trusted
 session, with:
 
-- a token that exists only for that project, scoped to its zone (decision 9);
+- a token that exists only for that project, scoped to its account and, where
+  it has one, its zone (decision 9);
 - frisket adding it on the wire, the session holding the placeholder;
 - every request the API knows to be harmless going straight through, and
   everything else — including anything nobody has classified yet — stopping at
@@ -54,7 +55,12 @@ written down by operation id, with a line each saying why:
   often is worse than none.
 
 **5. The token is the floor, the allowlist is not.** Decision 6's order holds:
-the zone-scoped token is what actually keeps talebrary out of other zones.
+the narrowly minted token is what actually keeps talebrary out of everything
+else. Zone scope alone is not enough: Workers scripts, KV, D1, R2 and the rest
+belong to the *account*, so a token restricted to one zone can still overwrite
+every Worker beside it. The unit of isolation is the account — a project that
+needs keeping apart from others gets its own (one login can hold several), and
+its token is restricted to that account, then to its zone where it has one.
 The allowlist and the gate only decide which of the things the token *can* do
 need a person. Nothing here is a substitute for minting the token narrowly.
 
@@ -103,7 +109,8 @@ The contract, deliberately small:
 - the decision arrives as one JSON document on stdin — method, host, path and
   query, the matched operation's id, summary and description if there was
   one, and which session and policy it came from;
-- exit status 0 allows the request; anything else refuses it;
+- exit status 0 allows the request, 1 declines it; anything else refuses it
+  too, and is logged as the asker failing rather than a person saying no;
 - no asker configured means `ask` refuses. A gate with nobody to ask fails
   closed, never open.
 
@@ -149,27 +156,43 @@ Two things are deliberately left out, to be added only on evidence:
 ## Order of work
 
 Prove the gate and the classification before the envelope. For the test
-project, bind a token for a **throwaway zone** from nix-config directly, and
+project, bind a token for a **sandbox account** from nix-config directly, and
 mark that binding as temporary in a comment. It contradicts decision 9 on
-purpose and for a short time: a disposable zone's token is not a
+purpose and for a short time: a disposable account's token is not a
 "system-level cloud account", and it lets the gate be built and exercised
 without waiting on the project-carried credential. When the envelope lands,
 that binding goes and the project carries it.
 
-1. Mint a token for a throwaway zone, scoped to that zone.
+1. A sandbox account, separate from talebrary's, with no zone — the gate only
+   needs something to create and delete, and a KV namespace is that with no
+   code. An account-owned token with only Workers KV Storage: Edit on that
+   account, held in nix-config's sops as `cloudflare-test-token` beside
+   `cloudflare-test-account-id`. *Done.*
 2. Generate the classification from a pinned `openapi.json`. At the time of
    writing that is 3,540 operations, 1,741 of them `GET` — so roughly half
    pass on the rule alone and half ask. Read the exceptions list before
-   writing any code that uses it.
+   writing any code that uses it. *Done:* `scripts/cloudflare-operations.sh`,
+   pinned to `api-schemas` 8cb1993, writes `apps/cloudflare/operations.json` —
+   1,680 allowed, 1,860 asked — with 61 reads that return a secret in
+   `apps/cloudflare/exceptions.json`, and no harmless writes yet.
 3. frisket: path templates, then `ask`, then the asker contract.
-   nix-config: a zenity asker against that contract.
-4. chase: the Cloudflare app, wired to the generated rules.
-5. Run wrangler in a trusted session against the throwaway zone. Read frisket's
+   nix-config: a zenity asker against that contract. *Done.*
+4. chase: the Cloudflare app, wired to the generated rules. *Done:*
+   `apps/cloudflare.nix`, binding a token and, optionally, an account id.
+5. In a trusted session, `wrangler kv namespace create` then `delete` against
+   the sandbox account — each should raise a dialog, the reads around them
+   should not. Read frisket's
    log: every request should be either allowed by name or have raised a
    dialog. Anything else is a gap in the classification.
 6. Then the envelope, then talebrary.
 
 ## Open
+
+- **`POST /graphql` is not in the spec.** Decision 4 names it as the example
+  of a harmless write, but the pinned spec does not describe it, so it cannot
+  be an exception by operation id: today it matches nothing, and asks. If the
+  log shows it firing often enough to matter, it is a hand-written rule beside
+  the generated ones — which is the next point, arriving early.
 
 - **Other hosts.** wrangler may talk to more than `api.cloudflare.com` —
   uploads, telemetry, `dash.cloudflare.com` for login. Discover from frisket's

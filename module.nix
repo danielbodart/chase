@@ -156,6 +156,7 @@ in
     ./apps/github.nix
     ./apps/claude.nix
     ./apps/codex.nix
+    ./apps/cloudflare.nix
   ];
 
   options.chase = {

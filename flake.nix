@@ -119,6 +119,24 @@
               chase.tiers.trusted.apps.github.anonymous = true;
             } == [ ]
               || throw "assertions: an anonymous-only github still demanded a credential";
+            # The same for Cloudflare: a tier that enables it needs a token.
+            assert refused "an unbound cloudflare credential"
+              { chase.tiers.trusted.apps.cloudflare.enable = true; }
+              "cloudflare.credentialFile is null";
+            # Bound, it holds together: no assertion fails, chase's or
+            # frisket's, and frisket's configuration -- every generated
+            # operation, through frisket's own option types -- is written.
+            # Forcing ExecStart forces the file it names.
+            assert
+              (let
+                config = configWith {
+                  chase.tiers.trusted.apps.cloudflare.enable = true;
+                  chase.bindings.cloudflare.credentialFile = "/run/secrets/cloudflare-token";
+                };
+                failed = map (a: a.message) (lib.filter (a: ! a.assertion) config.assertions);
+              in
+              failed == [ ] && lib.hasInfix "-config /nix/store/" config.systemd.services.frisket.serviceConfig.ExecStart
+                || throw "assertions: a bound cloudflare did not hold together: ${builtins.toJSON failed}");
             pkgs.runCommand "assertions" { } "touch $out";
 
           # The version script decides what every release is called, so it is
