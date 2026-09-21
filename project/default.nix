@@ -53,7 +53,7 @@ let
 
   envelope = pkgs.writeShellApplication {
     name = "chase-envelope";
-    runtimeInputs = with pkgs; [ nix jq sops coreutils diffutils git ];
+    runtimeInputs = with pkgs; [ nix jq sops coreutils diffutils git gnutar gnugrep ];
     text = ''
       uid=${toString cfg.uid}
       home=${lib.escapeShellArg cfg.home}
@@ -69,106 +69,161 @@ let
 
       die() { echo "chase: $*" >&2; exit 1; }
 
-      # The checkout's envelope, as JSON, or null if it has none. Evaluated
-      # as the caller, against ./options.nix only: an option that is not
-      # there is an error, not a setting applied somewhere else. The flake's
-      # own nixConfig is not taken, and its lock is never written.
+      # ASK, THEN RUN. Nothing of the checkout's is evaluated until a person
+      # has approved the bytes that decide what evaluating it reaches: its
+      # flake.nix and flake.lock, which alone declare and pin its inputs.
+      # Approving what an envelope evaluates to could not be enough on its
+      # own, because evaluating a flake resolves its inputs first -- and an
+      # input can be any path of the user's, or any URL.
+      #
+      # All of it is done on a SNAPSHOT: the checkout's tracked files, copied
+      # once. What is compared, shown, evaluated and decrypted is that copy,
+      # so a session of the same checkout still running cannot change a file
+      # between the approval and its use.
+
+      ask() {
+        local kind=$1 ws=$2 diff=$3
+        [ -n "$approver" ] \
+          || die "$ws: its $kind has changed, and there is no chase.approver to ask"
+        jq -n --arg kind "$kind" --arg workspace "$ws" --arg diff "$diff" \
+          '{kind: $kind, workspace: $workspace, diff: $diff}' | "$approver" \
+          || die "$ws: its $kind was not approved"
+      }
+
+      # The checkout's tracked files, as they are now, in a directory of the
+      # user's own that no session sees.
+      snapshot() {
+        local ws=$1 src=$2
+        git -C "$ws" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+          || die "$ws: an envelope needs a git checkout, so what is evaluated is what git tracks"
+        git -C "$ws" ls-files -z --cached \
+          | tar -C "$ws" --null --no-recursion -T - -cf - \
+          | tar -C "$src" -xf -
+        [ -f "$src/flake.nix" ] && [ ! -L "$src/flake.nix" ] \
+          || die "$ws: flake.nix is not a tracked file"
+        [ ! -L "$src/flake.lock" ] || die "$ws: flake.lock is a link"
+      }
+
+      # Inputs that are files on this machine are refused: the lock names
+      # them, but what they hold is not in anything that was approved.
+      local_inputs() {
+        local src=$1
+        [ -f "$src/flake.lock" ] || return 0
+        jq -r '
+          .nodes | to_entries[] | .value as $n
+          | [$n.locked?, $n.original?] | map(select(. != null))[]
+          | select(.type == "path" or (.url? // "" | test("^(file:|git\\+file:|path:)")) or has("parent"))
+          | "input: \(.path? // .url? // "a relative path")"
+        ' "$src/flake.lock" | sort -u
+      }
+
+      # Stage one: the flake's own two files, against the copies approved.
+      approve_source() {
+        local ws=$1 src=$2 dir=$3 diff="" f
+        for f in flake.nix flake.lock; do
+          if ! cmp -s "$src/$f" "$dir/$f" 2>/dev/null \
+             && ! { [ ! -e "$src/$f" ] && [ ! -e "$dir/$f" ]; }; then
+            diff+=$(diff -u --label "approved/$f" --label "$f" \
+              "$( [ -e "$dir/$f" ] && echo "$dir/$f" || echo /dev/null)" \
+              "$( [ -e "$src/$f" ] && echo "$src/$f" || echo /dev/null)")$'\n' || true
+          fi
+        done
+        [ -n "$diff" ] || return 0
+        ask "flake" "$ws" "$diff"
+        mkdir -p "$dir"
+        for f in flake.nix flake.lock; do
+          if [ -e "$src/$f" ]; then cp -- "$src/$f" "$dir/$f.new" && mv "$dir/$f.new" "$dir/$f"; else rm -f "$dir/$f"; fi
+        done
+      }
+
+      # The chase section, evaluated purely from the snapshot against
+      # ./options.nix only: an option that is not there is an error, not a
+      # setting applied somewhere else. No nixConfig, no lock written, no
+      # import-from-derivation.
       evaluate() {
-        local ws=$1 ref
-        [ -f "$ws/flake.nix" ] || { echo null; return; }
-        if git -C "$ws" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-          ref="git+file://$ws"
-        else
-          ref="path:$ws"
-        fi
+        local src=$1
         nix eval --json --no-write-lock-file --option accept-flake-config false \
           --option allow-import-from-derivation false \
           --extra-experimental-features 'nix-command flakes' \
-          "path:${evaluator}#envelope" --override-input project "$ref"
+          "path:${evaluator}#envelope" --override-input project "path:$src"
       }
 
-      # Goes on only if this result is the one approved for this checkout,
-      # or a person approves it now.
-      approve() {
-        local ws=$1 result=$2 file previous diff
-        file=$state/approved/$(key "$ws").json
-        if [ -f "$file" ] && [ "$(jq -cS .envelope "$file")" = "$(jq -cS . <<< "$result")" ]; then
-          return
+      # Stage two: what it evaluated to. The flake's files are approved by
+      # now, but the chase section can import others, so a change to what it
+      # says is asked about too.
+      approve_envelope() {
+        local ws=$1 result=$2 dir=$3 previous=null diff
+        if [ -f "$dir/envelope.json" ]; then
+          previous=$(jq -c . "$dir/envelope.json")
+          [ "$(jq -cS . <<< "$previous")" != "$(jq -cS . <<< "$result")" ] || return 0
         fi
-        previous=null
-        if [ -f "$file" ]; then previous=$(jq -c .envelope "$file"); fi
         diff=$(diff -u --label approved --label proposed \
           <(jq -S . <<< "$previous") <(jq -S . <<< "$result")) || true
-        [ -n "$approver" ] \
-          || die "$ws: its envelope has changed, and there is no chase.approver to ask"
-        if ! jq -n --arg workspace "$ws" --argjson previous "$previous" \
-            --argjson proposed "$result" --arg diff "$diff" \
-            '{workspace: $workspace, previous: $previous, proposed: $proposed, diff: $diff}' \
-            | "$approver"; then
-          die "$ws: its envelope was not approved"
-        fi
-        mkdir -p "$state/approved"
-        jq -n --arg workspace "$ws" --argjson envelope "$result" \
-          '{workspace: $workspace, envelope: $envelope}' > "$file.new"
-        mv "$file.new" "$file"
+        ask "envelope" "$ws" "$diff"
+        mkdir -p "$dir"
+        printf '%s\n' "$result" > "$dir/envelope.json.new"
+        mv "$dir/envelope.json.new" "$dir/envelope.json"
       }
 
-      # A copy of the project's sops file, taken once: its digest is part of
-      # what is approved, and it is this copy -- not the file, which the
-      # session can change at any moment -- that is decrypted. Approving the
-      # names alone would let any ciphertext encrypted to the same keys be
-      # swapped in under them.
-      snapshot() {
-        local ws=$1 secrets=$2 out=$3 file
-        file=$(realpath -e -- "$ws/$secrets") || die "$ws: $secrets does not exist"
-        case $file in
-          "$ws"/*) ;;
-          *) die "$ws: $secrets is outside the checkout" ;;
-        esac
-        cat -- "$file" > "$out"
-      }
-
-      # The secret an app binds, decrypted where frisket reads it and the
-      # session cannot: /run/user/<uid> is bound into no container.
+      # The secret an app binds, decrypted from the snapshot's copy of the
+      # sops file -- whose digest was approved -- where frisket reads it and
+      # the session cannot: /run/user/<uid> is bound into no container.
       decrypt() {
-        local ws=$1 copy=$2 secret=$3 out=$4
-        [ -n "$copy" ] || die "$ws: a binding names secret '$secret', and chase.secrets names no file"
-        sops --decrypt --extract "[\"$secret\"]" "$copy" > "$out" \
+        local ws=$1 file=$2 secret=$3 out=$4
+        [ -n "$file" ] || die "$ws: a binding names secret '$secret', and chase.secrets names no file"
+        sops --decrypt --extract "[\"$secret\"]" "$file" > "$out" \
           || die "$ws: could not decrypt '$secret'"
         [ -s "$out" ] || die "$ws: '$secret' is empty"
       }
 
       launch() {
-        local tier=$1 ws=$2 machine=$3 result run doc envfile app secret secrets
+        local tier=$1 ws=$2 machine=$3 result run doc envfile app secret secrets dir file="" refused
         # Everything written here is the user's alone: decrypted secrets
         # above all.
         umask 077
-        [ -d /run/user/$uid ] || die "/run/user/$uid does not exist: log in first"
-        run=/run/user/$uid/chase/$machine
         envfile=$(env_dir "$ws")/env
+        # Only a flake that says chaseModules is looked at at all: any other
+        # is the tier as it is, and is never evaluated or asked about.
+        if [ ! -f "$ws/flake.nix" ] || ! grep -q chaseModules "$ws/flake.nix"; then
+          rm -f "$envfile"
+          return
+        fi
+        [ -d /run/user/$uid ] || die "/run/user/$uid does not exist: log in first"
+        [ -d "/run/user/$uid/chase" ] || mkdir -m 0700 "/run/user/$uid/chase"
+        run=/run/user/$uid/chase/$machine
+        mkdir -m 0700 "$run" "$run/secrets"
+        dir=$state/approved/$(key "$ws")
 
-        result=$(evaluate "$ws") || die "$ws: its chaseModules.default does not evaluate"
+        mkdir -p "$home/.cache/chase"
+        src=$(mktemp -d "$home/.cache/chase/snapshot.XXXXXX")
+        trap 'rm -rf -- "$src"' EXIT
+        snapshot "$ws" "$src"
+        refused=$(local_inputs "$src")
+        [ -z "$refused" ] || die "$ws: its flake has inputs that are files on this machine, which an envelope may not: $refused"
+
+        approve_source "$ws" "$src" "$dir"
+        result=$(evaluate "$src") || die "$ws: its chaseModules.default does not evaluate"
         if [ "$result" = null ]; then
           rm -f "$envfile"
           return
         fi
-        [ -d "/run/user/$uid/chase" ] || mkdir -m 0700 "/run/user/$uid/chase"
-        mkdir -m 0700 "$run" "$run/secrets"
-        local copy=""
-        if [ "$(jq -r '.secrets // empty' <<< "$result")" != "" ]; then
-          secrets=$(jq -r .secrets <<< "$result")
-          # sops reads the file's kind from its extension, so the copy keeps it.
-          copy=$run/secrets.''${secrets##*.}
-          snapshot "$ws" "$secrets" "$copy"
-          result=$(jq --arg d "$(sha256sum < "$copy" | cut -d' ' -f1)" '. + {secretsSHA256: $d}' <<< "$result")
+        secrets=$(jq -r '.secrets // empty' <<< "$result")
+        if [ -n "$secrets" ]; then
+          file=$(realpath -e -- "$src/$secrets") || die "$ws: $secrets is not a tracked file"
+          case $file in
+            "$src"/*) ;;
+            *) die "$ws: $secrets is outside the checkout" ;;
+          esac
+          result=$(jq --arg d "$(sha256sum < "$file" | cut -d' ' -f1)" '. + {secretsSHA256: $d}' <<< "$result")
         fi
-        approve "$ws" "$result"
+        approve_envelope "$ws" "$result" "$dir"
+
         doc=$(cat "/etc/frisket/policies/$tier.json")
         local exports=""
         for app in $(jq -r 'keys[]' "$apps"); do
           secret=$(jq -r --arg a "$app" '.bindings[$a].credential.secret // empty' <<< "$result")
           [ -n "$secret" ] || continue
-          decrypt "$ws" "$copy" "$secret" "$run/secrets/$app"
+          decrypt "$ws" "$file" "$secret" "$run/secrets/$app"
           # The app's route, with the project's credential, in place of any
           # route of the same name the tier had.
           doc=$(jq --slurpfile apps "$apps" --arg a "$app" --arg cred "$run/secrets/$app" '
@@ -181,9 +236,8 @@ let
             | ($p.env + ($p.envFromBinding | map_values($r.bindings[$a][.]) | with_entries(select(.value != null))))
             | to_entries[] | "export \(.key)=\(.value | @sh)"
           ')$'\n'
-          echo "chase: $ws: $app from $(jq -r .secrets <<< "$result"):$secret" >&2
+          echo "chase: $ws: $app from $secrets:$secret" >&2
         done
-        [ -z "$copy" ] || rm -f -- "$copy"
         printf '%s\n' "$doc" > "$run/policy.json"
         mkdir -p "$(dirname "$envfile")"
         printf '%s' "$exports" > "$envfile.new"
@@ -221,10 +275,11 @@ in
       description = ''
         The program that asks a person to approve a checkout's envelope when
         what it evaluates to has changed (PLAN.md, decision 17). It runs as
-        the user, from the launch, with one JSON document on stdin:
-        `workspace`, `previous` (null the first time), `proposed`, and `diff`,
-        a unified diff of the two. Exit 0 approves; anything else ends the
-        launch. Null: a changed envelope is never approved.
+        the user, from the launch, with one JSON document on stdin: `kind`,
+        `workspace` and `diff`. `kind` is `flake` -- the checkout's flake.nix
+        or flake.lock changed, and nothing of it has run yet -- or `envelope`,
+        what its chase section evaluates to changed; `diff` is unified. Exit 0
+        approves; anything else ends the launch. Null: nothing is approved.
       '';
     };
 

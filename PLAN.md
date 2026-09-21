@@ -218,25 +218,33 @@ feature, and shipping one without the other opens a door nothing walks through.
 nix-config's note that *"no tier that could use a devShell runs in one"* stops
 being true when this lands, and wants rewriting.
 
-**17. A changed envelope takes effect only when a person approves it.** An
-envelope is a project's own flake output, `chaseModules.default`, and it can
-live anywhere in the project: nothing is hidden from the session. What it is
-evaluated against is chase's *project* options only — the secrets file,
-bindings, and later ports and environment — never the tier's whole
-configuration, so what it evaluates to is a small document a person can read.
+**17. Nothing of a checkout's runs until a person has approved it.** An
+envelope is the project's own flake output, `chaseModules.default`, and
+nothing is hidden from the session. Instead, each launch works on a snapshot
+of the checkout's tracked files and approves in two stages:
 
-The launcher evaluates it, as the caller, and compares the result with the one
-last approved for that checkout, kept in `~/.local/state/chase/approved/`: on
-the host, bound into no session. The same result goes straight on. A different
-one — first launch, an edited import, a moved `flake.lock`, a commit the agent
-made and a human later checked out — stops the launch and asks, through
-`chase.approver`, showing the difference. Approved, it is recorded and the
-session starts; refused, the launch ends rather than running without it.
+- **The flake's own files, before anything runs.** `flake.nix` and
+  `flake.lock` alone declare and pin its inputs, and evaluating a flake
+  resolves them first — so an input could otherwise read any of the user's
+  files, or fetch any URL, before anyone had looked. Different bytes from the
+  ones last approved for that checkout go to `chase.approver` as a diff; only
+  then is anything evaluated. Inputs that are files on this machine (`path:`,
+  `git+file:`, relative ones) are refused outright: what they hold is in
+  nothing approved.
+- **What the chase section says, after.** It is evaluated purely, against
+  chase's project options only, and can import other files of the project; a
+  change to its result — which includes the digest of the project's sops file
+  — is asked about too.
 
-This is what makes an envelope safe to act on without hiding it. Source can
-change for any reason and by anyone; what it *does* changes only through a
-person outside the sandbox. It also replaces decision 8's report for the
-envelope itself: a line printed at launch is easy to miss, and a dialog is not.
+Only a `flake.nix` that says `chaseModules` is looked at, so an ordinary
+project flake never prompts. Approvals live in `~/.local/state/chase/`, on
+the host and bound into no session. Refused, the launch ends rather than
+running without the envelope. Working from the snapshot is what makes the
+approval mean something: a session of the same checkout cannot change a file
+between the approval and its use.
+
+This replaces decision 8's report for the envelope itself: a line printed at
+launch is easy to miss, and a dialog is not.
 
 ## Considered and rejected
 
