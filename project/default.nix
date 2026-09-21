@@ -140,12 +140,20 @@ let
       # ./options.nix only: an option that is not there is an error, not a
       # setting applied somewhere else. No nixConfig, no lock written, no
       # import-from-derivation.
+      # Nix's own chatter -- the project input it was told to use is not in
+      # the evaluator's lock, which is the point -- is kept unless it fails.
       evaluate() {
-        local src=$1
-        nix eval --json --no-write-lock-file --option accept-flake-config false \
-          --option allow-import-from-derivation false \
-          --extra-experimental-features 'nix-command flakes' \
-          "path:${evaluator}#envelope" --override-input project "path:$src"
+        local src=$1 log
+        log=$(mktemp)
+        if ! nix eval --json --no-write-lock-file --option accept-flake-config false \
+            --option allow-import-from-derivation false \
+            --extra-experimental-features 'nix-command flakes' \
+            "path:${evaluator}#envelope" --override-input project "path:$src" 2> "$log"; then
+          cat "$log" >&2
+          rm -f "$log"
+          return 1
+        fi
+        rm -f "$log"
       }
 
       # Stage two: what it evaluated to. The flake's files are approved by

@@ -188,10 +188,12 @@ in
         fi
 
         # Group members are reported, not refused: vendoring the same code
-        # into the workspace would bypass a refusal anyway.
+        # into the workspace would bypass a refusal anyway. Only checkouts:
+        # the state directories apps bind are not code, and have no tier.
         while IFS= read -r bind; do
           [ -n "$bind" ] || continue
           extra=''${bind%:*}
+          [ -e "$extra/.git" ] || continue
           extra_tier=$(agent-tier "$extra") || extra_tier=unknown
           echo "agent-container-trusted: mounting $extra ($extra_tier, ''${bind##*:})" >&2
         done <<< "$binds"
