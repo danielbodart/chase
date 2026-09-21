@@ -120,6 +120,62 @@ bypass a refusal anyway"*. An envelope that opened a host port, or a project
 secret that was decrypted, is printed at launch. The human sees what was
 applied.
 
+**9. There is never a system-level cloud account.** Cloudflare and gcloud
+credentials are project-scoped by design, not by accident of not having set
+one up yet. A machine holds no Cloudflare login; a project holds one minted
+for itself, scoped to what that project owns. talebrary is the first, on
+Cloudflare, with an account scoped to its zone.
+
+This is what makes decision 6 more than a preference: there is no broad
+credential to fall back to, so a project either has a narrow one or has none.
+
+**10. The envelope is a module, not a document.** A project's flake output is a
+NixOS module referencing chase's option names. chase evaluates it, with the
+machine's own chase. Two things fall out for free: the module system rejects an
+unknown option, so there is no schema language to invent and no validator to
+write; and version drift disappears, because the project never evaluates chase
+at all — it only names options that chase then defines.
+
+Evaluated as the caller, never as root (decision 2).
+
+**11. The launcher evaluates; direnv is not the trigger.** It is tempting to
+have `cd` into a project build the envelope and the launcher read the result.
+It does not work: direnv's hook only fires in a shell that reaches a prompt,
+*"which no editor, script or coding agent has"* — nix-config's own note on why
+containers get nothing from it. A launch from an editor would silently get no
+envelope.
+
+So the launcher runs `nix build` itself and is self-sufficient. Nix caches
+flake evaluation, so a repeat is cheap, and a project direnv has already warmed
+is cheaper still — direnv is not the mechanism, it just does no harm. A
+project with no `flake.nix` costs a stat, which is the ordinary case.
+
+**12. Two tiers, three outcomes.** `trusted` and `strict` are tiers: a
+container, its binds, what is steered, which apps. `host` is the *absence* of
+one — it runs bare, has no container, no frisket policy and no envelope. The
+selector returns three strings and `tiers` holds two, which is already true
+today and worth saying out loud, because the name suggests otherwise.
+
+chase ships both tiers, opinionated, and nix-config instantiates them. A
+project overlays `trusted`. Nothing overlays `strict` (decision 13).
+
+**13. strict never takes an envelope.** It has no network to open a port on,
+and "nothing local is reachable" is the whole of what the tier is for. A
+project that ships an envelope and is sorted into strict has it ignored, and
+said so at launch (decision 8).
+
+**14. An app declares a credential's shape; a consumer binds its source.**
+Nothing above frisket mentions files. frisket already has the vocabulary for
+shape — a bearer token, Basic with a fixed user, a bare header, a field at a
+dotted path in a JSON document, and an expiry beside it. An app names the shape
+it needs.
+
+What varies is the *source*: a sops secret the machine decrypted at activation,
+a project's own file decrypted at launch, a path. chase materialises whichever
+into a file, and only because that is frisket's interface — it reads the file
+on the host and re-reads it on rename, which is how a rotated credential
+reaches a running session.
+
 ## What moves out of nix-config
 
 | | |
@@ -176,20 +232,14 @@ configuration, which is exactly what should not travel.
 
 ## Open questions
 
-1. **How a credential source is typed.** The two consumers bind at different
-   times: nix-config at eval (a path known statically), a project at launch (a
-   file that does not exist until the envelope is evaluated and `sops -d` has
-   run). `types.path` cannot express both. This is most of the design work.
-2. **What the envelope may contain**, and its version. A project pins chase in
-   its own `flake.lock` and can drift from the machine's, so the launcher
-   validates rather than trusts, and refuses a schema it does not recognise.
-3. **The cost of evaluating a project's flake at launch.** Whether
-   `nix build` in the workspace is fast enough to sit in the launch path, and
-   what happens when it fails or the project has no envelope at all — which
-   must be the ordinary case, costing nothing.
-4. **Which apps get per-project support first.** gcloud and Cloudflare are the
-   motivating pair; neither has a credential source on any machine yet
-   (frisket's open question 6).
-5. **Whether strict ever takes an envelope.** Currently no: it has no network
-   to open a port on, and "nothing local is reachable" is the tier's whole
-   goal. Worth writing down as a decision rather than an accident.
+1. **How a credential's source is spelt**, given decision 14 settles that it is
+   a source and not a path. The shapes are frisket's and already exist; what
+   chase needs is the sum of the ways one can be *found* — and the two known
+   members bind at different times, one at eval and one at launch.
+2. **Where a project's decrypted credential is written.** Outside the workspace
+   is settled (decision 7); which directory, whose lifetime it shares, and what
+   removes it when a session dies are not.
+3. **What `ask` matches on.** Method and path reach most of it, but the verb is
+   in the path suffix for some providers and in the body for a few. Starting
+   from "everything that is not a read" and carving out from the logs is the
+   plan; what the rule *is* once carved is open.
