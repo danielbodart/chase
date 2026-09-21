@@ -82,6 +82,7 @@ let
           ref="path:$ws"
         fi
         nix eval --json --no-write-lock-file --option accept-flake-config false \
+          --option allow-import-from-derivation false \
           --extra-experimental-features 'nix-command flakes' \
           "path:${evaluator}#envelope" --override-input project "$ref"
       }
@@ -112,23 +113,33 @@ let
         mv "$file.new" "$file"
       }
 
-      # The secret an app binds, decrypted where frisket reads it and the
-      # session cannot: /run/user/<uid> is bound into no container.
-      decrypt() {
-        local ws=$1 secrets=$2 secret=$3 out=$4 file
-        [ -n "$secrets" ] || die "$ws: a binding names secret '$secret', and chase.secrets names no file"
+      # A copy of the project's sops file, taken once: its digest is part of
+      # what is approved, and it is this copy -- not the file, which the
+      # session can change at any moment -- that is decrypted. Approving the
+      # names alone would let any ciphertext encrypted to the same keys be
+      # swapped in under them.
+      snapshot() {
+        local ws=$1 secrets=$2 out=$3 file
         file=$(realpath -e -- "$ws/$secrets") || die "$ws: $secrets does not exist"
         case $file in
           "$ws"/*) ;;
           *) die "$ws: $secrets is outside the checkout" ;;
         esac
-        sops --decrypt --extract "[\"$secret\"]" "$file" > "$out" \
-          || die "$ws: could not decrypt '$secret' from $secrets"
-        [ -s "$out" ] || die "$ws: '$secret' in $secrets is empty"
+        cat -- "$file" > "$out"
+      }
+
+      # The secret an app binds, decrypted where frisket reads it and the
+      # session cannot: /run/user/<uid> is bound into no container.
+      decrypt() {
+        local ws=$1 copy=$2 secret=$3 out=$4
+        [ -n "$copy" ] || die "$ws: a binding names secret '$secret', and chase.secrets names no file"
+        sops --decrypt --extract "[\"$secret\"]" "$copy" > "$out" \
+          || die "$ws: could not decrypt '$secret'"
+        [ -s "$out" ] || die "$ws: '$secret' is empty"
       }
 
       launch() {
-        local tier=$1 ws=$2 machine=$3 result run doc envfile app secret
+        local tier=$1 ws=$2 machine=$3 result run doc envfile app secret secrets
         # Everything written here is the user's alone: decrypted secrets
         # above all.
         umask 077
@@ -141,16 +152,23 @@ let
           rm -f "$envfile"
           return
         fi
-        approve "$ws" "$result"
-
         [ -d "/run/user/$uid/chase" ] || mkdir -m 0700 "/run/user/$uid/chase"
         mkdir -m 0700 "$run" "$run/secrets"
+        local copy=""
+        if [ "$(jq -r '.secrets // empty' <<< "$result")" != "" ]; then
+          secrets=$(jq -r .secrets <<< "$result")
+          # sops reads the file's kind from its extension, so the copy keeps it.
+          copy=$run/secrets.''${secrets##*.}
+          snapshot "$ws" "$secrets" "$copy"
+          result=$(jq --arg d "$(sha256sum < "$copy" | cut -d' ' -f1)" '. + {secretsSHA256: $d}' <<< "$result")
+        fi
+        approve "$ws" "$result"
         doc=$(cat "/etc/frisket/policies/$tier.json")
         local exports=""
         for app in $(jq -r 'keys[]' "$apps"); do
           secret=$(jq -r --arg a "$app" '.bindings[$a].credential.secret // empty' <<< "$result")
           [ -n "$secret" ] || continue
-          decrypt "$ws" "$(jq -r '.secrets // empty' <<< "$result")" "$secret" "$run/secrets/$app"
+          decrypt "$ws" "$copy" "$secret" "$run/secrets/$app"
           # The app's route, with the project's credential, in place of any
           # route of the same name the tier had.
           doc=$(jq --slurpfile apps "$apps" --arg a "$app" --arg cred "$run/secrets/$app" '
@@ -165,6 +183,7 @@ let
           ')$'\n'
           echo "chase: $ws: $app from $(jq -r .secrets <<< "$result"):$secret" >&2
         done
+        [ -z "$copy" ] || rm -f -- "$copy"
         printf '%s\n' "$doc" > "$run/policy.json"
         mkdir -p "$(dirname "$envfile")"
         printf '%s' "$exports" > "$envfile.new"
@@ -240,6 +259,9 @@ in
     services.frisket.flong = lib.mapAttrs' (name: _: lib.nameValuePair "agent-${name}" {
       policyFile = "$(chase-envelope policy ${name} \"$machine\")";
     }) tiers;
+
+    # Where a session's own document is written, which frisket reads from.
+    services.frisket.policyRoots = lib.mkIf (tiers != { }) [ "/run/user/${toString cfg.uid}/chase" ];
 
     chase.internal.tiers = lib.mapAttrs (name: _: {
       bindLines = [ ''${lib.getExe envelope} env-dir "$workspace"'' ];
