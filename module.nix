@@ -372,11 +372,12 @@ in
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" {
       autoStart = false;
       privateNetwork = true;
-      # The user's own and writable, discarded with the session. Without it,
-      # an app binding something beneath ~/.config -- git's, mise's -- leaves
-      # nspawn to make ~/.config itself, owned by root, and every tool that
-      # keeps its state there (wrangler, for one) is refused.
-      tmpfs = [ "${cfg.home}/.config" ];
+      # The user's own and writable, discarded with the session. Without
+      # them, an app binding something beneath one -- git's config, mise's
+      # installs -- leaves nspawn to make the directory itself, owned by
+      # root, and every tool that keeps its state beside it is refused:
+      # wrangler in ~/.config, sigstore's cache in ~/.cache.
+      tmpfs = [ "${cfg.home}/.config" "${cfg.home}/.cache" "${cfg.home}/.local" ];
       config = { pkgs, ... }: {
         system.stateVersion = cfg.stateVersion;
         # The host's uid, so bind-mounted files have the right owner.
