@@ -107,6 +107,18 @@ in
         # the day it ships.
         unmatched = "ask";
         paths = operations;
+        # Cloudflare's own error envelope, which wrangler reads: it then says
+        # why a request was refused, where plain text gets "a request to the
+        # Cloudflare API failed" and nothing more.
+        refusal = {
+          contentType = "application/json";
+          body = builtins.toJSON {
+            success = false;
+            errors = [{ code = 403; message = "{{message}}"; }];
+            messages = [ ];
+            result = null;
+          };
+        };
       };
     }) cfg.tiers;
   };

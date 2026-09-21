@@ -142,6 +142,30 @@ let
       esac
     '';
   };
+
+  # `chase shell`: a shell where `claude` would run, so a session can be
+  # looked at, or used, with nothing in between. A subcommand rather than a
+  # wrapper of its own, so the next thing like it has somewhere to go.
+  chase = pkgs.writeShellApplication {
+    name = "chase";
+    text = ''
+      usage() {
+        echo "usage: chase shell [ARG...]   a shell in this checkout's tier: bare, trusted or strict" >&2
+        exit 2
+      }
+      [ $# -gt 0 ] || usage
+      command=$1
+      shift
+      case $command in
+        shell) exec ${lib.getExe (mkWrapper {
+          name = "chase-shell";
+          agent = "shell";
+          hostCommand = ''"''${SHELL:-bash}"'';
+        })} "$@" ;;
+        *) usage ;;
+      esac
+    '';
+  };
 in
 {
   options.chase.internal = {
@@ -183,6 +207,6 @@ in
       }) (builtins.attrNames cfg.tiers);
     }];
 
-    home-manager.users.${cfg.user}.home.packages = [ agentTier ];
+    home-manager.users.${cfg.user}.home.packages = [ agentTier chase ];
   };
 }

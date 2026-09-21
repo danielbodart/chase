@@ -72,6 +72,10 @@ let
 
       # A closed list, so this cannot exec anything else on the container's PATH.
       case $agent in
+        # `chase shell`: the session as an agent gets it, with no agent.
+        shell)
+          set -- bash -l "$@"
+          ;;
       ${indent (lines (map chomp (lib.attrValues contributions.launchers)))}
         *)
           echo "agent-container: unknown agent '$agent'" >&2

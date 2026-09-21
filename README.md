@@ -60,8 +60,10 @@ The design, what was decided and what was turned down, is in [PLAN.md](PLAN.md).
 
 `claude` and `codex` then go on `alice`'s PATH as wrappers: they sort the
 directory you are standing in and either run bare or launch the matching
-container. `agent-tier --dry-run DIR...` explains a sorting without running
-anything.
+container. `chase shell` does the same with a login shell instead of an
+agent: the session exactly as an agent would get it, credentials as
+placeholders and all. `agent-tier --dry-run DIR...` explains a sorting without
+running anything.
 
 ## Tiers
 
