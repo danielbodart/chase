@@ -103,8 +103,7 @@ The contract, deliberately small:
 - the decision arrives as one JSON document on stdin — method, host, path and
   query, the matched operation's id, summary and description if there was
   one, and which session and policy it came from;
-- exit status 0 allows the request; anything else refuses it, and so does the
-  command not answering within a timeout;
+- exit status 0 allows the request; anything else refuses it;
 - no asker configured means `ask` refuses. A gate with nobody to ask fails
   closed, never open.
 
@@ -112,13 +111,29 @@ JSON on stdin rather than arguments, so the asker needs no parsing of its own
 and the document can grow a field without breaking one that ignores it. The
 same asker then serves every provider that gets a gate, not just Cloudflare.
 
+**9. One prompt at a time. Nothing cleverer, until the log says so.**
+The invariant is that the human never faces a pile of dialogs: while one is
+open, every other request that needs asking waits its turn behind it. That is
+the whole of the first version.
+
+Two things are deliberately left out, to be added only on evidence:
+
+- **Collapsing identical requests.** A client that retries while a dialog is
+  open will queue behind it and be asked about again once it is answered —
+  sequential, not spam, but repetitive. If the log shows that happening,
+  requests with the same method, URL and body join the pending decision
+  instead. The body is what makes that hard, since it has to be read to be
+  compared, so it waits until it is needed.
+- **A timeout.** Neither frisket nor the asker gives up on its own. A client
+  that stops waiting simply sees no response, which from its side is a
+  failure — so a slow human already fails closed. If a stuck asker turns out
+  to be a real problem, a timeout that refuses is the fix.
+
 ## What has to exist first
 
 1. **frisket: `ask`.** A third outcome beside admit and refuse, holding the
    request while the asker (decision 8) decides, then injecting or refusing on
-   the answer. Retries have to join a pending decision rather than raise a
-   second dialog, and a client timing out while a human decides has to be
-   survivable.
+   the answer, one decision at a time (decision 9).
 2. **frisket: path templates.** Scopes are matched by segment prefix today.
    Operations need a wildcard *segment* — `/zones/*/dns_records/*` — and an
    exact end, so that a rule for one operation does not also admit everything
