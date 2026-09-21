@@ -174,7 +174,8 @@ that binding goes and the project carries it.
    writing any code that uses it. *Done:* `scripts/cloudflare-operations.sh`,
    pinned to `api-schemas` 8cb1993, writes `apps/cloudflare/operations.json` —
    1,680 allowed, 1,860 asked — with 61 reads that return a secret in
-   `apps/cloudflare/exceptions.json`, and no harmless writes yet.
+   `apps/cloudflare/exceptions.json`, and no harmless writes yet. The list has
+   been read and stands.
 3. frisket: path templates, then `ask`, then the asker contract.
    nix-config: a zenity asker against that contract. *Done.*
 4. chase: the Cloudflare app, wired to the generated rules. *Done:*
@@ -192,7 +193,8 @@ that binding goes and the project carries it.
   of a harmless write, but the pinned spec does not describe it, so it cannot
   be an exception by operation id: today it matches nothing, and asks. If the
   log shows it firing often enough to matter, it is a hand-written rule beside
-  the generated ones — which is the next point, arriving early.
+  the generated ones — which is the next point, arriving early. Decided: it
+  stays asking until the log says otherwise.
 
 - **Other hosts.** wrangler may talk to more than `api.cloudflare.com` —
   uploads, telemetry, `dash.cloudflare.com` for login. Discover from frisket's
