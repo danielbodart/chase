@@ -84,7 +84,7 @@ What a tier switches on. Each declares what it needs and binds nothing itself
 — a credential reaches a session on the wire or not at all, and no app here
 mounts one.
 
-chase ships the three that any machine running agents would want. Adding one of
+chase ships the ones any machine running agents would want. Adding one of
 your own takes no changes here.
 
 **Claude Code.** frisket reads the host's own `~/.claude/.credentials.json`
@@ -108,7 +108,7 @@ on the dots, and not frisket, which compares the whole string. Refreshing stays
 on the host, because a refresh token is single-use and a session racing the
 host would burn it.
 
-**GitHub.** The one credential bound from outside, as
+**GitHub.** A credential bound from outside, as
 `chase.bindings.github.credentialFile` — `gh auth token`'s, read by frisket.
 Remotes are rewritten from `git@github.com:` to HTTPS, so git goes through
 frisket and no key is needed in the session, and the token arrives as Basic
@@ -117,6 +117,24 @@ fetch and GET work with no credential in existence, and a push stops at git's
 ref advertisement — refused on the request line rather than by inspecting what
 `git` was asked to do, which is not something a session can route around.
 
+**Cloudflare.** wrangler, against an allowlist generated from Cloudflare's own
+API description: what it calls harmless goes through, and everything else waits
+for a person. A tier holds no token of its own by default — a project brings one
+scoped to what it owns. See [docs/cloudflare.md](docs/cloudflare.md).
+
+**Hugging Face.** `hf` and huggingface_hub, with a token bound as
+`chase.bindings.huggingface.credentialFile` and put on requests to
+`huggingface.co` alone. Its allowlist is generated from the Hub's own API
+description, as Cloudflare's is: reads go straight through, and writes, the
+reads that mint a token, and anything the description does not name wait for a
+person. The files themselves come from presigned CDN URLs and Xet's store under
+`hf.co`, which take tokens of their own, so they are allowed and never
+intercepted. `anonymous` is strict's: public models download, and what would
+ask is refused, Xet's write token among it, so a token the session brings of
+its own cannot upload either. See [docs/huggingface.md](docs/huggingface.md). `shared` binds the host's download cache in, so a
+model is downloaded once — not in a tier that runs other people's code, since
+the host loads what is in it.
+
 Anything else is yours. An app is an ordinary NixOS module written against
 the options above — it reads `config.chase`, extends `chase.tiers.<tier>.apps`
 with its own switch, and adds whatever binds or container configuration it
@@ -124,6 +142,41 @@ needs. It does not have to live here to do that, and the ones that are specific
 to you should not: a Codex bridge that arrives with your plugins, the toolchain
 manager you happen to use, sound for notifications. chase carries the apps any
 machine running agents would want, and gets out of the way for the rest.
+
+## Safe by default, from the provider's own description
+
+An app whose credential reaches an API with thousands of endpoints cannot be
+made safe by a list someone wrote from memory, or learned from whatever the log
+happened to see. Where the provider publishes an OpenAPI description, chase
+reads that instead: every operation it describes becomes one rule — a method
+and a path template, in the spec's own words — and the rule for each is simple
+enough to state in a line. A read goes straight through; anything else waits
+for a person, in a dialog that says what the operation does and shows the real
+request line beneath it. What the description does not name asks too, so an
+endpoint the provider ships next month is gated from the day it ships.
+
+The line is only where the list starts. `exceptions.json` beside each app says,
+operation by operation and with a reason each, where it is wrong: the reads
+that are not harmless — the ones that return a secret, or mint a token — ask,
+and the few writes that only read are let through. What a client needs that
+the description leaves out is written by hand, and may not overlap an
+operation the description answers differently. In strict, whatever would ask
+is refused.
+
+The description is pinned by hash, and regenerating is a reviewed change —
+the diff of `operations.json`, one operation per line, is the list of what is
+newly allowed:
+
+```sh
+scripts/operations.sh cloudflare
+scripts/operations.sh huggingface
+```
+
+Cloudflare's is fetched from a commit of its own repository; the Hub's lives
+at a URL that moves, so it is vendored. Neither replaces minting the token
+narrowly: the token's scope is the floor, and the rules only decide which of
+the things it can do need a person. See [docs/cloudflare.md](docs/cloudflare.md)
+and [docs/huggingface.md](docs/huggingface.md).
 
 ## Development
 

@@ -9,7 +9,7 @@ let
   # EVERY OPERATION IN CLOUDFLARE'S OWN API DESCRIPTION, one rule each:
   # admitted if it is known to be harmless, asked about otherwise, in the
   # spec's own words. Generated from a pinned spec by
-  # ../scripts/cloudflare-operations.sh, with ./cloudflare/exceptions.json saying
+  # ../scripts/operations.sh, with ./cloudflare/exceptions.json saying
   # which reads are not harmless and which writes are; regenerating is a
   # reviewed change, and its diff is the list of what is newly allowed. See
   # ../docs/cloudflare.md.

@@ -173,7 +173,7 @@ that binding goes and the project carries it.
 2. Generate the classification from a pinned `openapi.json`. At the time of
    writing that is 3,540 operations, 1,741 of them `GET` — so roughly half
    pass on the rule alone and half ask. Read the exceptions list before
-   writing any code that uses it. *Done:* `scripts/cloudflare-operations.sh`,
+   writing any code that uses it. *Done:* `scripts/operations.sh cloudflare`,
    pinned to `api-schemas` 8cb1993, writes `apps/cloudflare/operations.json` —
    1,680 allowed, 1,860 asked — with 61 reads that return a secret in
    `apps/cloudflare/exceptions.json`, and no harmless writes yet. The list has

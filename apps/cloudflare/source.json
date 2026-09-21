@@ -1,0 +1,5 @@
+{
+  "url": "https://raw.githubusercontent.com/cloudflare/api-schemas/8cb19939b77a69c82fe1144faa7aedee8c25abb2/openapi.json",
+  "sha256": "84e616992a0322f625ead6936c88d5ca0d38b5c576af7f59586729fd15ecfa37",
+  "server": "https://api.cloudflare.com/client/v4"
+}

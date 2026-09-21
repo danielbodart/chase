@@ -140,6 +140,23 @@
               in
               failed == [ ] && lib.hasInfix "-config /nix/store/" config.systemd.services.frisket.serviceConfig.ExecStart
                 || throw "assertions: a bound cloudflare did not hold together: ${builtins.toJSON failed}");
+            # Hugging Face as github is: a tier with a credential it was not
+            # given is refused ...
+            assert refused "an unbound huggingface credential"
+              { chase.tiers.trusted.apps.huggingface.enable = true; }
+              "huggingface.credentialFile is null";
+            # ... and an anonymous one needs none, holds none, and refuses
+            # the token Xet would write with.
+            assert
+              (let
+                config = configWith { chase.tiers.strict.apps.huggingface = { enable = true; anonymous = true; }; };
+                route = config.services.frisket.policies.strict.routes.huggingface;
+              in
+              lib.all (a: a.assertion) config.assertions
+              && route.credentialFile == null
+              && lib.any (p: p.refuse or false && p.path or "" == "/api/models/*/*/xet-write-token/*") route.paths
+              && ! lib.any (p: p.ask or false) route.paths)
+              || throw "assertions: an anonymous huggingface did not hold together";
             pkgs.runCommand "assertions" { } "touch $out";
 
           # The version script decides what every release is called, so it is
@@ -147,7 +164,7 @@
           shellcheck = pkgs.runCommand "shellcheck"
             { nativeBuildInputs = [ pkgs.shellcheck ]; }
             ''
-              shellcheck ${./scripts/version.sh}
+              shellcheck ${./scripts/version.sh} ${./scripts/operations.sh}
               touch $out
             '';
         });
