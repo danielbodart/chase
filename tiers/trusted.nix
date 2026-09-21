@@ -8,6 +8,9 @@
     # A checkout's own envelope, once approved: its flake's files before
     # anything of it runs, and what its chase section says. PLAN.md, 17.
     envelope = true;
+    # A dev server started in a session is reached at the same port on the
+    # host, for as long as it listens.
+    forwardPorts = "auto";
     apps = {
       claude = { state = "shared"; connectors = true; };
       codex.state = "shared";

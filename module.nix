@@ -144,6 +144,17 @@ let
         default = { };
         description = "Applications enabled in this tier; each app module declares its own.";
       };
+      forwardPorts = mkOption {
+        type = types.either (types.enum [ "auto" ]) (types.listOf types.attrs);
+        default = [ ];
+        description = ''
+          For a tier with its own network: ports published on the host,
+          flong's `network.forwardPorts`. `"auto"` publishes whatever TCP port
+          a session listens on, at the same port, while it listens -- a dev
+          server inside is reached from the host's browser. The host's
+          firewall still decides whether anything beyond the host reaches it.
+        '';
+      };
       envelope = mkOption {
         type = types.bool;
         default = false;
@@ -389,6 +400,6 @@ in
       command = [ (lib.getExe (mkCommand name cfg.internal.tiers.${name})) ];
       workspace = workspaceSnippet;
       binds = groupBinds + lines cfg.internal.tiers.${name}.bindLines;
-    } // lib.optionalAttrs (tier.egress == "direct") { network = { }; })) cfg.tiers;
+    } // lib.optionalAttrs (tier.egress == "direct") { network.forwardPorts = tier.forwardPorts; })) cfg.tiers;
   };
 }
