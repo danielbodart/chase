@@ -4,6 +4,7 @@ let
   inherit (lib) mkIf mkMerge mkOption types;
   cfg = config.chase;
   base = cfg.bindings.claude.package;
+  every = [ "GET" "HEAD" "POST" "PUT" "PATCH" "DELETE" ];
   allow = [
     "anthropic.com" "*.anthropic.com"
     "claude.ai" "*.claude.ai"
@@ -21,13 +22,13 @@ let
       token = "claudeAiOauth.accessToken";
       expiresMillis = "claudeAiOauth.expiresAt";
     };
-    paths = [{ methods = [ "GET" "HEAD" "POST" "PUT" "PATCH" "DELETE" ]; prefix = "/"; }];
+    paths = [{ methods = every; prefix = "/"; }];
   };
 
   # Token refresh and the Console: logged and refused, so no response can hand
-  # the sandbox a real token. A route needs a scope, so this one matches nothing.
+  # the sandbox a real token.
   claudeRefusedRoute = claudeRoute "platform.claude.com" // {
-    paths = [{ methods = [ "GET" ]; prefix = "/frisket-refuses-everything-here"; }];
+    paths = [{ methods = every; prefix = "/"; refuse = true; }];
   };
 
   trustedScopes = [ "user:file_upload" "user:inference" "user:mcp_servers" "user:profile" "user:sessions:claude_code" ];
@@ -221,9 +222,8 @@ in
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}"
       (mkIf (tier.apps.claude.state != null) (mkMerge [
         {
-          # Container-local, with only the entries below bound in: no login,
-          # and no shell snapshots from the host's PATH.
-          tmpfs = [ claudeDir ];
+          # ~/.claude is the session's own, with only the entries below bound
+          # in: no login, and no shell snapshots from the host's PATH.
           config.environment.systemPackages = [ base ];
           bindMounts = {
             "${claudeDir}/settings.json" = bind "${claudeDir}/settings.json" true;

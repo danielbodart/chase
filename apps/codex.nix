@@ -39,13 +39,12 @@ let
   };
 
   # Refresh and revoke, logged and refused, so no response can hand a sandbox
-  # a real token and nothing in one can end the host's login. A route needs a
-  # scope, so this one matches nothing. No credential: what a session brings
-  # is its own, and this admits none of it anyway.
+  # a real token and nothing in one can end the host's login. No credential:
+  # what a session brings is its own, and this admits none of it anyway.
   refusedRoute = {
     host = "auth.openai.com";
     upstream = "https://auth.openai.com";
-    paths = [{ methods = [ "GET" ]; prefix = "/frisket-refuses-everything-here"; }];
+    paths = [{ methods = every; prefix = "/"; refuse = true; }];
   };
 
   # The placeholder auth.json, made from the host's login: codex decides what
