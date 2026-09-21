@@ -25,9 +25,20 @@
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flong.follows = "flong";
     };
+
+    # TEST-ONLY. Nothing outside `checks` reads this. chase writes
+    # `home-manager.users.<user>.*` -- the agent wrappers go on the user's
+    # PATH, and Claude Code's settings are the user's -- so those options have
+    # to exist, but they are the CONSUMER's to provide: a consumer already
+    # running home-manager as a NixOS module has them, and chase importing a
+    # second copy would fight the one they have.
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, ... }:
+  outputs = { self, nixpkgs, home-manager, ... }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
@@ -42,6 +53,74 @@
       checks = forAllSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system}; in
         {
+          # A refusal happens at evaluation, so it is checked by evaluating.
+          # This is also the only thing that proves the module stands alone:
+          # it is instantiated here with nothing of nix-config's around it, so
+          # a coupling that crept back in fails the check rather than waiting
+          # to fail on somebody's machine. Evaluation only -- no system is
+          # built, which is what keeps it in seconds.
+          assertions =
+            let
+              lib = nixpkgs.lib;
+              configWith = extra:
+                (lib.nixosSystem {
+                  inherit system;
+                  modules = [
+                    self.nixosModules.default
+                    home-manager.nixosModules.home-manager
+                    {
+                      boot.isContainer = true;
+                      system.stateVersion = "26.05";
+                      users.users.alice = {
+                        isNormalUser = true;
+                        uid = 1000;
+                        group = "users";
+                      };
+                      home-manager = {
+                        useGlobalPkgs = true;
+                        useUserPackages = true;
+                        users.alice.home.stateVersion = "26.05";
+                      };
+                      agents = {
+                        user = "alice";
+                        uid = 1000;
+                        gid = 100;
+                        apps = {
+                          claude.package = nixpkgs.legacyPackages.${system}.hello;
+                          codex.package = nixpkgs.legacyPackages.${system}.hello;
+                          github.credentialFile = "/run/secrets/gh_token";
+                        };
+                      };
+                    }
+                    extra
+                  ];
+                }).config;
+              chaseFailures = extra:
+                let config = configWith extra; in
+                lib.filter (m: lib.hasInfix "agents." m)
+                  (map (a: lib.trim a.message)
+                    (lib.filter (a: ! a.assertion) config.assertions));
+              refused = what: extra: needle:
+                let failures = chaseFailures extra; in
+                lib.any (lib.hasInfix needle) failures
+                || throw "assertions: ${what} was not refused; chase said: ${builtins.toJSON failures}";
+            in
+            assert chaseFailures { } == [ ]
+              || throw "assertions: the baseline is refused: ${builtins.toJSON (chaseFailures { })}";
+            # DECLARED BUT UNBOUND REFUSES (PLAN.md, decision 4). trusted
+            # enables github without `anonymous`, so a null credential file is
+            # a route frisket would serve with no credential at all.
+            assert refused "an unbound github credential"
+              { agents.apps.github.credentialFile = lib.mkForce null; }
+              "credentialFile is null";
+            # ... and is fine when no tier asks for a credentialled github.
+            assert chaseFailures {
+              agents.apps.github.credentialFile = lib.mkForce null;
+              agents.tiers.trusted.apps.github.anonymous = true;
+            } == [ ]
+              || throw "assertions: an anonymous-only github still demanded a credential";
+            pkgs.runCommand "assertions" { } "touch $out";
+
           # The version script decides what every release is called, so it is
           # gated by the same check that gates the release.
           shellcheck = pkgs.runCommand "shellcheck"
