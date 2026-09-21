@@ -15,6 +15,32 @@ let
   # ../docs/cloudflare.md.
   operations = builtins.fromJSON (builtins.readFile ./cloudflare/operations.json);
 
+  # The route, as a policy document holds it: shared by a tier that binds a
+  # token from the machine and by a project that binds its own.
+  route = {
+    name = "cloudflare";
+    inherit host;
+    upstream = "https://${host}";
+    placeholder = cfg.placeholder;
+    # Secure by default: what the description does not name is asked
+    # about, so an endpoint Cloudflare ships next month is gated from the day
+    # it ships.
+    unmatched = "ask";
+    paths = operations;
+    # Cloudflare's own error envelope, which wrangler reads: it then says why
+    # a request was refused, where plain text gets "a request to the
+    # Cloudflare API failed" and nothing more.
+    refusal = {
+      contentType = "application/json";
+      body = builtins.toJSON {
+        success = false;
+        errors = [{ code = 403; message = "{{message}}"; }];
+        messages = [ ];
+        result = null;
+      };
+    };
+  };
+
   # The account's id, copied where a session can read it. Not a credential --
   # it names the account, it does not open it -- but it is kept beside the
   # token, and a file there cannot be bound into a container: flong binds
@@ -97,29 +123,17 @@ in
     services.frisket.policies = lib.mapAttrs (name: tier: mkIf tier.apps.cloudflare.enable {
       # For a tier with an allowlist of names; trusted's `*` already covers it.
       allow = lib.mkAfter [ host ];
-      routes.cloudflare = {
-        inherit host;
-        upstream = "https://${host}";
+      routes.cloudflare = removeAttrs route [ "name" ] // {
         credentialFile = bindings.credentialFile;
-        placeholder = cfg.placeholder;
-        # Secure by default: what the description does not name is asked
-        # about, so an endpoint Cloudflare ships next month is gated from
-        # the day it ships.
-        unmatched = "ask";
-        paths = operations;
-        # Cloudflare's own error envelope, which wrangler reads: it then says
-        # why a request was refused, where plain text gets "a request to the
-        # Cloudflare API failed" and nothing more.
-        refusal = {
-          contentType = "application/json";
-          body = builtins.toJSON {
-            success = false;
-            errors = [{ code = 403; message = "{{message}}"; }];
-            messages = [ ];
-            result = null;
-          };
-        };
       };
     }) cfg.tiers;
+
+    # A project that binds its own token, in ../project/options.nix.
+    chase.internal.projectApps.cloudflare = {
+      inherit route;
+      allow = [ host ];
+      env.CLOUDFLARE_API_TOKEN = cfg.placeholder;
+      envFromBinding.CLOUDFLARE_ACCOUNT_ID = "accountId";
+    };
   };
 }

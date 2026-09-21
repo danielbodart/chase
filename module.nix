@@ -144,6 +144,15 @@ let
         default = { };
         description = "Applications enabled in this tier; each app module declares its own.";
       };
+      envelope = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Whether a checkout's own envelope -- its `chaseModules.default` --
+          is applied to its sessions in this tier, once approved. Never for a
+          tier with nothing local to open (PLAN.md, decision 13).
+        '';
+      };
     };
   };
 in
@@ -161,6 +170,7 @@ in
     ./apps/claude.nix
     ./apps/codex.nix
     ./apps/cloudflare.nix
+    ./project
   ];
 
   options.chase = {

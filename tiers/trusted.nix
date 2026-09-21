@@ -5,6 +5,7 @@
   chase.tiers.trusted = {
     egress = "direct";
     allow = [ "*" ];
+    envelope = true;
     apps = {
       claude = { state = "shared"; connectors = true; };
       codex.state = "shared";
