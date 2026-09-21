@@ -400,6 +400,13 @@ in
       command = [ (lib.getExe (mkCommand name cfg.internal.tiers.${name})) ];
       workspace = workspaceSnippet;
       binds = groupBinds + lines cfg.internal.tiers.${name}.bindLines;
-    } // lib.optionalAttrs (tier.egress == "direct") { network.forwardPorts = tier.forwardPorts; })) cfg.tiers;
+    } // lib.optionalAttrs (tier.egress == "direct") {
+      network = {
+        inherit (tier) forwardPorts;
+        # What is published by `auto` is a dev server, and those listen on
+        # 127.0.0.1: the host's localhost has to arrive on the session's.
+        hostLoopbackToSession = tier.forwardPorts == "auto";
+      };
+    })) cfg.tiers;
   };
 }
