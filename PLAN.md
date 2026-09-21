@@ -218,6 +218,26 @@ feature, and shipping one without the other opens a door nothing walks through.
 nix-config's note that *"no tier that could use a devShell runs in one"* stops
 being true when this lands, and wants rewriting.
 
+**17. A changed envelope takes effect only when a person approves it.** An
+envelope is a project's own flake output, `chaseModules.default`, and it can
+live anywhere in the project: nothing is hidden from the session. What it is
+evaluated against is chase's *project* options only — the secrets file,
+bindings, and later ports and environment — never the tier's whole
+configuration, so what it evaluates to is a small document a person can read.
+
+The launcher evaluates it, as the caller, and compares the result with the one
+last approved for that checkout, kept in `~/.local/state/chase/approved/`: on
+the host, bound into no session. The same result goes straight on. A different
+one — first launch, an edited import, a moved `flake.lock`, a commit the agent
+made and a human later checked out — stops the launch and asks, through
+`chase.approver`, showing the difference. Approved, it is recorded and the
+session starts; refused, the launch ends rather than running without it.
+
+This is what makes an envelope safe to act on without hiding it. Source can
+change for any reason and by anyone; what it *does* changes only through a
+person outside the sandbox. It also replaces decision 8's report for the
+envelope itself: a line printed at launch is easy to miss, and a dialog is not.
+
 ## Considered and rejected
 
 - **Per-project path matching in frisket, to scope a project to one zone.**
@@ -250,10 +270,12 @@ being true when this lands, and wants rewriting.
   is not a new surface, and the answer to an invisible change is decision 8,
   not a ceiling.
 
-- **Binding the project's declaration read-only into the session**, to stop an
-  agent editing it. Unnecessary: the declaration is consumed on the host before
-  the session exists, so editing it cannot affect the running session, and the
-  next launch is covered by decision 8.
+- **Hiding the project's declaration from the session**, so only a person
+  outside could edit it. A flake is not one file: its imports, its
+  `flake.lock` and its `path:` inputs are all in the read-write workspace, and
+  git can put an agent's version in place through a human's own checkout.
+  Decision 17 approves what the declaration evaluates to instead, which covers
+  every way it could change.
 
 - **A Unix socket in the workspace instead of a host port.** Genuinely good
   where it works — a pathname `AF_UNIX` socket is governed by the filesystem
