@@ -177,7 +177,7 @@ let
       }
 
       launch() {
-        local tier=$1 ws=$2 machine=$3 result run doc envfile app secret secrets dir file="" refused
+        local tier=$1 ws=$2 machine=$3 result run doc envfile app secret secrets dir file="" refused unknown
         # Everything written here is the user's alone: decrypted secrets
         # above all.
         umask 077
@@ -224,11 +224,25 @@ let
           secret=$(jq -r --arg a "$app" '.bindings[$a].credential.secret // empty' <<< "$result")
           [ -n "$secret" ] || continue
           decrypt "$ws" "$file" "$secret" "$run/secrets/$app"
-          # The app's route, with the project's credential, in place of any
-          # route of the same name the tier had.
-          doc=$(jq --slurpfile apps "$apps" --arg a "$app" --arg cred "$run/secrets/$app" '
+          # The project's allow-list: every operation id it names must be one
+          # the route has, so a typo is an error rather than a rule that
+          # silently allows nothing.
+          unknown=$(jq -nr --slurpfile apps "$apps" --arg a "$app" --argjson r "$result" '
+            ([$apps[0][$a].route.paths[].operation.id? // empty]) as $ids
+            | ($r.bindings[$a].allow // [])[] | strings | select(. as $x | $ids | index($x) | not)
+          ')
+          [ -z "$unknown" ] || die "$ws: $app allows operations it does not have: $unknown"
+          # The app's route, with the project's credential and allow-list, in
+          # place of any route of the same name the tier had.
+          doc=$(jq --slurpfile apps "$apps" --arg a "$app" --arg cred "$run/secrets/$app" --argjson r "$result" '
             $apps[0][$a] as $p
-            | .routes = ([.routes[]? | select(.name != $p.route.name)] + [$p.route + {credentialFile: $cred}])
+            | ($r.bindings[$a].allow // []) as $allow
+            | ($allow | map(strings)) as $ids
+            | ($p.route
+                | .paths = ([.paths[] | if ((.operation.id? // "") as $id | $ids | index($id)) then .ask = false else . end]
+                    + [$allow[] | objects | {methods, path, ask: false}]))
+              as $route
+            | .routes = ([.routes[]? | select(.name != $route.name)] + [$route + {credentialFile: $cred}])
             | if (.allow | index("*")) then . else .allow = (.allow + $p.allow | unique) end
           ' <<< "$doc")
           exports+=$(jq -nr --slurpfile apps "$apps" --arg a "$app" --argjson r "$result" '

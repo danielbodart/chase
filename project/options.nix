@@ -18,6 +18,16 @@
 let
   inherit (lib) mkOption types;
   secretKey = types.nullOr (types.strMatching "[A-Za-z0-9_.-]+");
+
+  # An operation the project may use without being asked: an operation id
+  # from the API's own description, or -- for an endpoint the description
+  # does not name -- methods and an exact path template.
+  allowed = types.either (types.strMatching "[A-Za-z0-9_.:-]+") (types.submodule {
+    options = {
+      methods = mkOption { type = types.nonEmptyListOf (types.enum [ "GET" "HEAD" "POST" "PUT" "PATCH" "DELETE" ]); };
+      path = mkOption { type = types.strMatching "/[^[:space:]]*"; };
+    };
+  });
 in
 {
   options.chase = {
@@ -42,6 +52,22 @@ in
           The key in `secrets` holding the project's Cloudflare API token.
           Decrypted at launch outside the session, and added on the wire by
           frisket; the session holds the placeholder.
+        '';
+      };
+      allow = mkOption {
+        type = types.listOf allowed;
+        default = [ ];
+        example = [
+          "workers-ai-post-run-model"
+          { methods = [ "POST" ]; path = "/client/v4/accounts/*/workers/subdomain/edge-preview"; }
+        ];
+        description = ''
+          Writes this project makes often enough that asking every time would
+          only train a person to click through: an operation id, which then
+          goes through without a dialog, or methods and an exact path for an
+          endpoint Cloudflare's description does not name. Part of what is
+          approved, like everything here. A rule equally specific to one that
+          asks still asks.
         '';
       };
       accountId = mkOption {
