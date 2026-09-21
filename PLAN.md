@@ -312,7 +312,8 @@ configuration, which is exactly what should not travel.
   still vouches for every policy that reaches the daemon.
 - **frisket** — the confirmation gate on destructive requests (`ask` beside
   admit and refuse), so an irreversible operation stops at a dialog naming the
-  real request line. Separate from scoping: a correctly scoped token can still
+  real request line. What prompts is a callback frisket runs, not a dialog it
+  owns; see [docs/cloudflare.md](docs/cloudflare.md), decisions 7 and 8. Separate from scoping: a correctly scoped token can still
   delete everything inside its own scope.
 - **frisket** — decision 7 says three layers; it is four, and the chase line
   changes from *"if it is ever extracted"* to a pointer.

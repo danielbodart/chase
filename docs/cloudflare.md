@@ -64,15 +64,61 @@ Claude Code, codex and GitHub. What a project supplies is only its own: the
 token and the zone. The app declares the credential, the project binds it
 (decision 3).
 
+**7. The dialog says what the operation does, in the spec's own words.**
+Matching a request to an operation is how frisket decides allow or ask, so the
+matched operation is already in hand when it asks — and every one of the
+3,540 operations in the spec has a `summary`, and all but 19 a
+`description`:
+
+```
+Delete DNS Record
+Permanently removes a DNS record from the zone.
+
+DELETE api.cloudflare.com/client/v4/zones/023e…/dns_records/372e…
+```
+
+A sentence you can read under time pressure, above the request line it
+describes. Two rules keep it honest:
+
+- **The words come only from the pinned spec, never from the request.** A
+  session chooses its method, path, headers and body; it must not be able to
+  choose what the dialog says about them. frisket looks the text up by the
+  operation it matched, and nothing the workload sent is ever rendered as
+  prose.
+- **The real request line is always shown, under the description.** If a
+  request matched the wrong operation, or none, the path still says what is
+  actually being sent. A request that matched nothing says so, rather than
+  borrowing the nearest description.
+
+**8. The asker is a callback; zenity is an implementation detail of one
+machine.** frisket defines the contract and ships no dialog. chase does not
+know about one either. What prompts, and how, belongs to whoever runs the
+machine — here, nix-config supplies a zenity asker the way it already supplies
+the graphical sudo one.
+
+The contract, deliberately small:
+
+- frisket runs a configured command, as the user it runs as, once per pending
+  decision;
+- the decision arrives as one JSON document on stdin — method, host, path and
+  query, the matched operation's id, summary and description if there was
+  one, and which session and policy it came from;
+- exit status 0 allows the request; anything else refuses it, and so does the
+  command not answering within a timeout;
+- no asker configured means `ask` refuses. A gate with nobody to ask fails
+  closed, never open.
+
+JSON on stdin rather than arguments, so the asker needs no parsing of its own
+and the document can grow a field without breaking one that ignores it. The
+same asker then serves every provider that gets a gate, not just Cloudflare.
+
 ## What has to exist first
 
 1. **frisket: `ask`.** A third outcome beside admit and refuse, holding the
-   request while a dialog names method, host and path, then injecting or
-   refusing on the answer. frisket should call an *asker* command by path (the
-   way `SUDO_ASKPASS` is a path) rather than know about zenity: it is a
-   headless daemon, and a user service has no display of its own. Retries have
-   to join a pending decision rather than raise a second dialog, and a client
-   timing out while a human decides has to be survivable.
+   request while the asker (decision 8) decides, then injecting or refusing on
+   the answer. Retries have to join a pending decision rather than raise a
+   second dialog, and a client timing out while a human decides has to be
+   survivable.
 2. **frisket: path templates.** Scopes are matched by segment prefix today.
    Operations need a wildcard *segment* — `/zones/*/dns_records/*` — and an
    exact end, so that a rule for one operation does not also admit everything
@@ -96,10 +142,12 @@ without waiting on the project-carried credential. When the envelope lands,
 that binding goes and the project carries it.
 
 1. Mint a token for a throwaway zone, scoped to that zone.
-2. Generate the classification from a pinned `openapi.json`: count the
-   operations, count what the rule marks safe, and read the exceptions list
-   before writing any code that uses it.
-3. frisket: path templates, then `ask` with an asker command.
+2. Generate the classification from a pinned `openapi.json`. At the time of
+   writing that is 3,540 operations, 1,741 of them `GET` — so roughly half
+   pass on the rule alone and half ask. Read the exceptions list before
+   writing any code that uses it.
+3. frisket: path templates, then `ask`, then the asker contract.
+   nix-config: a zenity asker against that contract.
 4. chase: the Cloudflare app, wired to the generated rules.
 5. Run wrangler in a trusted session against the throwaway zone. Read frisket's
    log: every request should be either allowed by name or have raised a
@@ -117,7 +165,3 @@ that binding goes and the project carries it.
   on the grounds that the spec is authoritative and an undescribed path is
   either new or not an API call — is a choice to make once the log shows
   whether any real traffic lands there.
-- **What the dialog shows.** Method, host and path are the minimum. The
-  operation's `summary` from the spec, if the request matched one, would say
-  what is about to happen in words — "Delete DNS Record" — which is better than
-  a path to read under time pressure.
