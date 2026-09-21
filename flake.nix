@@ -81,7 +81,7 @@
                         useUserPackages = true;
                         users.alice.home.stateVersion = "26.05";
                       };
-                      agents = {
+                      chase = {
                         user = "alice";
                         uid = 1000;
                         gid = 100;
@@ -97,7 +97,7 @@
                 }).config;
               chaseFailures = extra:
                 let config = configWith extra; in
-                lib.filter (m: lib.hasInfix "agents." m)
+                lib.filter (m: lib.hasInfix "chase." m)
                   (map (a: lib.trim a.message)
                     (lib.filter (a: ! a.assertion) config.assertions));
               refused = what: extra: needle:
@@ -111,12 +111,12 @@
             # enables github without `anonymous`, so a null credential file is
             # a route frisket would serve with no credential at all.
             assert refused "an unbound github credential"
-              { agents.apps.github.credentialFile = lib.mkForce null; }
+              { chase.apps.github.credentialFile = lib.mkForce null; }
               "credentialFile is null";
             # ... and is fine when no tier asks for a credentialled github.
             assert chaseFailures {
-              agents.apps.github.credentialFile = lib.mkForce null;
-              agents.tiers.trusted.apps.github.anonymous = true;
+              chase.apps.github.credentialFile = lib.mkForce null;
+              chase.tiers.trusted.apps.github.anonymous = true;
             } == [ ]
               || throw "assertions: an anonymous-only github still demanded a credential";
             pkgs.runCommand "assertions" { } "touch $out";

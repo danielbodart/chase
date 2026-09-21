@@ -2,7 +2,7 @@
 
 let
   inherit (lib) mkIf mkMerge mkOption types;
-  cfg = config.agents;
+  cfg = config.chase;
   base = cfg.apps.claude.package;
   allow = [
     "anthropic.com" "*.anthropic.com"
@@ -88,7 +88,7 @@ let
   claudeDir = "${cfg.home}/.claude";
 in
 {
-  options.agents.apps.claude = {
+  options.chase.apps.claude = {
     package = mkOption {
       type = types.package;
       description = ''
@@ -112,7 +112,7 @@ in
     };
   };
 
-  options.agents.tiers = mkOption {
+  options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule {
       options.apps.claude = {
         state = mkOption {
@@ -266,7 +266,7 @@ in
         };
       }) cfg.tiers;
 
-    agents.internal.tiers = lib.mapAttrs (name: tier:
+    chase.internal.tiers = lib.mapAttrs (name: tier:
       mkIf (tier.apps.claude.state != null) {
         bindLines = lib.optional (tier.apps.claude.state == "isolated") transcriptBind;
         # Written, not bound: Claude Code replaces the file by rename.

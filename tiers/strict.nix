@@ -4,7 +4,7 @@
 #
 # No uid namespace yet: privateUsers breaks the host-owned bind mounts.
 {
-  agents.tiers.strict = {
+  chase.tiers.strict = {
     egress = "frisket";
     apps = {
       claude = { state = "isolated"; connectors = false; };

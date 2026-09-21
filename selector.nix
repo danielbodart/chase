@@ -2,7 +2,7 @@
 
 let
   inherit (lib) mkOption types;
-  cfg = config.agents;
+  cfg = config.chase;
   lines = builtins.concatStringsSep "\n";
 
   # Prints host, trusted or strict for a directory; --dry-run DIR... explains.
@@ -144,13 +144,13 @@ let
   };
 in
 {
-  options.agents.internal = {
+  options.chase.internal = {
     agentTier = mkOption { type = types.package; readOnly = true; internal = true; };
     mkWrapper = mkOption { type = types.raw; readOnly = true; internal = true; };
   };
 
   config = {
-    agents.internal = { inherit agentTier mkWrapper; };
+    chase.internal = { inherit agentTier mkWrapper; };
 
     # The launchers are NOPASSWD, so trusted re-checks the workspace itself
     # rather than trusting the wrapper. Strict grants nothing the caller lacks.

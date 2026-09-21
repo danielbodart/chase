@@ -2,11 +2,11 @@
 
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
-  cfg = config.agents;
+  cfg = config.chase;
   mise = cfg.apps.mise.package;
 in
 {
-  options.agents.apps.mise.package = mkOption {
+  options.chase.apps.mise.package = mkOption {
     type = types.package;
     default = pkgs.mise;
     defaultText = lib.literalExpression "pkgs.mise";
@@ -18,7 +18,7 @@ in
     '';
   };
 
-  options.agents.tiers = mkOption {
+  options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule {
       options.apps.mise.enable = mkEnableOption "mise toolchains in this agent tier";
     });

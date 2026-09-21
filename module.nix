@@ -7,7 +7,7 @@ self:
 
 let
   inherit (lib) mkOption types;
-  cfg = config.agents;
+  cfg = config.chase;
   lines = builtins.concatStringsSep "\n";
   chomp = lib.removeSuffix "\n";
   indent = s: lines (map (l: if l == "" then l else "  " + l) (lib.splitString "\n" s));
@@ -123,7 +123,7 @@ in
     ./apps/mise.nix
   ];
 
-  options.agents = {
+  options.chase = {
     user = mkOption { type = types.str; };
     uid = mkOption { type = types.int; };
     gid = mkOption { type = types.int; };

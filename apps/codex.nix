@@ -2,7 +2,7 @@
 
 let
   inherit (lib) mkIf mkMerge mkOption types;
-  cfg = config.agents;
+  cfg = config.chase;
   base = cfg.apps.codex.package;
   allow = [ "chatgpt.com" "*.chatgpt.com" "openai.com" "*.openai.com" ];
   every = [ "GET" "HEAD" "POST" "PUT" "PATCH" "DELETE" ];
@@ -177,15 +177,15 @@ let
   isolatedHome = ''codex_home=${stateDir}/''${workspace//[^A-Za-z0-9]/-}'';
 in
 {
-  options.agents.apps.codex.package = mkOption {
+  options.chase.apps.codex.package = mkOption {
     type = types.package;
     description = ''
       The codex CLI. Declared rather than pinned by chase, for the reason
-      `agents.apps.claude.package` is.
+      `chase.apps.claude.package` is.
     '';
   };
 
-  options.agents.tiers = mkOption {
+  options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule {
       options.apps.codex.state = mkOption {
         type = types.nullOr (types.enum [ "shared" "isolated" ]);
@@ -250,7 +250,7 @@ in
         };
       }) cfg.tiers;
 
-    agents.internal.tiers = lib.mapAttrs (_: tier: mkIf (tier.apps.codex.state != null) {
+    chase.internal.tiers = lib.mapAttrs (_: tier: mkIf (tier.apps.codex.state != null) {
       # A home per workspace, made on the host and mounted at its own path.
       # The placeholder login is put there fresh each session, so nothing a
       # session leaves behind is what the next one authenticates with.

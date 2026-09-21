@@ -2,10 +2,10 @@
 
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
-  cfg = config.agents;
+  cfg = config.chase;
 in
 {
-  options.agents.tiers = mkOption {
+  options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule {
       options.apps.audio.enable = mkEnableOption "host audio in this agent tier";
     });

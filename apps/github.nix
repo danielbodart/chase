@@ -2,7 +2,7 @@
 
 let
   inherit (lib) mkEnableOption mkIf mkMerge mkOption types;
-  cfg = config.agents;
+  cfg = config.chase;
   every = [ "GET" "HEAD" "POST" "PUT" "PATCH" "DELETE" ];
   reads = [ "GET" "HEAD" ];
 
@@ -13,7 +13,7 @@ let
   };
 in
 {
-  options.agents.apps.github.credentialFile = mkOption {
+  options.chase.apps.github.credentialFile = mkOption {
     type = types.nullOr types.path;
     default = null;
     example = "/run/secrets/gh_token";
@@ -33,7 +33,7 @@ in
     '';
   };
 
-  options.agents.tiers = mkOption {
+  options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule {
       options.apps.github = {
         enable = mkEnableOption "GitHub in this agent tier: git over HTTPS, and gh";
@@ -53,7 +53,7 @@ in
     assertions = [{
       assertion = cfg.apps.github.credentialFile != null
         || !(lib.any (t: t.apps.github.enable && !t.apps.github.anonymous) (lib.attrValues cfg.tiers));
-      message = "agents.apps.github.credentialFile is null, but a tier enables github without `anonymous`. Bind a token file, or set `anonymous = true` for read-only GitHub with no credential.";
+      message = "chase.apps.github.credentialFile is null, but a tier enables github without `anonymous`. Bind a token file, or set `anonymous = true` for read-only GitHub with no credential.";
     }];
 
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf tier.apps.github.enable {

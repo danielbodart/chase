@@ -2,7 +2,7 @@
 # host's loopback is out of reach; frisket answers DNS, so every lookup is
 # logged.
 {
-  agents.tiers.trusted = {
+  chase.tiers.trusted = {
     egress = "direct";
     allow = [ "*" ];
     apps = {

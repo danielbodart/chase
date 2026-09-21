@@ -2,7 +2,7 @@
 
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
-  cfg = config.agents;
+  cfg = config.chase;
 
   # Dragoman's own directory: the thread rollout, which is what
   # `codex_continue` resumes from, and the per-run homes it builds beside it.
@@ -13,7 +13,7 @@ let
   dragomanDir = "${cfg.home}/.dragoman";
 in
 {
-  options.agents.tiers = mkOption {
+  options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule {
       options.apps.dragoman.enable = mkEnableOption ''
         Dragoman's thread store in this agent tier, so a Codex thread it
