@@ -1,0 +1,72 @@
+{
+  "nodes": {
+    "flong": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1789755140,
+        "narHash": "sha256-EwXrmDvqlWdSadxy4RnsgfoyMLetvEnP8OA7gYPpUnw=",
+        "owner": "danielbodart",
+        "repo": "flong",
+        "rev": "718f0064e4c6a8926ec3a0e00a625fd11f090142",
+        "type": "github"
+      },
+      "original": {
+        "owner": "danielbodart",
+        "repo": "flong",
+        "type": "github"
+      }
+    },
+    "frisket": {
+      "inputs": {
+        "flong": [
+          "flong"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1789906368,
+        "narHash": "sha256-8t0TqQWkIBLspc87D/tWvw/5KPu3WAYjFwr5gIgysTg=",
+        "owner": "danielbodart",
+        "repo": "frisket",
+        "rev": "29aa0d8a89aa98c1778e2c0fd16a08da07f4c189",
+        "type": "github"
+      },
+      "original": {
+        "owner": "danielbodart",
+        "repo": "frisket",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1789785513,
+        "narHash": "sha256-B44WL6h0XoLjJ41bUPJk0X5SDinLCII//6EcBLXKiJ0=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "flong": "flong",
+        "frisket": "frisket",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
