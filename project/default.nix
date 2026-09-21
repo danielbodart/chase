@@ -25,6 +25,32 @@ let
   apps = pkgs.writeText "chase-project-apps.json" (builtins.toJSON cfg.internal.projectApps);
   approver = if cfg.approver == null then "" else cfg.approver;
 
+  # WHAT EVALUATES AN ENVELOPE: a flake of chase's, in the store, whose one
+  # input is the checkout -- given on the command line, never spliced into Nix
+  # source -- evaluated PURELY. The checkout is the agent's to edit, and this
+  # runs before anyone has approved anything: pure evaluation is what keeps
+  # an envelope to its own source and locked inputs, rather than able to read
+  # any file of the user's and fetch a URL with it in. nixpkgs' lib comes
+  # along as a copy, so the flake needs nothing it does not carry.
+  evaluator = pkgs.runCommand "chase-envelope-evaluator" { } ''
+    mkdir -p "$out/nixpkgs"
+    cp -r ${pkgs.path}/lib "$out/nixpkgs/lib"
+    cp ${pkgs.path}/.version "$out/nixpkgs/.version"
+    cp ${./options.nix} "$out/options.nix"
+    cat > "$out/flake.nix" <<'EOF'
+    {
+      inputs.project.url = "path:/nonexistent";
+      outputs = { project, ... }: {
+        envelope =
+          let lib = import ./nixpkgs/lib; in
+          if project ? chaseModules && project.chaseModules ? default
+          then (lib.evalModules { modules = [ ./options.nix project.chaseModules.default ]; }).config.chase
+          else null;
+      };
+    }
+    EOF
+  '';
+
   envelope = pkgs.writeShellApplication {
     name = "chase-envelope";
     runtimeInputs = with pkgs; [ nix jq sops coreutils diffutils git ];
@@ -55,17 +81,9 @@ let
         else
           ref="path:$ws"
         fi
-        # The reference goes in through the environment, never spliced into
-        # the expression: a path is the caller's, and could hold anything.
-        CHASE_FLAKE_REF=$ref nix eval --json --impure --no-write-lock-file \
-          --option accept-flake-config false --expr '
-            let
-              flake = builtins.getFlake (builtins.getEnv "CHASE_FLAKE_REF");
-              lib = import ${pkgs.path}/lib;
-            in
-            if flake ? chaseModules && flake.chaseModules ? default
-            then (lib.evalModules { modules = [ ${./options.nix} flake.chaseModules.default ]; }).config.chase
-            else null'
+        nix eval --json --no-write-lock-file --option accept-flake-config false \
+          --extra-experimental-features 'nix-command flakes' \
+          "path:${evaluator}#envelope" --override-input project "$ref"
       }
 
       # Goes on only if this result is the one approved for this checkout,
