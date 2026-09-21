@@ -197,7 +197,10 @@ that binding goes and the project carries it.
 - **Other hosts.** wrangler may talk to more than `api.cloudflare.com` —
   uploads, telemetry, `dash.cloudflare.com` for login. Discover from frisket's
   log in step 5 rather than guessing; login in particular should not be needed
-  at all with an API token.
+  at all with an API token. *Step 5, KV only:* nothing but
+  `api.cloudflare.com` and `registry.npmjs.org`, wrangler's update check. Every
+  Cloudflare request matched a named operation; none fell through to
+  unmatched. A deploy will say more.
 - **Absent from the spec.** A path the pinned spec does not describe is not on
   the allowlist, so it asks. Whether it should instead be refused outright —
   on the grounds that the spec is authoritative and an undescribed path is
