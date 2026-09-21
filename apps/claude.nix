@@ -3,7 +3,7 @@
 let
   inherit (lib) mkIf mkMerge mkOption types;
   cfg = config.chase;
-  base = cfg.apps.claude.package;
+  base = cfg.bindings.claude.package;
   allow = [
     "anthropic.com" "*.anthropic.com"
     "claude.ai" "*.claude.ai"
@@ -88,7 +88,7 @@ let
   claudeDir = "${cfg.home}/.claude";
 in
 {
-  options.chase.apps.claude = {
+  options.chase.bindings.claude = {
     package = mkOption {
       type = types.package;
       description = ''
@@ -140,7 +140,7 @@ in
         let
           paths = lib.unique (
             [ cfg.home ]
-            ++ cfg.apps.claude.preTrustPaths
+            ++ cfg.bindings.claude.preTrustPaths
             ++ lib.concatLists cfg.workspaceGroups
           );
         in

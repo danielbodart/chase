@@ -85,7 +85,7 @@
                         user = "alice";
                         uid = 1000;
                         gid = 100;
-                        apps = {
+                        bindings = {
                           claude.package = nixpkgs.legacyPackages.${system}.hello;
                           codex.package = nixpkgs.legacyPackages.${system}.hello;
                           github.credentialFile = "/run/secrets/gh_token";
@@ -111,11 +111,11 @@
             # enables github without `anonymous`, so a null credential file is
             # a route frisket would serve with no credential at all.
             assert refused "an unbound github credential"
-              { chase.apps.github.credentialFile = lib.mkForce null; }
+              { chase.bindings.github.credentialFile = lib.mkForce null; }
               "credentialFile is null";
             # ... and is fine when no tier asks for a credentialled github.
             assert chaseFailures {
-              chase.apps.github.credentialFile = lib.mkForce null;
+              chase.bindings.github.credentialFile = lib.mkForce null;
               chase.tiers.trusted.apps.github.anonymous = true;
             } == [ ]
               || throw "assertions: an anonymous-only github still demanded a credential";

@@ -3,7 +3,7 @@
 let
   inherit (lib) mkIf mkMerge mkOption types;
   cfg = config.chase;
-  base = cfg.apps.codex.package;
+  base = cfg.bindings.codex.package;
   allow = [ "chatgpt.com" "*.chatgpt.com" "openai.com" "*.openai.com" ];
   every = [ "GET" "HEAD" "POST" "PUT" "PATCH" "DELETE" ];
 
@@ -177,11 +177,11 @@ let
   isolatedHome = ''codex_home=${stateDir}/''${workspace//[^A-Za-z0-9]/-}'';
 in
 {
-  options.chase.apps.codex.package = mkOption {
+  options.chase.bindings.codex.package = mkOption {
     type = types.package;
     description = ''
       The codex CLI. Declared rather than pinned by chase, for the reason
-      `chase.apps.claude.package` is.
+      `chase.bindings.claude.package` is.
     '';
   };
 

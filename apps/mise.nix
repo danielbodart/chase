@@ -3,10 +3,10 @@
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
   cfg = config.chase;
-  mise = cfg.apps.mise.package;
+  mise = cfg.bindings.mise.package;
 in
 {
-  options.chase.apps.mise.package = mkOption {
+  options.chase.bindings.mise.package = mkOption {
     type = types.package;
     default = pkgs.mise;
     defaultText = lib.literalExpression "pkgs.mise";

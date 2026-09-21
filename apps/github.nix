@@ -13,7 +13,7 @@ let
   };
 in
 {
-  options.chase.apps.github.credentialFile = mkOption {
+  options.chase.bindings.github.credentialFile = mkOption {
     type = types.nullOr types.path;
     default = null;
     example = "/run/secrets/gh_token";
@@ -51,9 +51,9 @@ in
     # requests to its scope and adds nothing, and the first sign of it would
     # be a 401 from GitHub inside a session.
     assertions = [{
-      assertion = cfg.apps.github.credentialFile != null
+      assertion = cfg.bindings.github.credentialFile != null
         || !(lib.any (t: t.apps.github.enable && !t.apps.github.anonymous) (lib.attrValues cfg.tiers));
-      message = "chase.apps.github.credentialFile is null, but a tier enables github without `anonymous`. Bind a token file, or set `anonymous = true` for read-only GitHub with no credential.";
+      message = "chase.bindings.github.credentialFile is null, but a tier enables github without `anonymous`. Bind a token file, or set `anonymous = true` for read-only GitHub with no credential.";
     }];
 
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf tier.apps.github.enable {
@@ -95,14 +95,14 @@ in
         routes.github = {
           host = "api.github.com";
           upstream = "https://api.github.com";
-          credentialFile = cfg.apps.github.credentialFile;
+          credentialFile = cfg.bindings.github.credentialFile;
           placeholder = cfg.placeholder;
           paths = [{ methods = every; prefix = "/"; }];
         };
         routes.github-git = {
           host = "github.com";
           upstream = "https://github.com";
-          credentialFile = cfg.apps.github.credentialFile;
+          credentialFile = cfg.bindings.github.credentialFile;
           placeholder = cfg.placeholder;
           basicUser = "x-access-token";
           paths = [{ methods = every; prefix = "/"; }];
