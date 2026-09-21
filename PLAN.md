@@ -97,8 +97,18 @@ common case. The override lists are overrides.
 
 **6. Per-project scoping is per-project credentials, not per-project matching.**
 The strongest scope is one the provider enforces: a Cloudflare token minted for
-one zone cannot touch another, whatever any matcher does or fails to do. Path
-rules and the confirmation gate sit on top of that, not in place of it.
+one zone cannot touch another, whatever any matcher does or fails to do.
+
+Three layers, cheapest and strongest first:
+
+- **the token's own scope** is the floor — what the credential *cannot* do,
+  enforced by the provider, and no bug here can undo it
+- **the route's paths** are the policy — what this project *may* do with it
+- **the confirmation gate** is the human — which of those needs a person
+
+They are not substitutes. A correctly scoped token still deletes everything
+inside its own scope, which is why the gate exists; and the gate is only ever
+as good as its matcher, which is why the token's scope is underneath it.
 
 **7. A project's secrets are checked in encrypted and decrypted outside the
 workspace.** The ciphertext lives in the project, where it belongs and where
@@ -188,6 +198,70 @@ a project's own file decrypted at launch, a path. chase materialises whichever
 into a file, and only because that is frisket's interface — it reads the file
 on the host and re-reads it on rename, which is how a rotated credential
 reaches a running session.
+
+**15. Reaching the host is `hostPorts`, and it is the shareable direction.**
+flong has two: `hostPorts` lets a session reach a port on the host's loopback,
+and `forwardPorts` publishes a session's port on the host. An envelope uses the
+first. The second is exclusive — *"a host port is one session's at a time. A
+second concurrent session asking for the same one fails to attach its network,
+and is ended rather than left running without it"* — and many sessions of one
+project run at once, so a project that declared a forwarded port would break
+its own second session. Reaching a dev server *inside* a sandbox is a separate
+problem and frisket's open question 3.
+
+**16. A port alone is not enough; the envelope carries environment too.**
+nspawn starts a session clean and direnv's hook never fires in it, so a session
+with 5432 open still has no `DATABASE_URL` and nothing tells it to look. This
+is why the envelope is not a port list: ports and environment are the same
+feature, and shipping one without the other opens a door nothing walks through.
+
+nix-config's note that *"no tier that could use a devShell runs in one"* stops
+being true when this lands, and wants rewriting.
+
+## Considered and rejected
+
+- **Per-project path matching in frisket, to scope a project to one zone.**
+  Refuted by decision 6: a token minted for the zone is enforced by the
+  provider and needs no matcher. Path rules are still wanted, for the
+  confirmation gate and for read/write asymmetry, but not as the thing that
+  keeps one project out of another's resources.
+
+- **A `.chase.toml` (or any bespoke file) in the project.** A project already
+  has a flake, and a NixOS module is already a validated, typed, composable
+  declaration. A new format would mean a new parser, a new schema language and
+  a new validator, all in the privileged path. Decision 10.
+
+- **nix-config importing a project as a flake input.** The arrow points the
+  wrong way: it makes the machine enumerate its projects, pins each one in
+  `flake.lock`, and makes a project's declaration unusable on any other
+  machine. It also drags a private machine configuration into a project's
+  dependency closure.
+
+- **Moving frisket's flong adapter into chase**, on the grounds that chase is
+  the layer that knows about both. Refused: the adapter carries the ordering
+  guarantee — whatever `postStart` installs is in place before anything gives
+  the namespace egress — and frisket's CI is the only thing that tests it
+  against a pinned flong. A guarantee should be tested by the component that
+  owns it, not by a consumer. Decision 1.
+
+- **A host-declared ceiling on what a project's envelope may ask for.** Built
+  for a threat model the trusted tier does not have. Trusted already grants a
+  real network stack with the host and LAN reachable; a declared loopback port
+  is not a new surface, and the answer to an invisible change is decision 8,
+  not a ceiling.
+
+- **Binding the project's declaration read-only into the session**, to stop an
+  agent editing it. Unnecessary: the declaration is consumed on the host before
+  the session exists, so editing it cannot affect the running session, and the
+  next launch is covered by decision 8.
+
+- **A Unix socket in the workspace instead of a host port.** Genuinely good
+  where it works — a pathname `AF_UNIX` socket is governed by the filesystem
+  rather than the network namespace, so a Postgres listening on one in the
+  workspace is already reachable with no port, no egress rule and no collision
+  between concurrent sessions. Not adopted as *the* mechanism because it only
+  covers services that speak Unix sockets, which a dev server, an emulator or
+  anything HTTP does not. Worth reaching for first in the cases where it fits.
 
 ## What moves out of nix-config
 
