@@ -153,6 +153,8 @@ Two things are deliberately left out, to be added only on evidence:
    required changes to flong and frisket), and it is *not* needed to prove
    1–3.
 
+*All four exist.*
+
 ## Order of work
 
 Prove the gate and the classification before the envelope. For the test
@@ -184,10 +186,30 @@ that binding goes and the project carries it.
    the sandbox account — each should raise a dialog, the reads around them
    should not. Read frisket's
    log: every request should be either allowed by name or have raised a
-   dialog. Anything else is a gap in the classification.
-6. Then the envelope, then talebrary.
+   dialog. Anything else is a gap in the classification. *Done:* both
+   dialogs, a refusal read by wrangler in Cloudflare's own error shape, and
+   no request unmatched.
+6. Then the envelope, then talebrary. *Done:* talebrary's flake has a chase
+   section binding a token for its own account, restricted to local
+   development, from its sops file; `wrangler dev` runs with remote D1, R2
+   and AI, and its allow-list names the two preview-session endpoints
+   Cloudflare's description does not. The sandbox binding in nix-config is
+   gone: no machine holds a Cloudflare token.
 
 ## Open
+
+- **Remote bindings go around the gate.** Once `wrangler dev` has its preview
+  session — two calls the project allows, since refusing them only stops
+  `wrangler dev` — local development reaches the real D1, R2 and AI through
+  the preview worker's own host, which frisket does not intercept. The
+  token's scope is the only limit on that traffic.
+- **R2's S3 keys cannot be carried.** rclone and other S3 clients sign each
+  request with the secret key, so there is no placeholder for frisket to
+  replace; those keys stay outside chase.
+- **One question per session.** wrangler sometimes makes the same asked
+  request twice at once, and the second is refused at once while the first
+  waits (decision 9's collapsing, deferred until the log said so — it now
+  has, mildly: wrangler retries and succeeds).
 
 - **`POST /graphql` is not in the spec.** Decision 4 names it as the example
   of a harmless write, but the pinned spec does not describe it, so it cannot

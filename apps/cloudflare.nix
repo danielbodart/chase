@@ -63,9 +63,12 @@ in
       default = null;
       example = "/run/secrets/cloudflare-token";
       description = ''
-        A file holding a Cloudflare API token, alone. frisket reads it on the
-        host and adds it to the session's requests to ${host}; nothing
-        inside a container ever sees it.
+        A file holding a Cloudflare API token, alone, for every session of a
+        tier that enables Cloudflare. frisket reads it on the host and adds it
+        to the session's requests to ${host}; nothing inside a container
+        ever sees it. Null, the usual case: a tier has no Cloudflare token of
+        its own, and a project brings one in its envelope (decision 9 --
+        there is never a system-level cloud account).
 
         Mint it narrowly: the token is the floor, and the allowlist only
         decides which of the things it can do need a person. Workers, KV, D1
@@ -99,13 +102,6 @@ in
   };
 
   config = {
-    # Declared but unbound is a refusal, for the reason github's is.
-    assertions = [{
-      assertion = bindings.credentialFile != null
-        || !(lib.any (t: t.apps.cloudflare.enable) (lib.attrValues cfg.tiers));
-      message = "chase.bindings.cloudflare.credentialFile is null, but a tier enables cloudflare. Bind a token file.";
-    }];
-
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf tier.apps.cloudflare.enable {
       config = {
         environment.systemPackages = [ bindings.wranglerPackage ];
@@ -129,7 +125,10 @@ in
         '' ];
       })) cfg.tiers;
 
-    services.frisket.policies = lib.mapAttrs (name: tier: mkIf tier.apps.cloudflare.enable {
+    # A route of the tier's own only with a token of the tier's own: without
+    # one, api.cloudflare.com is intercepted only in a session whose project
+    # brought one, and is otherwise an ordinary allowed name.
+    services.frisket.policies = lib.mapAttrs (name: tier: mkIf (tier.apps.cloudflare.enable && bindings.credentialFile != null) {
       # For a tier with an allowlist of names; trusted's `*` already covers it.
       allow = lib.mkAfter [ host ];
       routes.cloudflare = removeAttrs route [ "name" ] // {

@@ -119,10 +119,13 @@
               chase.tiers.trusted.apps.github.anonymous = true;
             } == [ ]
               || throw "assertions: an anonymous-only github still demanded a credential";
-            # The same for Cloudflare: a tier that enables it needs a token.
-            assert refused "an unbound cloudflare credential"
-              { chase.tiers.trusted.apps.cloudflare.enable = true; }
-              "cloudflare.credentialFile is null";
+            # Cloudflare needs no token of the tier's own -- a project brings
+            # one -- and without one the tier has no Cloudflare route.
+            assert
+              (let config = configWith { chase.tiers.trusted.apps.cloudflare.enable = true; }; in
+              lib.all (a: a.assertion) config.assertions
+              && ! (config.services.frisket.policies.trusted.routes ? cloudflare))
+              || throw "assertions: cloudflare without a token of the tier's own did not hold together";
             # Bound, it holds together: no assertion fails, chase's or
             # frisket's, and frisket's configuration -- every generated
             # operation, through frisket's own option types -- is written.

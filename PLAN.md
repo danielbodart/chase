@@ -334,12 +334,16 @@ configuration, which is exactly what should not travel.
   Today `pastaPorts` is interpolated into the launcher at eval time, so a
   session's ports are frozen into the script. Wanted: the shape `binds`
   already has — a hook that runs per launch with `$workspace` exported. Generic;
-  flong learns nothing about projects.
-- **frisket** — `frisket steer` to accept a policy *document*, not only a
-  policy *name*. Policies are loaded once at daemon start and a session naming
-  an unknown one is refused, so a project-supplied policy has no way in. The
-  control socket is root-only and the caller is chase's fixed launcher, so root
-  still vouches for every policy that reaches the daemon.
+  flong learns nothing about projects. *Partly overtaken:* `forwardPorts =
+  "auto"` publishes whatever a session listens on, and trusted uses it, so a
+  dev server needs no declaration. `hostPorts` — a session reaching the
+  host's database, say — are still fixed at eval.
+- **frisket** — *done, and wider than asked.* Every policy is a document a
+  session names by path — the tiers' own under `/etc/frisket/policies`, a
+  project's written by the launcher under `/run/user/<uid>/chase` — read when
+  the session opens and again when it is restored. The control socket is
+  root-only and the caller is chase's fixed launcher, so root still vouches
+  for every policy that reaches the daemon.
 - **frisket** — *done.* The confirmation gate on destructive requests (`ask`
   beside admit and refuse), so an irreversible operation stops at a dialog
   naming the real request line. What prompts is a callback frisket runs, not a dialog it
