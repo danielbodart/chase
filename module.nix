@@ -156,9 +156,6 @@ in
     ./apps/github.nix
     ./apps/claude.nix
     ./apps/codex.nix
-    ./apps/dragoman.nix
-    ./apps/audio.nix
-    ./apps/mise.nix
   ];
 
   options.chase = {

@@ -8,10 +8,7 @@
     apps = {
       claude = { state = "shared"; connectors = true; };
       codex.state = "shared";
-      dragoman.enable = true;
       github.enable = true;
-      audio.enable = true;
-      mise.enable = true;
     };
   };
 }

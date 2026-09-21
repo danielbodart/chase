@@ -82,6 +82,9 @@ What a tier switches on. Each declares what it needs and binds nothing itself
 — a credential reaches a session on the wire or not at all, and no app here
 mounts one.
 
+chase ships the three that any machine running agents would want. Adding one of
+your own takes no changes here.
+
 **Claude Code.** frisket reads the host's own `~/.claude/.credentials.json`
 and puts its token on each request, taking the expiry from
 `claudeAiOauth.expiresAt` so a stale token answers 503 rather than 401 — which
@@ -112,24 +115,13 @@ fetch and GET work with no credential in existence, and a push stops at git's
 ref advertisement — refused on the request line rather than by inspecting what
 `git` was asked to do, which is not something a session can route around.
 
-**Dragoman.** Holds no credential of its own; the bridge authenticates as codex
-does, through the login its per-run home symlinks. chase supplies only the
-thread store, bound so that a Codex thread started in a session outlives it.
-The bridge itself is not chase's — it arrives with Claude Code's plugins — and
-the directory is bound whole rather than one entry down, because nspawn makes a
-missing parent itself, and makes it root's.
-
-**mise.** No credential. The host's installed toolchains and its trust settings
-are readable through an overlay, and anything a session installs is discarded
-with it, which is safe only because mise keeps no sqlite — overlayfs reports a
-changing inode as a file is written, and sqlite does not survive that. Needs
-`nix-ld`, since the binaries mise fetches are generic-Linux and want a real
-loader.
-
-**Audio.** No credential, and nothing but two bind mounts: the host's
-PulseAudio socket and `/dev/snd`, so a session can make a sound when it wants
-attention. A tier without it has the notification plugin switched off rather
-than left to fail quietly.
+Anything else is yours. An app is an ordinary NixOS module written against
+the options above — it reads `config.chase`, extends `chase.tiers.<tier>.apps`
+with its own switch, and adds whatever binds or container configuration it
+needs. It does not have to live here to do that, and the ones that are specific
+to you should not: a Codex bridge that arrives with your plugins, the toolchain
+manager you happen to use, sound for notifications. chase carries the apps any
+machine running agents would want, and gets out of the way for the rest.
 
 ## Development
 
