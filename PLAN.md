@@ -151,10 +151,23 @@ is cheaper still — direnv is not the mechanism, it just does no harm. A
 project with no `flake.nix` costs a stat, which is the ordinary case.
 
 **12. Two tiers, three outcomes.** `trusted` and `strict` are tiers: a
-container, its binds, what is steered, which apps. `host` is the *absence* of
-one — it runs bare, has no container, no frisket policy and no envelope. The
-selector returns three strings and `tiers` holds two, which is already true
-today and worth saying out loud, because the name suggests otherwise.
+container, its binds, what is steered, which apps. `host` today is the
+*absence* of one — it runs bare, with no container, no frisket policy and no
+envelope. The selector returns three strings and `tiers` holds two, which is
+already true and worth saying out loud, because the name suggests otherwise.
+
+This is a statement of the reason, not a promise about the future. host exists
+for work that needs the host: real sudo, `/dev/input`, KVM, the network
+namespaces themselves. Root defeats every boundary flong or frisket could draw
+around it — including the credential one, since frisket's credential files are
+the user's own and a process with sudo simply reads them, and since a netns can
+be left with `nsenter`. So there is nothing yet that containerising host would
+buy.
+
+If that reason ever stops holding — a host-tier variant that gives up sudo, or
+some boundary root does not defeat — the conclusion moves with it. What is
+locked is that host gets no container *for as long as it has root*, not that it
+never gets one.
 
 chase ships both tiers, opinionated, and nix-config instantiates them. A
 project overlays `trusted`. Nothing overlays `strict` (decision 13).
@@ -237,8 +250,21 @@ configuration, which is exactly what should not travel.
    chase needs is the sum of the ways one can be *found* — and the two known
    members bind at different times, one at eval and one at launch.
 2. **Where a project's decrypted credential is written.** Outside the workspace
-   is settled (decision 7); which directory, whose lifetime it shares, and what
-   removes it when a session dies are not.
+   is settled (decision 7), and so is the symmetry: whatever decrypts it
+   chooses where it lives and is what removes it.
+
+   The prior art is systemd's own — `LoadCredential` decrypts into a per-unit
+   tmpfs at `$CREDENTIALS_DIRECTORY` and takes it away when the unit stops —
+   and sops-nix does the same thing at activation scope. Neither fits directly:
+   a flong session is a scope, not a service, and its credential has to be
+   readable by frisket on the *host* rather than by the payload.
+
+   `/run/user/<uid>/chase/<machine>/` looks right: tmpfs, owned by the user
+   frisket runs as, not bind-mounted into the session, and keyed on the name
+   flong's `postStop` already receives. Note that neither of flong's existing
+   directories works — `/run/flong/<container>-…` is the shared prepared-root
+   cache rather than per-session, and the session's own `XDG_RUNTIME_DIR` is
+   created *inside* the container, which is the one place this must not go.
 3. **What `ask` matches on.** Method and path reach most of it, but the verb is
    in the path suffix for some providers and in the body for a few. Starting
    from "everything that is not a read" and carving out from the logs is the
