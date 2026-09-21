@@ -33,6 +33,20 @@ in
     '';
   };
 
+  options.chase.bindings.github.gitConfig = mkOption {
+    type = types.listOf (types.strMatching "/.*");
+    default = [ "${cfg.home}/.gitconfig" "${cfg.home}/.config/git" ];
+    defaultText = lib.literalExpression ''[ "''${config.chase.home}/.gitconfig" "''${config.chase.home}/.config/git" ]'';
+    description = ''
+      The user's own git configuration -- files or directories, each of which
+      must exist on the host -- bound read-only at the same paths into a tier
+      whose GitHub is not anonymous, so git in a session is the git the user
+      set up: who commits, aliases, filters, defaults. Not into an anonymous
+      tier: a git config can carry a credential in a URL, and those tiers run
+      other people's code. Empty: none.
+    '';
+  };
+
   options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule {
       options.apps.github = {
@@ -57,8 +71,14 @@ in
     }];
 
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf tier.apps.github.enable {
+      # Read-only: a session uses the user's configuration and cannot change
+      # it.
+      bindMounts = mkIf (!tier.apps.github.anonymous) (lib.listToAttrs (map
+        (p: lib.nameValuePair p { hostPath = p; isReadOnly = true; })
+        cfg.bindings.github.gitConfig));
       config = mkMerge [
-        { programs.git = { enable = true; config = https; }; }
+        # git-lfs on the PATH: a repository's LFS hooks look for it there.
+        { programs.git = { enable = true; config = https; }; environment.systemPackages = [ pkgs.git-lfs ]; }
         (mkIf (!tier.apps.github.anonymous) {
           environment.systemPackages = [ pkgs.gh ];
           # gh makes no request until it thinks it is logged in, and hands git
