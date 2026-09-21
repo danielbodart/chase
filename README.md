@@ -76,6 +76,61 @@ anything.
 work a container cannot do — real sudo, `/dev/input`, KVM, or the network
 namespaces these sessions are made of.
 
+## Apps
+
+What a tier switches on. Each declares what it needs and binds nothing itself
+— a credential reaches a session on the wire or not at all, and no app here
+mounts one.
+
+**Claude Code.** frisket reads the host's own `~/.claude/.credentials.json`
+and puts its token on each request, taking the expiry from
+`claudeAiOauth.expiresAt` so a stale token answers 503 rather than 401 — which
+Claude Code retries in the same turn instead of failing it. The container holds
+a login shaped like the real one and made of placeholders, with scopes narrowed
+per tier: strict gets `user:inference` and nothing else. It never expires, so
+the session never tries to refresh it, and the refresh endpoint and the Console
+are routed only to be refused — no response can hand the sandbox a real token.
+Claude Code's own sandbox is turned off, because bubblewrap cannot nest inside
+the container that is already the boundary.
+
+**codex.** The token comes from the host's `~/.codex/auth.json`, and the expiry
+from the `exp` claim inside the access token itself, since the file records
+only when it last refreshed. The placeholder cannot be an ordinary string here:
+codex parses its own token as a JWT and refreshes five minutes before the `exp`
+it finds, so what the container holds is a real-shaped unsigned JWT that
+expires in 2100. Nothing verifies its signature — not codex, which only splits
+on the dots, and not frisket, which compares the whole string. Refreshing stays
+on the host, because a refresh token is single-use and a session racing the
+host would burn it.
+
+**GitHub.** The one credential bound from outside, as
+`chase.bindings.github.credentialFile` — `gh auth token`'s, read by frisket.
+Remotes are rewritten from `git@github.com:` to HTTPS, so git goes through
+frisket and no key is needed in the session, and the token arrives as Basic
+auth's password under `x-access-token`. Strict is anonymous instead: clone,
+fetch and GET work with no credential in existence, and a push stops at git's
+ref advertisement — refused on the request line rather than by inspecting what
+`git` was asked to do, which is not something a session can route around.
+
+**Dragoman.** Holds no credential of its own; the bridge authenticates as codex
+does, through the login its per-run home symlinks. chase supplies only the
+thread store, bound so that a Codex thread started in a session outlives it.
+The bridge itself is not chase's — it arrives with Claude Code's plugins — and
+the directory is bound whole rather than one entry down, because nspawn makes a
+missing parent itself, and makes it root's.
+
+**mise.** No credential. The host's installed toolchains and its trust settings
+are readable through an overlay, and anything a session installs is discarded
+with it, which is safe only because mise keeps no sqlite — overlayfs reports a
+changing inode as a file is written, and sqlite does not survive that. Needs
+`nix-ld`, since the binaries mise fetches are generic-Linux and want a real
+loader.
+
+**Audio.** No credential, and nothing but two bind mounts: the host's
+PulseAudio socket and `/dev/snd`, so a session can make a sound when it wants
+attention. A tier without it has the notification plugin switched off rather
+than left to fail quietly.
+
 ## Development
 
 ```sh
