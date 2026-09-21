@@ -310,9 +310,9 @@ configuration, which is exactly what should not travel.
   an unknown one is refused, so a project-supplied policy has no way in. The
   control socket is root-only and the caller is chase's fixed launcher, so root
   still vouches for every policy that reaches the daemon.
-- **frisket** — the confirmation gate on destructive requests (`ask` beside
-  admit and refuse), so an irreversible operation stops at a dialog naming the
-  real request line. What prompts is a callback frisket runs, not a dialog it
+- **frisket** — *done.* The confirmation gate on destructive requests (`ask`
+  beside admit and refuse), so an irreversible operation stops at a dialog
+  naming the real request line. What prompts is a callback frisket runs, not a dialog it
   owns; see [docs/cloudflare.md](docs/cloudflare.md), decisions 7 and 8. Separate from scoping: a correctly scoped token can still
   delete everything inside its own scope.
 - **frisket** — decision 7 says three layers; it is four, and the chase line
@@ -324,6 +324,12 @@ configuration, which is exactly what should not travel.
    a source and not a path. The shapes are frisket's and already exist; what
    chase needs is the sum of the ways one can be *found* — and the two known
    members bind at different times, one at eval and one at launch.
+
+   *Decided:* a project's credentials are one sops file in the project, the
+   same kind nix-config keeps in `secrets/common.yaml` — structured, many
+   secrets in one file, each under its own key, encrypted to admin keys. A
+   project binds a credential by naming the file and the key. What remains is
+   the exact option spelling beside a machine's plain path.
 2. **Where a project's decrypted credential is written.** Outside the workspace
    is settled (decision 7), and so is the symmetry: whatever decrypts it
    chooses where it lives and is what removes it.
@@ -334,9 +340,9 @@ configuration, which is exactly what should not travel.
    a flong session is a scope, not a service, and its credential has to be
    readable by frisket on the *host* rather than by the payload.
 
-   `/run/user/<uid>/chase/<machine>/` looks right: tmpfs, owned by the user
-   frisket runs as, not bind-mounted into the session, and keyed on the name
-   flong's `postStop` already receives. Note that neither of flong's existing
+   `/run/user/<uid>/chase/<machine>/`: tmpfs, owned by the user frisket runs
+   as, not bind-mounted into the session, and keyed on the name flong's
+   `postStop` already receives. *Decided.* Note that neither of flong's existing
    directories works — `/run/flong/<container>-…` is the shared prepared-root
    cache rather than per-session, and the session's own `XDG_RUNTIME_DIR` is
    created *inside* the container, which is the one place this must not go.
