@@ -1,0 +1,123 @@
+# Cloudflare — plan
+
+The first provider-scoped app, and the first thing to put the confirmation gate
+in front of a real API. Read [../PLAN.md](../PLAN.md) first: decisions 6, 9
+and 14 are the ones this builds on.
+
+## Goal
+
+A test project, then talebrary, deploying to Cloudflare from inside a trusted
+session, with:
+
+- a token that exists only for that project, scoped to its zone (decision 9);
+- frisket adding it on the wire, the session holding the placeholder;
+- every request the API knows to be harmless going straight through, and
+  everything else — including anything nobody has classified yet — stopping at
+  a dialog on the desktop that names the real request line.
+
+## Decisions
+
+**1. Secure by default: anything not known to be safe asks.** The allowlist is
+the only way a request passes without a human. A write, a delete, and an
+endpoint nobody has looked at are all the same case to the rule: not on the
+list, so the default applies, and the default is the prompt. A feature
+Cloudflare ships next month is therefore gated from the day it ships, without
+anyone having to notice it exists.
+
+**2. The allowlist is derived from Cloudflare's own API description, not
+guessed and not learned from logs.** Cloudflare publishes the whole v4 API as
+OpenAPI at `github.com/cloudflare/api-schemas` (`openapi.json`). Every
+operation there is a method and a path template —
+`DELETE /zones/{zone_id}/dns_records/{dns_record_id}` — which is exactly what
+frisket matches on. So the classification is generated: enumerate the
+operations, mark each safe or not, emit rules. This replaces the earlier plan
+in PLAN.md's open question 3 of starting from "everything that is not a read"
+and carving from the logs; the logs are now for checking the classification,
+not for producing it.
+
+**3. The spec is pinned, and regenerating is a reviewed change.** The
+generated rules come from a specific commit of `api-schemas`, vendored or
+fetched by hash. A newer spec is not picked up automatically, because that
+would let a new endpoint be allowed without a person deciding it — the one
+thing decision 1 exists to prevent. Bumping the pin produces a diff of newly
+allowed operations, and that diff is what gets read.
+
+**4. Safe is decided per operation, with a rule and a list of exceptions.**
+The rule: `GET` and `HEAD` are safe. The exceptions go both ways and are
+written down by operation id, with a line each saying why:
+
+- reads that are not harmless — anything returning a secret or a token value
+  rather than metadata about one is not safe to let a session fetch unasked;
+- writes that are harmless and frequent enough that asking would train the
+  human to click through — for example `POST /graphql`, which is Cloudflare's
+  analytics *query* endpoint. Keep this list short; a prompt that fires too
+  often is worse than none.
+
+**5. The token is the floor, the allowlist is not.** Decision 6's order holds:
+the zone-scoped token is what actually keeps talebrary out of other zones.
+The allowlist and the gate only decide which of the things the token *can* do
+need a person. Nothing here is a substitute for minting the token narrowly.
+
+**6. Where it lives.** The generated classification is general — anyone's
+Cloudflare token hits the same API — so it ships in chase, as an app beside
+Claude Code, codex and GitHub. What a project supplies is only its own: the
+token and the zone. The app declares the credential, the project binds it
+(decision 3).
+
+## What has to exist first
+
+1. **frisket: `ask`.** A third outcome beside admit and refuse, holding the
+   request while a dialog names method, host and path, then injecting or
+   refusing on the answer. frisket should call an *asker* command by path (the
+   way `SUDO_ASKPASS` is a path) rather than know about zenity: it is a
+   headless daemon, and a user service has no display of its own. Retries have
+   to join a pending decision rather than raise a second dialog, and a client
+   timing out while a human decides has to be survivable.
+2. **frisket: path templates.** Scopes are matched by segment prefix today.
+   Operations need a wildcard *segment* — `/zones/*/dns_records/*` — and an
+   exact end, so that a rule for one operation does not also admit everything
+   under it. Segment matching is already how prefixes work, so this extends it
+   rather than replacing it.
+3. **chase: the Cloudflare app**, declaring the route for
+   `api.cloudflare.com`, the credential it needs, and the generated rules.
+4. **The envelope**, so the token comes from the project rather than the
+   machine. This is the larger piece (PLAN.md decisions 10, 11 and the
+   required changes to flong and frisket), and it is *not* needed to prove
+   1–3.
+
+## Order of work
+
+Prove the gate and the classification before the envelope. For the test
+project, bind a token for a **throwaway zone** from nix-config directly, and
+mark that binding as temporary in a comment. It contradicts decision 9 on
+purpose and for a short time: a disposable zone's token is not a
+"system-level cloud account", and it lets the gate be built and exercised
+without waiting on the project-carried credential. When the envelope lands,
+that binding goes and the project carries it.
+
+1. Mint a token for a throwaway zone, scoped to that zone.
+2. Generate the classification from a pinned `openapi.json`: count the
+   operations, count what the rule marks safe, and read the exceptions list
+   before writing any code that uses it.
+3. frisket: path templates, then `ask` with an asker command.
+4. chase: the Cloudflare app, wired to the generated rules.
+5. Run wrangler in a trusted session against the throwaway zone. Read frisket's
+   log: every request should be either allowed by name or have raised a
+   dialog. Anything else is a gap in the classification.
+6. Then the envelope, then talebrary.
+
+## Open
+
+- **Other hosts.** wrangler may talk to more than `api.cloudflare.com` —
+  uploads, telemetry, `dash.cloudflare.com` for login. Discover from frisket's
+  log in step 5 rather than guessing; login in particular should not be needed
+  at all with an API token.
+- **Absent from the spec.** A path the pinned spec does not describe is not on
+  the allowlist, so it asks. Whether it should instead be refused outright —
+  on the grounds that the spec is authoritative and an undescribed path is
+  either new or not an API call — is a choice to make once the log shows
+  whether any real traffic lands there.
+- **What the dialog shows.** Method, host and path are the minimum. The
+  operation's `summary` from the spec, if the request matched one, would say
+  what is about to happen in words — "Delete DNS Record" — which is better than
+  a path to read under time pressure.

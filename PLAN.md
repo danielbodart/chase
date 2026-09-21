@@ -339,7 +339,8 @@ configuration, which is exactly what should not travel.
    directories works — `/run/flong/<container>-…` is the shared prepared-root
    cache rather than per-session, and the session's own `XDG_RUNTIME_DIR` is
    created *inside* the container, which is the one place this must not go.
-3. **What `ask` matches on.** Method and path reach most of it, but the verb is
-   in the path suffix for some providers and in the body for a few. Starting
-   from "everything that is not a read" and carving out from the logs is the
-   plan; what the rule *is* once carved is open.
+3. **What `ask` matches on.** Answered for Cloudflare, and the answer is the
+   pattern for the rest: derive the allowlist from the provider's own API
+   description, pinned, and let anything not on it ask. See
+   [docs/cloudflare.md](docs/cloudflare.md). Still open for providers that do
+   not publish one.
