@@ -49,6 +49,15 @@ let
 in
 {
   options.chase.bindings.cloudflare = {
+    wranglerPackage = mkOption {
+      type = types.package;
+      default = pkgs.wrangler;
+      defaultText = lib.literalExpression "pkgs.wrangler";
+      description = ''
+        The wrangler a session gets. The consumer's to choose, as the other
+        apps' packages are: wrangler moves faster than a stable nixpkgs.
+      '';
+    };
     credentialFile = mkOption {
       type = types.nullOr types.path;
       default = null;
@@ -99,7 +108,7 @@ in
 
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf tier.apps.cloudflare.enable {
       config = {
-        environment.systemPackages = [ pkgs.wrangler ];
+        environment.systemPackages = [ bindings.wranglerPackage ];
         environment.variables.CLOUDFLARE_API_TOKEN = cfg.placeholder;
       };
     })) cfg.tiers;
