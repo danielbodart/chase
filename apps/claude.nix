@@ -165,12 +165,6 @@ in
           fi
         '';
 
-      # nspawn refuses to start if a bind source is missing.
-      home.activation.claudeSharedState = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        mkdir -p "$HOME"/.claude/{projects,plugins,file-history,plans,paste-cache,sessions}
-        touch "$HOME/.claude/history.jsonl"
-      '';
-
       # Containers cannot refresh a placeholder, and frisket never refreshes,
       # so the host's login is kept fresh here.
       systemd.user.services.claude-refresh = {
@@ -268,7 +262,14 @@ in
 
     chase.internal.tiers = lib.mapAttrs (name: tier:
       mkIf (tier.apps.claude.state != null) {
-        bindLines = lib.optional (tier.apps.claude.state == "isolated") transcriptBind;
+        bindLines = lib.optional (tier.apps.claude.state == "isolated") transcriptBind
+          # nspawn refuses to start if a bind source is missing, and Claude
+          # Code's own cleanup deletes plans/ once it empties: made at every
+          # launch, as the caller, and binding nothing itself.
+          ++ lib.optional (tier.apps.claude.state == "shared") ''
+            mkdir -p ${claudeDir}/{projects,plugins,file-history,plans,paste-cache,sessions}
+            touch ${claudeDir}/history.jsonl
+          '';
         # Written, not bound: Claude Code replaces the file by rename.
         setupLines = [
           ''
