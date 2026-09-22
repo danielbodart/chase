@@ -6,7 +6,7 @@ and 14 are the ones this builds on.
 
 ## Goal
 
-A test project, then talebrary, deploying to Cloudflare from inside a trusted
+A test project, then a real app, deploying to Cloudflare from inside a trusted
 session, with:
 
 - a token that exists only for that project, scoped to its account and, where
@@ -55,7 +55,7 @@ written down by operation id, with a line each saying why:
   often is worse than none.
 
 **5. The token is the floor, the allowlist is not.** Decision 6's order holds:
-the narrowly minted token is what actually keeps talebrary out of everything
+the narrowly minted token is what actually keeps a real app out of everything
 else. Zone scope alone is not enough: Workers scripts, KV, D1, R2 and the rest
 belong to the *account*, so a token restricted to one zone can still overwrite
 every Worker beside it. The unit of isolation is the account — a project that
@@ -165,7 +165,7 @@ purpose and for a short time: a disposable account's token is not a
 without waiting on the project-carried credential. When the envelope lands,
 that binding goes and the project carries it.
 
-1. A sandbox account, separate from talebrary's, with no zone — the gate only
+1. A sandbox account, separate from a real app's, with no zone — the gate only
    needs something to create and delete, and a KV namespace is that with no
    code. An account-owned token with only Workers KV Storage: Edit on that
    account, held in nix-config's sops as `cloudflare-test-token` beside
@@ -189,7 +189,7 @@ that binding goes and the project carries it.
    dialog. Anything else is a gap in the classification. *Done:* both
    dialogs, a refusal read by wrangler in Cloudflare's own error shape, and
    no request unmatched.
-6. Then the envelope, then talebrary. *Done:* talebrary's flake has a chase
+6. Then the envelope, then a real app. *Done:* a real app's flake has a chase
    section binding a token for its own account, restricted to local
    development, from its sops file; `wrangler dev` runs with remote D1, R2
    and AI, and its allow-list names the two preview-session endpoints
