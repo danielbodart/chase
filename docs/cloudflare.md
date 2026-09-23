@@ -44,15 +44,19 @@ thing decision 1 exists to prevent. Bumping the pin produces a diff of newly
 allowed operations, and that diff is what gets read.
 
 **4. Safe is decided per operation, with a rule and a list of exceptions.**
-The rule: `GET` and `HEAD` are safe. The exceptions go both ways and are
-written down by operation id, with a line each saying why:
+The rule: `GET` and `HEAD` are reads, `DELETE` is guarded, and everything else
+is a write ([PLAN.md](../PLAN.md), decision 18, says what each class is
+answered with). The exceptions go every way and are written down by operation
+id, under the class it is instead, with a line each saying why:
 
-- reads that are not harmless — anything returning a secret or a token value
+- reads that are writes — anything returning a secret or a token value
   rather than metadata about one is not safe to let a session fetch unasked;
-- writes that are harmless and frequent enough that asking would train the
+- writes that are reads, and frequent enough that asking would train the
   human to click through — for example `POST /graphql`, which is Cloudflare's
   analytics *query* endpoint. Keep this list short; a prompt that fires too
-  often is worse than none.
+  often is worse than none;
+- deletions that are writes, because they are easily undone, and writes that
+  are guarded, because they are not.
 
 **5. The token is the floor, the allowlist is not.** Decision 6's order holds:
 the narrowly minted token is what actually keeps a real app out of everything

@@ -1,5 +1,6 @@
 {
-  "ask": {
+  "read": {},
+  "write": {
     "GetExportJob": "Returns the download URL of a data security posture export.",
     "GetSessionChat": "Returns a download URL for a session's chat log, which expires and so is signed.",
     "GetSessionSummary": "Returns a download URL for a session's transcript summary, which expires and so is signed.",
@@ -61,6 +62,5 @@
     "zone-level-access-identity-providers-list-access-identity-providers": "Identity providers carry their OAuth client_secret and SCIM secret.",
     "zone-level-authenticated-origin-pulls-get-certificate-details": "The spec says the certificate carries the zone's private key.",
     "zone-level-authenticated-origin-pulls-list-certificates": "The spec says each certificate carries the zone's private key."
-  },
-  "allow": {}
+  }
 }

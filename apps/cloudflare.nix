@@ -3,30 +3,31 @@
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
   cfg = config.chase;
+  ops = import ../lib/operations.nix { inherit lib; };
   bindings = cfg.bindings.cloudflare;
   host = "api.cloudflare.com";
 
-  # EVERY OPERATION IN CLOUDFLARE'S OWN API DESCRIPTION, one rule each:
-  # admitted if it is known to be harmless, asked about otherwise, in the
-  # spec's own words. Generated from a pinned spec by
-  # ../scripts/operations.sh, with ./cloudflare/exceptions.json saying
-  # which reads are not harmless and which writes are; regenerating is a
-  # reviewed change, and its diff is the list of what is newly allowed. See
+  # EVERY OPERATION IN CLOUDFLARE'S OWN API DESCRIPTION, one rule each: a
+  # read, a write or guarded, in the spec's own words, answered as the tier
+  # and the app say (../lib/operations.nix). Generated from a pinned spec by
+  # ../scripts/operations.sh, with ./cloudflare/exceptions.json saying which
+  # reads are writes and which writes are reads; regenerating is a reviewed
+  # change, and its diff is the list of what is newly allowed. See
   # ../docs/cloudflare.md.
   operations = builtins.fromJSON (builtins.readFile ./cloudflare/operations.json);
 
-  # The route, as a policy document holds it: shared by a tier that binds a
-  # token from the machine and by a project that binds its own.
-  route = {
+  # The route in a tier, as a policy document holds it: shared by a tier that
+  # binds a token from the machine and by a project that binds its own.
+  route = tier: let s = ops.settings tier.apps.cloudflare; in {
     name = "cloudflare";
     inherit host;
     upstream = "https://${host}";
     placeholder = cfg.placeholder;
     # Secure by default: what the description does not name is asked
-    # about, so an endpoint Cloudflare ships next month is gated from the day
-    # it ships.
-    unmatched = "ask";
-    paths = operations;
+    # about unless the tier says otherwise, so an endpoint Cloudflare ships
+    # next month is gated from the day it ships.
+    unmatched = ops.unmatched s;
+    paths = ops.paths s operations;
     # Cloudflare's own error envelope, which wrangler reads: it then says why
     # a request was refused, where plain text gets "a request to the
     # Cloudflare API failed" and nothing more.
@@ -92,13 +93,15 @@ in
   };
 
   options.chase.tiers = mkOption {
-    type = types.attrsOf (types.submodule {
-      options.apps.cloudflare.enable = mkEnableOption ''
-        Cloudflare's API in this tier, through wrangler: what its API
-        description calls safe goes straight through, and everything else --
-        writes, deletes, and anything the description does not name -- waits
-        for a person to allow it, through frisket's asker'';
-    });
+    type = types.attrsOf (types.submodule ({ config, ... }: {
+      options.apps.cloudflare = ops.appOptions config // {
+        enable = mkEnableOption ''
+          Cloudflare's API in this tier, through wrangler: what its API
+          description calls a read goes straight through, and the rest --
+          writes, deletions, and anything the description does not name -- is
+          answered as `writes`, `guarded` and `unmatched` say'';
+      };
+    }));
   };
 
   config = {
@@ -131,14 +134,14 @@ in
     services.frisket.policies = lib.mapAttrs (name: tier: mkIf (tier.apps.cloudflare.enable && bindings.credentialFile != null) {
       # For a tier with an allowlist of names; trusted's `*` already covers it.
       allow = lib.mkAfter [ host ];
-      routes.cloudflare = removeAttrs route [ "name" ] // {
+      routes.cloudflare = removeAttrs (route tier) [ "name" ] // {
         credentialFile = bindings.credentialFile;
       };
     }) cfg.tiers;
 
     # A project that binds its own token, in ../project/options.nix.
     chase.internal.projectApps.cloudflare = {
-      inherit route;
+      routes = lib.mapAttrs (_: route) cfg.tiers;
       allow = [ host ];
       env.CLOUDFLARE_API_TOKEN = cfg.placeholder;
       envFromBinding.CLOUDFLARE_ACCOUNT_ID = "accountId";

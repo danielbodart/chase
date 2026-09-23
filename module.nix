@@ -8,6 +8,7 @@ self:
 let
   inherit (lib) mkOption types;
   cfg = config.chase;
+  operations = import ./lib/operations.nix { inherit lib; };
   lines = builtins.concatStringsSep "\n";
   chomp = lib.removeSuffix "\n";
   indent = s: lines (map (l: if l == "" then l else "  " + l) (lib.splitString "\n" s));
@@ -124,7 +125,9 @@ let
     };
 
   tierType = types.submodule {
-    options = {
+    # writes, guarded and unmatched: how every app in the tier answers what
+    # it does not allow outright (PLAN.md, decision 18).
+    options = operations.tierOptions // {
       egress = mkOption {
         type = types.enum [ "direct" "frisket" ];
         description = ''

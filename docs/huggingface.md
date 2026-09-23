@@ -37,7 +37,7 @@ Three things about it that the shared generator handles:
 
 In `apps/huggingface/exceptions.json`, each with its reason.
 
-**Reads that ask** — the ones that mint a credential rather than describe one:
+**Reads that are writes** — the ones that mint a credential rather than describe one:
 Xet's write token, five times over (a write reached by a GET: with it, bytes
 go into Xet's store with no further request frisket sees), a repository's
 JWT, the container registry's token, and webhooks, which carry their jobs'
@@ -46,7 +46,7 @@ metadata about the token, a Space's secrets are listed without their values,
 a service account's token secrets are never returned, and Xet's *read* token
 is what every download needs.
 
-**Writes that are harmless** — `paths-info` (a read by POST), `preupload` (says
+**Writes that are reads** — `paths-info` (a read by POST), `preupload` (says
 how a file would be uploaded, and changes nothing: the upload asks at its
 commit), `quicksearch` and `oauth/userinfo` by POST.
 
@@ -73,8 +73,8 @@ a legacy name asks, once, for the redirect.
 ## Strict
 
 Strict has no credential and no asker to speak of: a planted token is the
-threat there. So its route is the same rules with every one that would ask
-turned into a refusal, and anything unnamed refused — public downloads work,
+threat there. So the tier refuses writes, guarded operations and anything
+unnamed, and an anonymous app refuses them whatever the tier says — public downloads work,
 and nothing that writes or mints a token does. Measured: a planted token asking
 for Xet's write token is refused by rule, in the Hub's own error shape, and so
 is a POST.

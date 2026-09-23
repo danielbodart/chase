@@ -157,6 +157,40 @@
               && lib.any (p: p.refuse or false && p.path or "" == "/api/models/*/*/xet-write-token/*") route.paths
               && ! lib.any (p: p.ask or false) route.paths)
               || throw "assertions: an anonymous huggingface did not hold together";
+            # A CLASS IS ANSWERED AS THE TIER AND THE APP SAY (PLAN.md,
+            # decision 18). By default a read is allowed, a write asks and a
+            # guarded operation is refused; the tier's settings are every
+            # app's, and an app's own override them.
+            assert
+              (let
+                answers = extra:
+                  let
+                    config = configWith {
+                      imports = [ extra ];
+                      chase.tiers.trusted.apps.cloudflare.enable = true;
+                      chase.bindings.cloudflare.credentialFile = "/run/secrets/cloudflare-token";
+                    };
+                    route = config.services.frisket.policies.trusted.routes.cloudflare;
+                    of = class: lib.unique (map (p: if p.refuse or false then "refuse" else if p.ask or false then "ask" else "allow")
+                      (lib.filter (p: (p.operation.class or null) == class) route.paths));
+                  in
+                  { read = of "read"; write = of "write"; guarded = of "guarded"; inherit (route) unmatched;
+                    catchAll = lib.any (p: p.prefix or null == "/" && p.operation or null == null) route.paths; };
+                byDefault = answers { };
+                tierAllows = answers { chase.tiers.trusted.writes = "allow"; };
+                appRefuses = answers { chase.tiers.trusted = { writes = "allow"; apps.cloudflare.writes = "refuse"; guarded = "ask"; unmatched = "allow"; }; };
+              in
+              byDefault == { read = [ "allow" ]; write = [ "ask" ]; guarded = [ "refuse" ]; unmatched = "ask"; catchAll = false; }
+              && tierAllows.write == [ "allow" ] && tierAllows.guarded == [ "refuse" ]
+              && appRefuses == { read = [ "allow" ]; write = [ "refuse" ]; guarded = [ "ask" ]; unmatched = "refuse"; catchAll = true; }
+              || throw "assertions: classes were not answered as the tier and the app say: ${builtins.toJSON [ byDefault tierAllows appRefuses ]}");
+            # strict says refuse for all three, and an app in it that sets
+            # nothing asks about nothing.
+            assert
+              (let tier = (configWith { }).chase.tiers.strict; in
+              tier.writes == "refuse" && tier.guarded == "refuse" && tier.unmatched == "refuse"
+              && tier.apps.huggingface.writes == "refuse")
+              || throw "assertions: strict does not refuse what it does not allow";
             # NO PRIVILEGE ANYWHERE (PLAN.md, decision 2). flong runs every
             # session as its caller, nothing is granted through sudo, and flong
             # accepts what chase declares: none of flong's own assertions fail.

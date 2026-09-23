@@ -4,6 +4,11 @@
 {
   chase.tiers.strict = {
     egress = "frisket";
+    # Nobody is asked on behalf of someone else's code: what is not a read is
+    # refused, in every app, and so is what no operation names.
+    writes = "refuse";
+    guarded = "refuse";
+    unmatched = "refuse";
     # flong's strict filter and nothing added: no ptrace, no io_uring, no
     # mount, no keyring. strace and gdb do not work here, on purpose.
     seccomp.tier = "strict";

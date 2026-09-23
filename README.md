@@ -149,19 +149,34 @@ An app whose credential reaches an API with thousands of endpoints cannot be
 made safe by a list someone wrote from memory, or learned from whatever the log
 happened to see. Where the provider publishes an OpenAPI description, chase
 reads that instead: every operation it describes becomes one rule — a method
-and a path template, in the spec's own words — and the rule for each is simple
-enough to state in a line. A read goes straight through; anything else waits
-for a person, in a dialog that says what the operation does and shows the real
-request line beneath it. What the description does not name asks too, so an
-endpoint the provider ships next month is gated from the day it ships.
+and a path template, in the spec's own words — and its class is simple enough
+to state in a line: `GET` and `HEAD` are reads, `DELETE` is guarded, and
+everything else is a write. A read goes straight through. A write waits for a
+person, in a dialog that says what the operation does and shows the real
+request line beneath it, and a guarded operation is refused. What the
+description does not name asks too, so an endpoint the provider ships next
+month is gated from the day it ships.
+
+Those are the defaults. A tier says what each class is answered with for
+every app in it — `writes`, `guarded` and `unmatched`, each `allow`, `ask` or
+`refuse` — and an app in it may say otherwise for itself:
+
+```nix
+chase.tiers.trusted = {
+  writes = "ask";                      # the default, for every app
+  apps.cloudflare.guarded = "ask";     # this app's deletions are asked about
+};
+```
+
+strict says `refuse` for all three, and an anonymous app refuses all three
+whatever the tier says.
 
 The line is only where the list starts. `exceptions.json` beside each app says,
 operation by operation and with a reason each, where it is wrong: the reads
-that are not harmless — the ones that return a secret, or mint a token — ask,
-and the few writes that only read are let through. What a client needs that
-the description leaves out is written by hand, and may not overlap an
-operation the description answers differently. In strict, whatever would ask
-is refused.
+that are writes — the ones that return a secret, or mint a token — the few
+writes that only read, the deletions easily undone and the writes that cannot
+be. What a client needs that the description leaves out is written by hand,
+with its class, and may not overlap an operation of another class.
 
 The description is pinned by hash, and regenerating is a reviewed change —
 the diff of `operations.json`, one operation per line, is the list of what is

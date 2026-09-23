@@ -303,20 +303,20 @@ let
           # The project's allow-list: every operation id it names must be one
           # the route has, so a typo is an error rather than a rule that
           # silently allows nothing.
-          unknown=$(jq -nr --slurpfile apps "$apps" --arg a "$app" --argjson r "$result" '
-            ([$apps[0][$a].route.paths[].operation.id? // empty]) as $ids
+          unknown=$(jq -nr --slurpfile apps "$apps" --arg a "$app" --arg tier "$tier" --argjson r "$result" '
+            ([$apps[0][$a].routes[$tier].paths[].operation.id? // empty]) as $ids
             | ($r.bindings[$a].allow // [])[] | strings | select(. as $x | $ids | index($x) | not)
           ')
           [ -z "$unknown" ] || die "$ws: $app allows operations it does not have: $unknown"
           # The app's route, with the project's credential and allow-list, in
           # place of any route of the same name the tier had.
-          doc=$(jq --slurpfile apps "$apps" --arg a "$app" --arg cred "$run/secrets/$app" --argjson r "$result" '
+          doc=$(jq --slurpfile apps "$apps" --arg a "$app" --arg tier "$tier" --arg cred "$run/secrets/$app" --argjson r "$result" '
             $apps[0][$a] as $p
             | ($r.bindings[$a].allow // []) as $allow
             | ($allow | map(strings)) as $ids
-            | ($p.route
-                | .paths = ([.paths[] | if ((.operation.id? // "") as $id | $ids | index($id)) then .ask = false else . end]
-                    + [$allow[] | objects | {methods, path, ask: false}]))
+            | ($p.routes[$tier]
+                | .paths = ([.paths[] | if ((.operation.id? // "") as $id | $ids | index($id)) then del(.ask, .refuse) else . end]
+                    + [$allow[] | objects | {methods, path}]))
               as $route
             | .routes = ([.routes[]? | select(.name != $route.name)] + [$route + {credentialFile: $cred}])
             | if (.allow | index("*")) then . else .allow = (.allow + $p.allow | unique) end
@@ -381,10 +381,10 @@ in
       default = { };
       type = types.attrsOf types.anything;
       description = ''
-        What an app becomes when a project binds it: its frisket `route`, as
-        the policy document holds one but for `credentialFile`; the names it
-        adds to `allow`; the session's `env`; and `envFromBinding`, variables
-        taken from the binding's other fields.
+        What an app becomes when a project binds it: its frisket `routes`, by
+        tier, as the policy document holds one but for `credentialFile`; the
+        names it adds to `allow`; the session's `env`; and `envFromBinding`,
+        variables taken from the binding's other fields.
       '';
     };
   };

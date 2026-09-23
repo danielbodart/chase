@@ -1,5 +1,17 @@
 {
-  "ask": {
+  "read": {
+    "post-api-buckets-namespace-repo-paths-info": "A read by POST: the paths asked about, described.",
+    "post-api-containers-namespace-repo-paths-info": "A read by POST: the paths asked about, described.",
+    "post-api-datasets-namespace-repo-paths-info-rev": "A read by POST: the paths asked about, described. huggingface_hub's get_paths_info.",
+    "post-api-datasets-namespace-repo-preupload-rev": "Says whether a file would go through LFS or not, and changes nothing: the upload it prepares asks at its commit.",
+    "post-api-models-namespace-repo-paths-info-rev": "A read by POST: the paths asked about, described. huggingface_hub's get_paths_info.",
+    "post-api-models-namespace-repo-preupload-rev": "Says whether a file would go through LFS or not, and changes nothing: the upload it prepares asks at its commit.",
+    "post-api-quicksearch": "Search, by POST.",
+    "post-api-spaces-namespace-repo-paths-info-rev": "A read by POST: the paths asked about, described. huggingface_hub's get_paths_info.",
+    "post-api-spaces-namespace-repo-preupload-rev": "Says whether a file would go through LFS or not, and changes nothing: the upload it prepares asks at its commit.",
+    "post-oauth-userinfo": "The user's own profile, by POST, as the GET beside it returns it."
+  },
+  "write": {
     "get-api-buckets-namespace-repo-xet-write-token": "Mints a Xet write token: with it, bytes go into the store with no further request here. A write reached by a read.",
     "get-api-containers-namespace-repo-xet-write-token": "Mints a Xet write token: with it, bytes go into the store with no further request here. A write reached by a read.",
     "get-api-datasets-namespace-repo-jwt": "Mints a JWT for the repository -- write access for a Space in dev mode among its options.",
@@ -12,18 +24,6 @@
     "get-api-spaces-namespace-repo-jwt": "Mints a JWT for the repository -- write access for a Space in dev mode among its options.",
     "get-api-spaces-namespace-repo-xet-write-token-rev": "Mints a Xet write token: with it, bytes go into the repository's Xet store with no further request here. A write reached by a read."
   },
-  "allow": {
-    "post-api-buckets-namespace-repo-paths-info": "A read by POST: the paths asked about, described.",
-    "post-api-containers-namespace-repo-paths-info": "A read by POST: the paths asked about, described.",
-    "post-api-datasets-namespace-repo-paths-info-rev": "A read by POST: the paths asked about, described. huggingface_hub's get_paths_info.",
-    "post-api-datasets-namespace-repo-preupload-rev": "Says whether a file would go through LFS or not, and changes nothing: the upload it prepares asks at its commit.",
-    "post-api-models-namespace-repo-paths-info-rev": "A read by POST: the paths asked about, described. huggingface_hub's get_paths_info.",
-    "post-api-models-namespace-repo-preupload-rev": "Says whether a file would go through LFS or not, and changes nothing: the upload it prepares asks at its commit.",
-    "post-api-quicksearch": "Search, by POST.",
-    "post-api-spaces-namespace-repo-paths-info-rev": "A read by POST: the paths asked about, described. huggingface_hub's get_paths_info.",
-    "post-api-spaces-namespace-repo-preupload-rev": "Says whether a file would go through LFS or not, and changes nothing: the upload it prepares asks at its commit.",
-    "post-oauth-userinfo": "The user's own profile, by POST, as the GET beside it returns it."
-  },
   "rules": [
     {
       "methods": [
@@ -31,12 +31,12 @@
         "HEAD"
       ],
       "path": "/api/models",
-      "ask": false,
       "operation": {
         "id": "hf-list-models",
         "summary": "List models"
       },
-      "reason": "The listing and search huggingface_hub's list_models calls; the spec does not describe it."
+      "reason": "The listing and search huggingface_hub's list_models calls; the spec does not describe it.",
+      "class": "read"
     },
     {
       "methods": [
@@ -44,12 +44,12 @@
         "HEAD"
       ],
       "path": "/api/models/*/*",
-      "ask": false,
       "operation": {
         "id": "hf-models-info",
         "summary": "Get repository information"
       },
-      "reason": "huggingface_hub's model_info, which every whole-repository download starts with; the spec does not describe it."
+      "reason": "huggingface_hub's model_info, which every whole-repository download starts with; the spec does not describe it.",
+      "class": "read"
     },
     {
       "methods": [
@@ -57,12 +57,12 @@
         "HEAD"
       ],
       "path": "/api/models/*/*/revision/*",
-      "ask": false,
       "operation": {
         "id": "hf-models-info-revision",
         "summary": "Get repository information at a revision"
       },
-      "reason": "huggingface_hub's model_info at a revision; the spec does not describe it."
+      "reason": "huggingface_hub's model_info at a revision; the spec does not describe it.",
+      "class": "read"
     },
     {
       "methods": [
@@ -70,12 +70,12 @@
         "HEAD"
       ],
       "path": "/api/datasets",
-      "ask": false,
       "operation": {
         "id": "hf-list-datasets",
         "summary": "List datasets"
       },
-      "reason": "The listing and search huggingface_hub's list_datasets calls; the spec does not describe it."
+      "reason": "The listing and search huggingface_hub's list_datasets calls; the spec does not describe it.",
+      "class": "read"
     },
     {
       "methods": [
@@ -83,12 +83,12 @@
         "HEAD"
       ],
       "path": "/api/datasets/*/*",
-      "ask": false,
       "operation": {
         "id": "hf-datasets-info",
         "summary": "Get repository information"
       },
-      "reason": "huggingface_hub's dataset_info, which every whole-repository download starts with; the spec does not describe it."
+      "reason": "huggingface_hub's dataset_info, which every whole-repository download starts with; the spec does not describe it.",
+      "class": "read"
     },
     {
       "methods": [
@@ -96,12 +96,12 @@
         "HEAD"
       ],
       "path": "/api/datasets/*/*/revision/*",
-      "ask": false,
       "operation": {
         "id": "hf-datasets-info-revision",
         "summary": "Get repository information at a revision"
       },
-      "reason": "huggingface_hub's dataset_info at a revision; the spec does not describe it."
+      "reason": "huggingface_hub's dataset_info at a revision; the spec does not describe it.",
+      "class": "read"
     },
     {
       "methods": [
@@ -109,12 +109,12 @@
         "HEAD"
       ],
       "path": "/api/spaces",
-      "ask": false,
       "operation": {
         "id": "hf-list-spaces",
         "summary": "List Spaces"
       },
-      "reason": "The listing and search huggingface_hub's list_spaces calls; the spec does not describe it."
+      "reason": "The listing and search huggingface_hub's list_spaces calls; the spec does not describe it.",
+      "class": "read"
     },
     {
       "methods": [
@@ -122,12 +122,12 @@
         "HEAD"
       ],
       "path": "/api/spaces/*/*",
-      "ask": false,
       "operation": {
         "id": "hf-spaces-info",
         "summary": "Get repository information"
       },
-      "reason": "huggingface_hub's space_info, which every whole-repository download starts with; the spec does not describe it."
+      "reason": "huggingface_hub's space_info, which every whole-repository download starts with; the spec does not describe it.",
+      "class": "read"
     },
     {
       "methods": [
@@ -135,12 +135,12 @@
         "HEAD"
       ],
       "path": "/api/spaces/*/*/revision/*",
-      "ask": false,
       "operation": {
         "id": "hf-spaces-info-revision",
         "summary": "Get repository information at a revision"
       },
-      "reason": "huggingface_hub's space_info at a revision; the spec does not describe it."
+      "reason": "huggingface_hub's space_info at a revision; the spec does not describe it.",
+      "class": "read"
     },
     {
       "methods": [
@@ -148,12 +148,12 @@
         "HEAD"
       ],
       "path": "/api/models/*",
-      "ask": false,
       "operation": {
         "id": "hf-models-info-legacy",
         "summary": "Get repository information, by a name with no namespace"
       },
-      "reason": "A repository named without a namespace (gpt2) is answered with a redirect to the namespaced name; measured."
+      "reason": "A repository named without a namespace (gpt2) is answered with a redirect to the namespaced name; measured.",
+      "class": "read"
     },
     {
       "methods": [
@@ -161,12 +161,12 @@
         "HEAD"
       ],
       "path": "/api/datasets/*",
-      "ask": false,
       "operation": {
         "id": "hf-datasets-info-legacy",
         "summary": "Get repository information, by a name with no namespace"
       },
-      "reason": "A repository named without a namespace (gpt2) is answered with a redirect to the namespaced name; measured."
+      "reason": "A repository named without a namespace (gpt2) is answered with a redirect to the namespaced name; measured.",
+      "class": "read"
     },
     {
       "methods": [
@@ -174,12 +174,12 @@
         "HEAD"
       ],
       "prefix": "/*/resolve",
-      "ask": false,
       "operation": {
         "id": "hf-resolve-legacy",
         "summary": "Resolve a file, in a model named with no namespace"
       },
-      "reason": "A model named without a namespace (gpt2) is still downloaded at /gpt2/resolve/..., answered directly rather than redirected; measured."
+      "reason": "A model named without a namespace (gpt2) is still downloaded at /gpt2/resolve/..., answered directly rather than redirected; measured.",
+      "class": "read"
     },
     {
       "methods": [
@@ -187,12 +187,12 @@
         "HEAD"
       ],
       "prefix": "/datasets/*/resolve",
-      "ask": false,
       "operation": {
         "id": "hf-datasets-resolve-legacy",
         "summary": "Resolve a file, in a dataset named with no namespace"
       },
-      "reason": "As models' legacy names are."
+      "reason": "As models' legacy names are.",
+      "class": "read"
     }
   ]
 }
