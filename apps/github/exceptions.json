@@ -34,6 +34,7 @@
     "copilot/remove-organizations-from-enterprise-coding-agent-policy": "Removes orgs from the coding agent policy: narrows access; re-adding restores it.",
     "dependabot/remove-selected-repo-from-org-secret": "Removes a repo's access to an org secret: narrows access; the secret itself is kept.",
     "gists/unstar": "Unstars a gist; starring it again restores it.",
+    "git/delete-ref": "Deletes a branch or tag: its commits stay, and it is restored by pushing it again, or from its pull request. As a push that deletes one is, a write.",
     "interactions/remove-pull-request-bypass-list-for-repo": "Removes users from the PR cap bypass list: narrows privileges; re-adding restores it.",
     "issues/remove-all-labels": "Removes labels from an issue; labels are markers visible in the timeline and re-addable.",
     "issues/remove-assignees": "Removes assignees from an issue; assigning again restores it.",
