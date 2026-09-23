@@ -239,6 +239,40 @@
               || throw "assertions: the tiers' seccomp is not what they say";
             pkgs.runCommand "assertions" { } "touch $out";
 
+          # A PROJECT'S LISTS (PLAN.md, decision 18), as launch applies them
+          # to a policy document: a name before a category, a category before
+          # the tier, git's push by its operation, and a name the route does
+          # not have an error rather than a rule that decides nothing.
+          lists = pkgs.runCommand "lists" { nativeBuildInputs = [ pkgs.jq ]; } ''
+            doc='{"routes": [
+              {"name": "github", "paths": [
+                {"methods": ["POST"], "path": "/repos/*/*/pulls", "ask": true, "operation": {"id": "pulls/create", "summary": "s", "class": "write", "category": "pulls"}},
+                {"methods": ["PUT"], "path": "/repos/*/*/pulls/*/merge", "ask": true, "operation": {"id": "pulls/merge", "summary": "s", "class": "write", "category": "pulls"}},
+                {"methods": ["DELETE"], "path": "/repos/*/*/git/refs/*", "refuse": true, "operation": {"id": "git/delete-ref", "summary": "s", "class": "guarded", "category": "git"}}]},
+              {"name": "git", "git": {"repos": ["*"], "push": "ask"}, "paths": []}]}'
+            apply() { jq -c --arg app "$1" --argjson lists "$2" -f ${./project/lists.jq} <<< "$doc"; }
+            answer() { jq -r --arg id "$1" '.routes[].paths[] | select(.operation.id? == $id) | if .refuse then "refuse" elif .ask then "ask" else "allow" end'; }
+            fail() { echo "lists: $*" >&2; exit 1; }
+
+            got=$(apply github '{"allow": ["category:pulls"], "ask": ["git/delete-ref"], "refuse": ["pulls/merge"]}')
+            [ "$(answer pulls/create <<< "$got")" = allow ] || fail "a category did not decide"
+            [ "$(answer pulls/merge <<< "$got")" = refuse ] || fail "a name did not decide before its category"
+            [ "$(answer git/delete-ref <<< "$got")" = ask ] || fail "a guarded operation named could not be asked about"
+
+            got=$(apply github '{"allow": [{"methods": ["POST"], "path": "/markdown/x"}], "ask": [], "refuse": []}')
+            jq -e '.routes[0].paths[-1] == {"methods": ["POST"], "path": "/markdown/x"}' <<< "$got" >/dev/null \
+              || fail "an endpoint the description does not name was not added"
+
+            got=$(apply git '{"allow": ["git-receive-pack"], "ask": [], "refuse": []}')
+            [ "$(jq -r '.routes[1].git.push' <<< "$got")" = allow ] || fail "git's push was not decided by its operation"
+
+            for bad in '{"allow": ["pulls/nope"]}' '{"allow": ["category:nope"]}'; do
+              ! apply github "$bad" 2>/dev/null || fail "an unknown name was applied: $bad"
+            done
+            ! apply cloudflare '{"allow": ["x"]}' 2>/dev/null || fail "an app the tier does not have was applied"
+            touch $out
+          '';
+
           # The version script decides what every release is called, so it is
           # gated by the same check that gates the release.
           shellcheck = pkgs.runCommand "shellcheck"

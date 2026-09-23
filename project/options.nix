@@ -24,15 +24,43 @@ let
   # a name systemd does not list, at launch.
   syscallName = types.strMatching "@?[a-z0-9_-]+";
 
-  # An operation the project may use without being asked: an operation id
-  # from the API's own description, or -- for an endpoint the description
-  # does not name -- methods and an exact path template.
-  allowed = types.either (types.strMatching "[A-Za-z0-9_.:-]+") (types.submodule {
+  # What a project names in an app's lists: an operation id from the API's
+  # own description, a whole category of them as "category:<name>", or --
+  # for an endpoint the description does not name -- methods and an exact
+  # path template.
+  named = types.either (types.strMatching "category:.+|[A-Za-z0-9_./:-]+") (types.submodule {
     options = {
       methods = mkOption { type = types.nonEmptyListOf (types.enum [ "GET" "HEAD" "POST" "PUT" "PATCH" "DELETE" ]); };
       path = mkOption { type = types.strMatching "/[^[:space:]]*"; };
     };
   });
+
+  # An app's lists (PLAN.md, decision 18). What a project names decides
+  # before what its tier says: a name before a category, and either before
+  # the tier's `writes`, `guarded` and `unmatched`. Part of what is approved,
+  # like everything here, and ignored in an app that is anonymous.
+  lists = app: {
+    allow = mkOption {
+      type = types.listOf named;
+      default = [ ];
+      example = [ "category:pulls" ];
+      description = ''
+        What ${app} lets through without a dialog: writes this project makes
+        often enough that asking every time would only train a person to
+        click through. A rule equally specific to one that asks still asks.
+      '';
+    };
+    ask = mkOption {
+      type = types.listOf named;
+      default = [ ];
+      description = "What ${app} puts to a person, whatever its tier would do.";
+    };
+    refuse = mkOption {
+      type = types.listOf named;
+      default = [ ];
+      description = "What ${app} refuses, whatever its tier would do.";
+    };
+  };
 in
 {
   options.chase = {
@@ -74,7 +102,12 @@ in
       };
     };
 
-    bindings.cloudflare = {
+    bindings.huggingface = lists "Hugging Face";
+    bindings.github = lists "GitHub's API";
+    # Its push is the operation `git-receive-pack`.
+    bindings.git = lists "git";
+
+    bindings.cloudflare = lists "Cloudflare" // {
       credential.secret = mkOption {
         type = secretKey;
         default = null;
@@ -83,22 +116,6 @@ in
           The key in `secrets` holding the project's Cloudflare API token.
           Decrypted at launch outside the session, and added on the wire by
           frisket; the session holds the placeholder.
-        '';
-      };
-      allow = mkOption {
-        type = types.listOf allowed;
-        default = [ ];
-        example = [
-          "workers-ai-post-run-model"
-          { methods = [ "POST" ]; path = "/client/v4/accounts/*/workers/subdomain/edge-preview"; }
-        ];
-        description = ''
-          Writes this project makes often enough that asking every time would
-          only train a person to click through: an operation id, which then
-          goes through without a dialog, or methods and an exact path for an
-          endpoint Cloudflare's description does not name. Part of what is
-          approved, like everything here. A rule equally specific to one that
-          asks still asks.
         '';
       };
       accountId = mkOption {

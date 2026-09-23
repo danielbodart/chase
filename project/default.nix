@@ -69,6 +69,7 @@ let
       home=${lib.escapeShellArg cfg.home}
       state=$home/.local/state/chase
       apps=${apps}
+      lists=${./lists.jq}
       approver=${lib.escapeShellArg approver}
 
       # A checkout's key: its path, hashed, so a path with anything in it is
@@ -206,7 +207,7 @@ let
       # seccompPolicy: snapshot, approve, evaluate, approve, stage. Prints
       # the approved `allow` and `deny` lines, and nothing else, on stdout.
       approve() {
-        local ws=$1 machine=$2 result dir secrets file="" stage out
+        local ws=$1 machine=$2 result dir secrets file="" stage out twice
         exec 3>&1 1>&2
         umask 077
         [ -n "$machine" ] || die "no machine: flong names the session before seccompPolicy runs"
@@ -236,8 +237,19 @@ let
           return
         fi
         # A project that loosens nothing has no seccomp section in what is
-        # approved, so an envelope approved before there was one still is.
-        result=$(jq -c 'if .seccomp == {allow: [], deny: []} then del(.seccomp) else . end' <<< "$result")
+        # approved, and names nothing in lists it does not use, so an envelope
+        # approved before there were any still is.
+        result=$(jq -c '
+          if .seccomp == {allow: [], deny: []} then del(.seccomp) else . end
+          | .bindings |= (map_values(with_entries(select((.key | IN("ask", "refuse")) and .value == [] | not)))
+                          | with_entries(select(.value != {allow: []})))
+        ' <<< "$result")
+        # One name in two of an app's lists says two things: refused before
+        # anyone is asked to approve it.
+        twice=$(jq -r '.bindings | to_entries[] | .key as $app
+          | [.value | (.allow, .ask, .refuse) // [] | unique[]] | group_by(.) | map(select(length > 1)[0])[]
+          | "\($app): \(tojson)"' <<< "$result")
+        [ -z "$twice" ] || die "$ws: named in two lists: $twice"
         secrets=$(jq -r '.secrets // empty' <<< "$result")
         if [ -n "$secrets" ]; then
           file=$(realpath -e -- "$src/$secrets") || die "$ws: $secrets is not a tracked file"
@@ -269,7 +281,7 @@ let
 
       # postStart: what seccompPolicy staged for this launch, applied.
       launch() {
-        local tier=$1 ws=$2 machine=$3 stage staged_doc result run doc envfile app secret dir file="" secrets unknown
+        local tier=$1 ws=$2 machine=$3 stage staged_doc result run doc envfile app secret dir file="" secrets
         # Everything written here is the user's alone: decrypted secrets
         # above all.
         umask 077
@@ -300,25 +312,12 @@ let
           secret=$(jq -r --arg a "$app" '.bindings[$a].credential.secret // empty' <<< "$result")
           [ -n "$secret" ] || continue
           decrypt "$ws" "$file" "$secret" "$run/secrets/$app"
-          # The project's allow-list: every operation id it names must be one
-          # the route has, so a typo is an error rather than a rule that
-          # silently allows nothing.
-          unknown=$(jq -nr --slurpfile apps "$apps" --arg a "$app" --arg tier "$tier" --argjson r "$result" '
-            ([$apps[0][$a].routes[$tier].paths[].operation.id? // empty]) as $ids
-            | ($r.bindings[$a].allow // [])[] | strings | select(. as $x | $ids | index($x) | not)
-          ')
-          [ -z "$unknown" ] || die "$ws: $app allows operations it does not have: $unknown"
-          # The app's route, with the project's credential and allow-list, in
-          # place of any route of the same name the tier had.
-          doc=$(jq --slurpfile apps "$apps" --arg a "$app" --arg tier "$tier" --arg cred "$run/secrets/$app" --argjson r "$result" '
+          # The app's route, with the project's credential, in place of any
+          # route of the same name the tier had.
+          doc=$(jq --slurpfile apps "$apps" --arg a "$app" --arg tier "$tier" --arg cred "$run/secrets/$app" '
             $apps[0][$a] as $p
-            | ($r.bindings[$a].allow // []) as $allow
-            | ($allow | map(strings)) as $ids
-            | ($p.routes[$tier]
-                | .paths = ([.paths[] | if ((.operation.id? // "") as $id | $ids | index($id)) then del(.ask, .refuse) else . end]
-                    + [$allow[] | objects | {methods, path}]))
-              as $route
-            | .routes = ([.routes[]? | select(.name != $route.name)] + [$route + {credentialFile: $cred}])
+            | ($p.routes[$tier] + {credentialFile: $cred}) as $route
+            | .routes = ([.routes[]? | select(.name != $route.name)] + [$route])
             | if (.allow | index("*")) then . else .allow = (.allow + $p.allow | unique) end
           ' <<< "$doc")
           exports+=$(jq -nr --slurpfile apps "$apps" --arg a "$app" --argjson r "$result" '
@@ -329,6 +328,19 @@ let
           echo "chase: $ws: $app from $secrets:$secret" >&2
         done
         [ -z "$file" ] || rm -rf -- "$(dirname -- "$file")"
+        # What the project names in each app's lists, applied to the app's
+        # route in this tier: one with the project's credential or the
+        # tier's. Not to an app the tier does not have, or has anonymously
+        # -- with no credential, and no one to ask for someone else's code --
+        # which is said rather than refused (decision 8).
+        for app in $(jq -r '.bindings // {} | to_entries[] | select([.value | (.allow, .ask, .refuse) // [] | length] | add > 0) | .key' <<< "$result"); do
+          case $(jq -r --arg a "$app" '[.routes[]? | select(.name == $a)][0] | if . == null then "absent" elif .credentialFile then "bound" else "anonymous" end' <<< "$doc") in
+            absent) echo "chase: $ws: $app's lists ignored: $tier has no $app" >&2; continue ;;
+            anonymous) echo "chase: $ws: $app's lists ignored: $app is anonymous in $tier" >&2; continue ;;
+          esac
+          doc=$(jq --arg app "$app" --argjson lists "$(jq -c --arg a "$app" '.bindings[$a] | {allow, ask, refuse} | map_values(. // [])' <<< "$result")" \
+            -f "$lists" <<< "$doc") || die "$ws: its $app lists do not apply"
+        done
         printf '%s\n' "$doc" > "$run/policy.json"
         mkdir -p "$(dirname "$envfile")"
         printf '%s' "$exports" > "$envfile.new"

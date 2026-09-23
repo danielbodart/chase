@@ -314,15 +314,18 @@ No app keeps a switch of its own for what these three already say.
 
 **A tier with no one to ask says so, and a project cannot loosen it.** strict
 is `writes`, `guarded` and `unmatched` all `refuse`, written out in the tier,
-not a conversion hidden in each app; `ask` anywhere in a tier with no asker is
-an evaluation error. An anonymous app is the same three for that app. A
-project's lists are ignored for both, and that is reported (decision 8):
+not a conversion hidden in each app. frisket's asker is the machine's, not a
+tier's, so there is nothing for a tier to be checked against: saying so is
+what makes it so. An anonymous app refuses all three whatever its tier says.
+A project's lists are ignored for both, and that is reported (decision 8):
 strict takes no envelope anyway (decision 13), and a project that needs more
 goes into another tier, which is the machine's decision (decision 5), not the
 checkout's.
 
-This all resolves in chase, at eval: frisket gets rules that already say
-allow, ask or refuse. What frisket must add is the ability to name what it
+This all resolves in chase: the tier's and the app's settings at eval, and a
+project's lists at launch, against the tier's own policy document
+(`project/lists.jq`). frisket gets rules that already say allow, ask or
+refuse, and carries each operation's class and category only to show them. What frisket must add is the ability to name what it
 cannot see in a method and a path: a GraphQL mutation by its field, the refs a
 push updates, an LFS batch's operation. Each gets an operation id, so git,
 GraphQL and LFS are listed, switched and named like any other app.

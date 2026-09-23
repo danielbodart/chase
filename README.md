@@ -177,6 +177,23 @@ chase.tiers.trusted = {
 strict says `refuse` for all three, and an anonymous app refuses all three
 whatever the tier says.
 
+A project names what it wants otherwise in its envelope, per app — by
+operation id, by the API's own category, or by method and path for an
+endpoint the description does not name — and that decides before the tier
+does:
+
+```nix
+chaseModules.default = {
+  chase.bindings.github.allow = [ "category:pulls" ];
+  chase.bindings.github.refuse = [ "repos/delete" ];
+  chase.bindings.git.allow = [ "git-receive-pack" ];   # its pushes
+};
+```
+
+It is part of what is approved, a name in two lists is refused before anyone
+is asked, and a name the app does not have fails the launch. Not in strict,
+which takes no envelope, nor for an app a tier has anonymously.
+
 The line is only where the list starts. `exceptions.json` beside each app says,
 operation by operation and with a reason each, where it is wrong: the reads
 that are writes — the ones that return a secret, or mint a token — the few
