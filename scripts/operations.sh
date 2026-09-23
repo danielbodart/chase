@@ -19,6 +19,17 @@
 # What a class is ANSWERED with is not decided here: a tier and an app say
 # that, per class. This file says only what each operation is.
 #
+# GraphQL is an endpoint the app's exceptions.json declares, under
+# `graphql`: its path, what a query there is, and why it is there. A query is
+# a read, whatever it reads. Where source.json pins the provider's GraphQL
+# schema too, under `graphql`, each field of its mutation and subscription
+# types is an operation of its own, named by the field, in the schema's own
+# words and category: a write, or guarded where its name says it deletes, and
+# otherwise as exceptions.json says, by the same names as any other
+# operation. Without a schema an endpoint's mutations are unmatched. An
+# endpoint decides every request at its path, so the operations the spec has
+# there are replaced, and it names them.
+#
 # The spec is PINNED by hash, in the app's source.json. A newer one is never
 # picked up on its own, because that would let an endpoint be allowed without
 # a person deciding it (decision 3). Bumping the pin is a reviewed change, and
@@ -28,7 +39,9 @@
 # Where the spec comes from, first found: the argument; the app's vendored
 # openapi.json, for a provider that publishes its spec at a URL that moves
 # rather than at a commit; the pinned URL. Whichever it is, it must hash as
-# pinned, so the choice saves a download and changes nothing else.
+# pinned, so the choice saves a download and changes nothing else. A GraphQL
+# schema is the app's vendored schema.graphql, or its pinned URL, and is read
+# by ./schema.py, which needs graphql-core: `nix develop` has it.
 set -euo pipefail
 
 usage() {
@@ -48,6 +61,7 @@ sha256=$(jq -r .sha256 "$app/source.json")
 server=$(jq -r .server "$app/source.json")
 exceptions="$app/exceptions.json"
 out="$app/operations.json"
+scripts="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work" "$out.new"' EXIT
@@ -69,15 +83,49 @@ if [ "$actual" != "$sha256" ]; then
     exit 1
 fi
 
+# The GraphQL schema, pinned the same way, read into its operations.
+graphql_path=$(jq -r '.graphql.path // empty' "$app/source.json")
+schema="$work/schema.json"
+echo '{}' > "$schema"
+if [ -n "$graphql_path" ]; then
+    graphql_url=$(jq -r .graphql.url "$app/source.json")
+    graphql_sha256=$(jq -r .graphql.sha256 "$app/source.json")
+    sdl="$app/schema.graphql"
+    if [ ! -f "$sdl" ]; then
+        sdl="$work/schema.graphql"
+        curl -fsSL --retry 3 -o "$sdl" "$graphql_url"
+    fi
+    actual=$(sha256sum "$sdl" | cut -d' ' -f1)
+    if [ "$actual" != "$graphql_sha256" ]; then
+        echo "operations: $sdl is not the pinned GraphQL schema." >&2
+        echo "  expected sha256 $graphql_sha256" >&2
+        echo "  got             $actual" >&2
+        echo "  (pinned: $graphql_url, in $app/source.json)" >&2
+        exit 1
+    fi
+    python3 "$scripts/schema.py" "$sdl" > "$schema" || {
+        echo "operations: could not read $sdl (graphql-core is in \`nix develop\`)" >&2
+        exit 1
+    }
+fi
+
 # Every failure below is a halt, not a warning: a classification that is
 # quietly wrong is worse than none, because the gate would trust it.
-jq -r --slurpfile exceptions "$exceptions" --arg server "$server" --arg name "$name" '
+jq -r --slurpfile exceptions "$exceptions" --slurpfile schema "$schema" --arg graphqlPath "$graphql_path" \
+    --arg server "$server" --arg name "$name" '
     def fail($message): "operations: \($name): \($message)\n" | halt_error(1);
 
     def classes: ["read", "write", "guarded"];
 
     # The class a method has unless an exception says otherwise.
     def natural: if IN("GET", "HEAD") then "read" elif . == "DELETE" then "guarded" else "write" end;
+
+    # The class a GraphQL field has unless an exception says otherwise: as a
+    # DELETE is guarded, so is a mutation that says it deletes.
+    def fieldNatural: if startswith("delete") then "guarded" else "write" end;
+
+    # An operation'"'"'s summary is the first sentence of its description.
+    def sentence: (capture("^(?<s>[^\n]*?[.!?])(\\s|$)").s // split("\n")[0]);
 
     # What a rule matches on: a whole segment "*" for any segment holding a
     # parameter.
@@ -144,20 +192,35 @@ jq -r --slurpfile exceptions "$exceptions" --arg server "$server" --arg name "$n
     # exceptions.json, and in a project allow-list.
     | map(.id //= ("\(.method | ascii_downcase)\(.spec)" | gsub("[{}]"; "") | gsub("[^A-Za-z0-9_.:]+"; "-") | sub("-$"; "")))
 
-    | ([.[].id, $rules[].operation.id] | group_by(.) | map(select(length > 1)[0])) as $twice
+    # GraphQL endpoints, and the fields of the one whose schema is pinned.
+    | ($exceptions.graphql // []) as $endpoints
+    | ($endpoints | map(select((.reason | type) != "string" or .reason == "" or ((.path // "") | test("^/") | not)
+        or (.operation.id | type) != "string" or (.operation.summary | type) != "string") | .path // "?")) as $odd
+    | if $odd != [] then fail("a GraphQL endpoint needs a path, a reason, and its query'"'"'s operation id and summary: \($odd)") end
+    | if $graphqlPath != "" and ([$endpoints[].path] | index($graphqlPath)) == null
+      then fail("source.json pins a GraphQL schema for \($graphqlPath), which exceptions.json does not declare") end
+    | ([$schema[0] | to_entries[] | .key as $kind | .value[] | . + { kind: $kind }]) as $fields
+    | ($fields | map(select(.description == null) | .name)) as $odd
+    | if $odd != [] then fail("a GraphQL field has no description: \($odd)") end
+
+    # An endpoint replacing an operation may keep its id: it is that
+    # operation, seen into.
+    | ([$endpoints[].replaces[]?]) as $replaced
+    | ([(.[].id | select(. as $i | $replaced | index($i) | not)), $rules[].operation.id, $endpoints[].operation.id, $fields[].name]
+        | group_by(.) | map(select(length > 1)[0])) as $twice
     | if $twice != [] then fail("the same operation id twice: \($twice)") end
 
     # An exception naming an operation the spec no longer has is how a pin
     # bump that removed one gets noticed. One giving an operation the class
     # it has anyway would do nothing, so it is a mistake too.
-    | (map({ key: .id, value: .method }) | from_entries) as $methods
+    | ((map({ key: .id, value: (.method | natural) }) + ($fields | map({ key: .name, value: (.name | fieldNatural) }))) | from_entries) as $natural
     | (classes | map($reclassed[.] | keys[]) | group_by(.) | map(select(length > 1)[0])) as $both
     | if $both != [] then fail("in more than one class: \($both)") end
     | ([classes[] as $c | $reclassed[$c] | to_entries[] | select(.value | type != "string" or length == 0) | .key]) as $unreasoned
     | if $unreasoned != [] then fail("an exception needs a reason: \($unreasoned)") end
-    | ([classes[] as $c | $reclassed[$c] | keys[] | select($methods[.] == null)]) as $missing
+    | ([classes[] as $c | $reclassed[$c] | keys[] | select($natural[.] == null)]) as $missing
     | if $missing != [] then fail("not in the pinned spec: \($missing)") end
-    | ([classes[] as $c | $reclassed[$c] | keys[] | select($methods[.] | natural == $c)]) as $same
+    | ([classes[] as $c | $reclassed[$c] | keys[] | select($natural[.] == $c)]) as $same
     | if $same != [] then fail("an exception gives an operation the class it has anyway: \($same)") end
     | ([classes[] as $c | $reclassed[$c] | keys[] | { key: ., value: $c }] | from_entries) as $exception
 
@@ -206,7 +269,25 @@ jq -r --slurpfile exceptions "$exceptions" --arg server "$server" --arg name "$n
           elif (map([.operation.class, .operation.summary]) | unique | length) == 1 then sort_by(.operation.id)[0]
           else fail("the same method and template twice: \(.[0].methods) \(.[0].path // .[0].prefix) (\(map(.operation.id) | join(", ")))") end)
 
+    # A GraphQL endpoint decides every request at its path, so what the spec
+    # has there is replaced -- and named, so that it is not replaced unseen.
+    | . as $rest
+    | ([$endpoints[] | .path as $p | ((.replaces // []) | sort) as $said
+        | ([$rest[] | select(.path == $p) | .operation.id] | sort) as $there
+        | select($said != $there) | "\($p) has \($there), and replaces \($said)"]) as $odd
+    | if $odd != [] then fail("a GraphQL endpoint names what the spec has at its path, in `replaces`: \($odd)") end
+    | [$rest[] | select(.path as $p | [$endpoints[].path] | index($p) | not)]
+
     | sort_by(.path // .prefix, .methods[0])
+    | . + [$endpoints[] | { graphql: .path, query: true, operation: (.operation + { class: "read" }) }]
+    + [$fields | sort_by(.kind, .name)[]
+        | (.description | sentence) as $summary
+        | ([.description] + (if .deprecated then ["Deprecated: \(.deprecated)"] else [] end) | join("\n\n")) as $description
+        | { graphql: $graphqlPath, (.kind): .name,
+            operation: ({ id: .name, summary: $summary }
+              + (if $description == $summary then {} else { description: $description } end)
+              + { class: ($exception[.name] // (.name | fieldNatural)) }
+              + (if .category == null then {} else { category } end)) }]
     | "[\n" + (map(tojson) | join(",\n")) + "\n]"
 ' "$spec" > "$out.new"
 
@@ -214,3 +295,5 @@ mv "$out.new" "$out"
 
 jq -r --arg name "$name" 'length as $n | group_by(.operation.class) | map("\(length) \(.[0].operation.class)") | join(", ")
     | "operations: \($name): \($n) operations: \(.)."' "$out" >&2
+jq -r --arg name "$name" '[.[] | select(.graphql)] | select(length > 0)
+    | "operations: \($name): of which GraphQL: \(map(select(.query)) | length) queries, \(map(select(.mutation)) | length) mutations, \(map(select(.subscription)) | length) subscriptions."' "$out" >&2

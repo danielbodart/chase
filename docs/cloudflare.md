@@ -216,11 +216,13 @@ that binding goes and the project carries it.
   has, mildly: wrangler retries and succeeds).
 
 - **`POST /graphql` is not in the spec.** Decision 4 names it as the example
-  of a harmless write, but the pinned spec does not describe it, so it cannot
-  be an exception by operation id: today it matches nothing, and asks. If the
-  log shows it firing often enough to matter, it is a hand-written rule beside
-  the generated ones — which is the next point, arriving early. Decided: it
-  stays asking until the log says otherwise.
+  of a harmless write, but the pinned spec does not describe it. It is
+  GraphQL, which frisket reads: exceptions.json declares it under `graphql`,
+  and a query there is a read. wrangler reads R2's and D1's metrics from it,
+  always by query. Cloudflare publishes no schema, and the Analytics API has
+  no mutations, so a mutation is `unmatched`. Cloudforce One's two event
+  aggregation endpoints are GraphQL too, and are declared the same way,
+  replacing the operations the spec has at their paths.
 
 - **Other hosts.** wrangler may talk to more than `api.cloudflare.com` —
   uploads, telemetry, `dash.cloudflare.com` for login. Discover from frisket's

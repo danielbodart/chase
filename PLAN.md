@@ -328,7 +328,9 @@ project's lists at launch, against the tier's own policy document
 refuse, and carries each operation's class and category only to show them. What frisket must add is the ability to name what it
 cannot see in a method and a path: a GraphQL mutation by its field, the refs a
 push updates, an LFS batch's operation. Each gets an operation id, so git,
-GraphQL and LFS are listed, switched and named like any other app.
+GraphQL and LFS are listed, switched and named like any other app. GraphQL
+has it: frisket reads the body, a query is a read, and each mutation is the
+schema's operation of that name, generated as a REST operation is.
 
 ## Considered and rejected
 
@@ -470,7 +472,8 @@ configuration, which is exactly what should not travel.
    [docs/cloudflare.md](docs/cloudflare.md), and decision 18 for how the
    answer is chosen. Still open for providers that do not publish one. GitHub
    publishes three: REST as OpenAPI (`github/rest-api-description`, pinned by
-   commit), GraphQL as a schema (`docs.github.com/public/fpt/schema.docs.graphql`),
+   commit), GraphQL as a schema (`github/docs`, pinned by commit, and
+   generated from as REST is: [docs/github.md](docs/github.md)),
    and git's smart HTTP and LFS as prose and JSON schemas in git's and
    git-lfs's own repositories. gh has none: what a command sends is what
    `GH_DEBUG=api`, or frisket's log, shows.

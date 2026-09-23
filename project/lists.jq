@@ -13,7 +13,9 @@
 # it. An operation the description has is loosened by its name, which is
 # what the person approving it reads. And so is an entry in two lists, which
 # ../project/default.nix refuses before approval.
-# git's push is the operation `git-receive-pack`, in frisket's git rule.
+# git's push is the operation `git-receive-pack`, in frisket's git rule; a
+# GraphQL query and each mutation are operations of their own, in its
+# graphql rules, and an endpoint's path is theirs.
 
 def answer($verb):
   if $verb == "allow" then del(.ask, .refuse)
@@ -28,6 +30,13 @@ def overlaps($path; $rule):
   | (if $rule.path then ($x | length) == ($y | length) else ($x | length) >= ($y | length) end)
     and all(range($y | length); $x[.] == "*" or $y[.] == "*" or $x[.] == $y[.]);
 
+# One of a route's operations, answered by name or else by category.
+def decided($byId; $byCategory):
+  (.operation.id? // null) as $id | (.operation.category? // null) as $c
+  | if $id != null and $byId[$id] then answer($byId[$id])
+    elif $c != null and $byCategory[$c] then answer($byCategory[$c])
+    else . end;
+
 def push($verb): { allow: "allow", ask: "ask", refuse: "refuse" }[$verb];
 
 ($lists | to_entries | map(.key as $verb | .value[] | { verb: $verb, entry: . })) as $entries
@@ -37,18 +46,22 @@ def push($verb): { allow: "allow", ask: "ask", refuse: "refuse" }[$verb];
 | (.routes | map(.name) | index($app)) as $i
 | if $i == null then error("\($app) is not in this tier") else . end
 | .routes[$i] as $route
-| ([$route.paths[]?.operation.id? // empty] + (if $route.git then ["git-receive-pack"] else [] end)) as $ids
-| ([$route.paths[]?.operation.category? // empty] | unique) as $categories
+| ([$route.graphql[]? | (.query // empty), .mutations[]?, .subscriptions[]?]) as $fields
+| ([$route.paths[]?.operation.id? // empty, $fields[].operation.id? // empty] + (if $route.git then ["git-receive-pack"] else [] end)) as $ids
+| ([$route.paths[]?.operation.category? // empty, $fields[].operation.category? // empty] | unique) as $categories
 | ([$byId | keys[] | select(. as $x | $ids | index($x) | not)]
    + [$byCategory | keys[] | select(. as $x | $categories | index($x) | not) | "category:\(.)"]) as $unknown
 | if $unknown != [] then error("\($app) has no \($unknown | join(", "))") else . end
 | ([$endpoints[].entry as $e | $route.paths[]? | select(.operation.id? and ([.methods[]] - $e.methods) != .methods and overlaps($e.path; .))
-    | "\($e.methods | join(",")) \($e.path) is \(.operation.id)"] | unique) as $described
+    | "\($e.methods | join(",")) \($e.path) is \(.operation.id)"]
+  + [$endpoints[].entry as $e | $route.graphql[]? | select(overlaps($e.path; .))
+    | "\($e.methods | join(",")) \($e.path) is GraphQL's, by operation"] | unique) as $described
 | if $described != [] then error("\($app) describes these, so name them: \($described | join("; "))") else . end
 | .routes[$i] |= (
-    .paths = ([.paths[]? | (.operation.id? // null) as $id | (.operation.category? // null) as $c
-        | if $id != null and $byId[$id] then answer($byId[$id])
-          elif $c != null and $byCategory[$c] then answer($byCategory[$c])
-          else . end]
+    .paths = ([.paths[]? | decided($byId; $byCategory)]
       + [$endpoints[] | .verb as $v | { methods: .entry.methods, path: .entry.path } | answer($v)])
+    | if .graphql then .graphql |= map(
+        (if .query then .query |= decided($byId; $byCategory) else . end)
+        | .mutations |= map(decided($byId; $byCategory))
+        | .subscriptions |= map(decided($byId; $byCategory))) else . end
     | if .git and $byId["git-receive-pack"] then .git.push = push($byId["git-receive-pack"]) else . end)

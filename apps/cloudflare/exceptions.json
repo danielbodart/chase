@@ -276,5 +276,43 @@
     "zone-level-access-short-lived-certificate-c-as-create-a-short-lived-certificate-ca": "Creates an SSH short-lived certificate CA: a new way to authenticate to servers.",
     "zone-level-zero-trust-organization-update-your-zero-trust-organization": "Updates the Zero Trust organization: changes login, auth domain and session settings.",
     "zone-lockdown-update-a-zone-lockdown-rule": "Updates a Zone Lockdown rule: changes which IPs may reach locked URLs."
-  }
+  },
+  "graphql": [
+    {
+      "path": "/client/v4/graphql",
+      "reason": "The GraphQL Analytics API, which wrangler reads R2 and D1 metrics from. It has no mutations: one would be unmatched.",
+      "operation": {
+        "id": "graphql-query",
+        "summary": "A GraphQL Analytics query",
+        "description": "Reads analytics for the zones and accounts it names.",
+        "category": "graphql"
+      }
+    },
+    {
+      "path": "/client/v4/accounts/*/cloudforce-one/events/graphql",
+      "reason": "Aggregations over threat events, by GraphQL query. Cloudflare publishes no schema: a mutation would be unmatched.",
+      "replaces": [
+        "post_EventGraphQL"
+      ],
+      "operation": {
+        "id": "post_EventGraphQL",
+        "summary": "GraphQL endpoint for event aggregation",
+        "description": "Execute GraphQL aggregations over threat events. Supports multi-dimensional group-bys, optional date range filtering, and multi-dataset aggregation.",
+        "category": "Event"
+      }
+    },
+    {
+      "path": "/client/v4/accounts/*/cloudforce-one/v2/events/graphql",
+      "reason": "Aggregations over threat events, by GraphQL query. Cloudflare publishes no schema: a mutation would be unmatched.",
+      "replaces": [
+        "post_EventGraphQLV2"
+      ],
+      "operation": {
+        "id": "post_EventGraphQLV2",
+        "summary": "GraphQL endpoint for event aggregation",
+        "description": "Execute GraphQL aggregations over threat events. Supports multi-dimensional group-bys, optional date range filtering, and multi-dataset aggregation.",
+        "category": "Event"
+      }
+    }
+  ]
 }

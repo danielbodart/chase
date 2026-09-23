@@ -111,8 +111,8 @@ host would burn it.
 **GitHub**, as two apps sharing one credential, bound from outside as
 `chase.bindings.github.credentialFile` — `gh auth token`'s, read by frisket.
 `github` is the API and gh: its allowlist is generated from GitHub's own REST
-description, and GraphQL, where gh does most of its work, is one POST for
-every query and mutation, so a write until frisket can tell them apart. `git`
+description, and GraphQL's, where gh does most of its work, from GitHub's
+schema: a query is a read, and each mutation an operation by its field. `git`
 is git over HTTPS: remotes are rewritten from `git@github.com:` to HTTPS, so
 git goes through frisket and no key is needed in the session, and the token
 arrives as Basic auth's password under `x-access-token`. A fetch is a read and
@@ -206,9 +206,9 @@ the diff of `operations.json`, one operation per line, is the list of what is
 newly allowed:
 
 ```sh
-scripts/operations.sh cloudflare
-scripts/operations.sh huggingface
-scripts/operations.sh github
+nix develop -c scripts/operations.sh cloudflare
+nix develop -c scripts/operations.sh huggingface
+nix develop -c scripts/operations.sh github
 ```
 
 Cloudflare's and GitHub's are fetched from a commit of their own repositories;

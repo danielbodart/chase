@@ -127,20 +127,28 @@
               "credentialFile is null";
             # A PUSH IS A WRITE (decision 18), answered as git's writes say:
             # asked about in trusted by default, allowed where git says so
-            # whatever gh's writes are, and refused in strict. gh's GraphQL is
-            # a write too.
+            # whatever gh's writes are, and refused in strict. gh's GraphQL
+            # is by operation: a query is a read, a mutation is answered as
+            # github's writes or guarded say, and what frisket cannot
+            # classify as github's unmatched does.
             assert
               (let
                 policies = extra: (configWith extra).services.frisket.policies;
                 byDefault = policies { };
                 gitAllows = policies { chase.tiers.trusted.apps.git.writes = "allow"; };
-                graphql = p: (lib.findFirst (r: r.path or null == "/graphql") null p.trusted.routes.github.paths);
+                ghAllows = policies { chase.tiers.trusted.apps.github = { writes = "allow"; unmatched = "allow"; }; };
+                graphql = p: lib.head p.trusted.routes.github.graphql;
+                mutation = p: field: lib.findFirst (m: m.field == field) null (graphql p).mutations;
               in
               byDefault.trusted.routes.git.git.push == "ask"
               && gitAllows.trusted.routes.git.git.push == "allow"
               && byDefault.strict.routes.git.git.push == "refuse"
               && byDefault.strict.routes.git.credentialFile == null
-              && (graphql byDefault).ask && ! (graphql gitAllows).refuse && (graphql gitAllows).ask
+              && (graphql byDefault).path == "/graphql" && ! (graphql byDefault).query.ask && ! (graphql byDefault).query.refuse
+              && (mutation byDefault "closePullRequest").ask && (mutation gitAllows "closePullRequest").ask
+              && ! (mutation ghAllows "closePullRequest").ask && (mutation ghAllows "deleteIssue").refuse
+              && (graphql byDefault).unmatched == "ask" && (graphql ghAllows).unmatched == "allow"
+              && ! lib.any (r: r.path or null == "/graphql") byDefault.trusted.routes.github.paths
               || throw "assertions: git's push or gh's GraphQL was not answered as their writes say");
             # Cloudflare needs no token of the tier's own -- a project brings
             # one -- and without one the tier has no Cloudflare route.
@@ -249,7 +257,14 @@
                 {"methods": ["POST"], "path": "/repos/*/*/pulls", "ask": true, "operation": {"id": "pulls/create", "summary": "s", "class": "write", "category": "pulls"}},
                 {"methods": ["PUT"], "path": "/repos/*/*/pulls/*/merge", "ask": true, "operation": {"id": "pulls/merge", "summary": "s", "class": "write", "category": "pulls"}},
                 {"methods": ["DELETE"], "path": "/repos/*/*/git/refs/*", "refuse": true, "operation": {"id": "git/delete-ref", "summary": "s", "class": "guarded", "category": "git"}}]},
-              {"name": "git", "git": {"repos": ["*"], "push": "ask"}, "paths": []}]}'
+              {"name": "git", "git": {"repos": ["*"], "push": "ask"}, "paths": []},
+              {"name": "gh", "paths": [], "graphql": [{"path": "/graphql", "unmatched": "ask",
+                "query": {"operation": {"id": "graphql-query", "summary": "s", "class": "read", "category": "graphql"}},
+                "mutations": [
+                  {"field": "mergePullRequest", "ask": true, "operation": {"id": "mergePullRequest", "summary": "s", "class": "write", "category": "pulls"}},
+                  {"field": "closePullRequest", "ask": true, "operation": {"id": "closePullRequest", "summary": "s", "class": "write", "category": "pulls"}},
+                  {"field": "deleteIssue", "refuse": true, "operation": {"id": "deleteIssue", "summary": "s", "class": "guarded", "category": "issues"}}],
+                "subscriptions": []}]}]}'
             apply() { jq -c --arg app "$1" --argjson lists "$2" -f ${./project/lists.jq} <<< "$doc"; }
             answer() { jq -r --arg id "$1" '.routes[].paths[] | select(.operation.id? == $id) | if .refuse then "refuse" elif .ask then "ask" else "allow" end'; }
             fail() { echo "lists: $*" >&2; exit 1; }
@@ -262,6 +277,18 @@
             got=$(apply github '{"allow": [{"methods": ["POST"], "path": "/markdown/x"}], "ask": [], "refuse": []}')
             jq -e '.routes[0].paths[-1] == {"methods": ["POST"], "path": "/markdown/x"}' <<< "$got" >/dev/null \
               || fail "an endpoint the description does not name was not added"
+
+            # A GraphQL mutation is named, and its category decided, as any
+            # operation is; and GraphQL's path is not a project's to name.
+            field() { jq -r --arg f "$1" '.routes[2].graphql[0].mutations[] | select(.field == $f) | if .refuse then "refuse" elif .ask then "ask" else "allow" end'; }
+            got=$(apply gh '{"allow": ["category:pulls", "deleteIssue"], "ask": [], "refuse": ["mergePullRequest"]}')
+            [ "$(field closePullRequest <<< "$got")" = allow ] || fail "a GraphQL category did not decide"
+            [ "$(field mergePullRequest <<< "$got")" = refuse ] || fail "a GraphQL mutation's name did not decide before its category"
+            [ "$(field deleteIssue <<< "$got")" = allow ] || fail "a guarded GraphQL mutation named could not be allowed"
+            got=$(apply gh '{"allow": [], "ask": [], "refuse": ["graphql-query"]}')
+            jq -e '.routes[2].graphql[0].query.refuse' <<< "$got" >/dev/null || fail "GraphQL's query was not decided by its name"
+            ! apply gh '{"allow": [{"methods": ["POST"], "path": "/graphql"}]}' 2>/dev/null \
+              || fail "GraphQL's path was allowed as an endpoint"
 
             got=$(apply git '{"allow": ["git-receive-pack"], "ask": [], "refuse": []}')
             [ "$(jq -r '.routes[1].git.push' <<< "$got")" = allow ] || fail "git's push was not decided by its operation"
@@ -285,6 +312,16 @@
               shellcheck ${./scripts/version.sh} ${./scripts/operations.sh}
               touch $out
             '';
+        });
+
+      # What ./scripts/operations.sh needs: jq and curl for every app, and
+      # graphql-core for a GraphQL schema.
+      devShells = forAllSystems (system:
+        let pkgs = nixpkgs.legacyPackages.${system}; in
+        {
+          default = pkgs.mkShell {
+            packages = [ pkgs.jq pkgs.curl pkgs.shellcheck (pkgs.python3.withPackages (p: [ p.graphql-core ])) ];
+          };
         });
 
       formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixpkgs-fmt);

@@ -79,9 +79,30 @@ rec {
 
   # Every operation as a rule, and -- where what matches nothing is allowed --
   # one more that matches everything and is less specific than any of them.
+  # GraphQL's operations are not paths: `graphql` has them.
   paths = s: operations:
-    map (rule s) operations
+    map (rule s) (lib.filter (r: !(r ? graphql)) operations)
     ++ lib.optional (s.unmatched == "allow") { methods = every; prefix = "/"; };
+
+  # frisket's GraphQL endpoints: each one's query, and its mutations and
+  # subscriptions by field, answered as any operation is, the strictest in a
+  # request deciding. A field no operation names is the app's `unmatched`;
+  # what frisket cannot see is asked about where that allows.
+  graphql = s: operations:
+    let
+      of = path: lib.filter (r: r.graphql or null == path) operations;
+      field = kind: r: { field = r.${kind}; } // removeAttrs (rule s r) [ "graphql" kind ];
+      fields = kind: path: map (field kind) (lib.filter (r: r ? ${kind}) (of path));
+      endpoint = path: {
+        inherit path;
+        inherit (s) unmatched;
+        mutations = fields "mutation" path;
+        subscriptions = fields "subscription" path;
+      } // lib.optionalAttrs (lib.any (r: r.query or false) (of path)) {
+        query = removeAttrs (rule s (lib.findFirst (r: r.query or false) null (of path))) [ "graphql" "query" ];
+      };
+    in
+    map endpoint (lib.unique (map (r: r.graphql) (lib.filter (r: r ? graphql) operations)));
 
   # frisket's own `unmatched`: an allowed one is the rule above.
   unmatched = s: if s.unmatched == "ask" then "ask" else "refuse";

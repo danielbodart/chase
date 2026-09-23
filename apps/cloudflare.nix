@@ -28,6 +28,10 @@ let
     # next month is gated from the day it ships.
     unmatched = ops.unmatched s;
     paths = ops.paths s operations;
+    # The GraphQL Analytics API, which wrangler reads metrics from, and
+    # Cloudforce One's: a query is a read, and there is no schema to name
+    # a mutation by, so one is unmatched.
+    graphql = ops.graphql s operations;
     # Cloudflare's own error envelope, which wrangler reads: it then says why
     # a request was refused, where plain text gets "a request to the
     # Cloudflare API failed" and nothing more.

@@ -36,7 +36,7 @@ GitHub publishes OpenAPI 3.0 at
 one file per API version, and it is pinned by commit, as Cloudflare's is, in
 `apps/github/source.json`.
 
-    scripts/operations.sh github
+    nix develop -c scripts/operations.sh github
 
 **Which version.** gh sends `X-GitHub-Api-Version: 2022-11-28`, and the
 pinned file is `2026-03-10`. They describe the same 1221 operations, with the
@@ -68,12 +68,38 @@ the leaked secret itself.
 **Writes that are reads**: Markdown rendering and the bulk attestation
 listings, which are reads by POST.
 
-**What the spec leaves out**, written by hand as `rules`: GraphQL. Every
-query and every mutation is `POST /graphql`, and which it is is in the body,
-where frisket does not yet look. Until it does, the whole endpoint is a write,
-and gh — which does most of its work over GraphQL, reads included — asks for
-nearly everything where writes ask. A tier that wants gh usable meanwhile
-allows github's writes, and says so.
+**Mutations that are guarded**: GraphQL's, below, where they are not
+`delete…`, and **deletions that are writes** among them: `deleteRef`, as
+REST's `git/delete-ref` is, and `deleteLinkedBranch`, which only unlinks.
+
+## GraphQL
+
+gh does most of its work over GraphQL, reads included, and every request is
+`POST /graphql`: what it does is in the body, which frisket reads
+(frisket's README, "GraphQL"). exceptions.json declares the endpoint, under
+`graphql`, and what a query there is: `graphql-query`, a read. GitHub's schema
+is pinned beside the REST description, in `source.json`, at a commit of
+[github/docs](https://github.com/github/docs) — docs.github.com serves the
+latest and moves — and every field of its `Mutation` type is an operation:
+
+- **Operation ids** are the fields': `closePullRequest`, `mergePullRequest`,
+  what gh's own source calls them. 275 of them; there are no subscriptions.
+- **Categories** are `@docsCategory`, the grouping GitHub's documentation
+  uses, with the same names as REST's: `category:pulls` is both APIs' pull
+  requests.
+- **Classes**: a write, and guarded where the field's name says it deletes,
+  as a DELETE is guarded; the exceptions follow the REST operation each one
+  mirrors — a ref updated, a branch protected, a collaborator or a team given
+  access, an issue transferred, an enterprise's owners and settings — with a
+  reason each. None is a read.
+
+A request is answered by the strictest of everything its document holds —
+every mutation, in every operation — and the dialog lists every one. A
+mutation the pinned schema does not have is answered as github's `unmatched`
+says. What frisket cannot see — a batch, a persisted query, a GET, a body
+over 1 MiB, a document it refuses to read — is asked about, or refused where
+`unmatched` refuses, and never allowed: it would be whatever the session
+chose to hide.
 
 ## Hosts
 
@@ -84,10 +110,6 @@ presigned URLs or none: allowed, and never intercepted.
 
 ## Open
 
-- **GraphQL by mutation.** The schema is published
-  (`docs.github.com/public/fpt/schema.docs.graphql`); each mutation field
-  would be an operation, and a query a read. frisket has to read the body to
-  know which.
 - **A push by the refs it updates.** The ref updates open the push's body in
   plain pkt-lines, so a push to the default branch, or one that deletes a ref,
   could be guarded while other pushes are writes. A force push cannot be seen
