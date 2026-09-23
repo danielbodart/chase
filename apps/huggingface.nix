@@ -103,9 +103,9 @@ in
       message = "chase.bindings.huggingface.credentialFile is null, but a tier enables huggingface without `anonymous`. Bind a token file, or set `anonymous = true` for read-only Hugging Face with no credential.";
     }];
 
-    # On the host: a bind's source must exist, and a directory nspawn made
-    # for it would be root's. The parent too, which is where the host's
-    # token is, and so the user's alone.
+    # On the host: a bind's source must exist, and flong makes none for it.
+    # The parent too, which is where the host's token is, and so the user's
+    # alone.
     systemd.tmpfiles.rules = mkIf (lib.any (t: t.apps.huggingface.enable && t.apps.huggingface.shared) (lib.attrValues cfg.tiers))
       ([ "d ${cfg.home}/.cache/huggingface 0700 ${cfg.user} ${toString cfg.gid} -" ]
         ++ map (p: "d ${p} 0755 ${cfg.user} ${toString cfg.gid} -") cache);

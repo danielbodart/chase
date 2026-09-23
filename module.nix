@@ -155,6 +155,16 @@ let
           firewall still decides whether anything beyond the host reaches it.
         '';
       };
+      seccomp = mkOption {
+        type = types.attrsOf types.anything;
+        default = { };
+        example = { debug = true; };
+        description = ''
+          flong's `seccomp` for this tier's sessions: its tier, and the
+          loosenings a tier's own work needs. Empty is flong's default,
+          `strict`. A checkout's envelope can add to it, once approved.
+        '';
+      };
       envelope = mkOption {
         type = types.bool;
         default = false;
@@ -200,9 +210,10 @@ in
       type = types.ints.unsigned;
       example = 1000;
       description = ''
-        `user`'s uid on the HOST, reused inside the container. There is no uid
-        namespace, so a file bind-mounted in has to be owned by the same
-        number on both sides or the session cannot read what it was given.
+        `user`'s uid on the HOST, reused inside the container. The session's
+        user namespace maps the caller to this same number, so a file
+        bind-mounted in is owned by it on both sides and the session can read
+        what it was given.
       '';
     };
     gid = mkOption {
@@ -384,6 +395,9 @@ in
         };
         users.groups.users.gid = cfg.gid;
         services.openssh.enable = false;
+        # NixOS's ssh_config includes a file the store owns, which reads as
+        # nobody's inside a session, and ssh refuses a config it cannot trust.
+        programs.ssh.systemd-ssh-proxy.enable = false;
         # Defaults: a container that wants one runtime pointed elsewhere says
         # so in its own declaration.
         environment.variables = lib.mapAttrs (_: lib.mkDefault) caVariables;
@@ -392,6 +406,10 @@ in
     }) cfg.tiers;
 
     flong = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" ({
+      # As the caller, with no sudo and no root anywhere: a launcher has
+      # exactly the privilege of whoever runs it (PLAN.md, decision 2).
+      engine = "rootless";
+      inherit (tier) seccomp;
       user = cfg.user;
       command = [ (lib.getExe (mkCommand name cfg.internal.tiers.${name})) ];
       workspace = workspaceSnippet;

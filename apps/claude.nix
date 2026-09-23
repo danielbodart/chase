@@ -263,7 +263,7 @@ in
     chase.internal.tiers = lib.mapAttrs (name: tier:
       mkIf (tier.apps.claude.state != null) {
         bindLines = lib.optional (tier.apps.claude.state == "isolated") transcriptBind
-          # nspawn refuses to start if a bind source is missing, and Claude
+          # flong refuses to start if a bind source is missing, and Claude
           # Code's own cleanup deletes plans/ once it empties: made at every
           # launch, as the caller, and binding nothing itself.
           ++ lib.optional (tier.apps.claude.state == "shared") ''

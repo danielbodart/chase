@@ -58,17 +58,27 @@ The adapter and chase both know about both projects, differently: the adapter
 is a *mechanism* the two must agree on — an ordering contract — and chase is
 *policy* built on top of it. Only the second belongs here.
 
-**2. Privilege never follows evaluation.** A project's declaration can be
-evaluated dynamically, at launch, in the project. What runs as root cannot be.
-nix-config grants `NOPASSWD` to a launcher **by store path**, so a launcher a
-project built has a path the sudoers rule never saw and does not get it. That
-is not a limitation to work around: it is the fail-safe. A project that tries
-to supply its own privileged launcher gets a password prompt, which is the
-existing graphical-sudo gate doing its job.
+**2. A launcher has exactly the caller's privilege; the approver is the
+gate.** flong's sessions are rootless: no sudo, no setuid, no root anywhere.
+Every step of a launch — `workspace`, `binds`, `guard`, `seccompPolicy`,
+`postStart`, `postStop` — runs as the user who started it, and the launcher
+itself is only a way of doing what that user could already do by hand. So
+there is no privilege for a project to reach by building a launcher of its
+own, and nothing to protect by pinning one's store path: a launcher a project
+built can do no more than the caller running bwrap directly.
 
-So: the launcher is fixed and system-owned, the envelope is data, and the
-launcher validates it. This is flong's existing split — `workspace` and `binds`
-run as the caller, `guard` runs as root and checks what they produced.
+What stops a checkout from widening its own sandbox is therefore not who runs
+the launcher but what the launcher applies. A project's declaration is
+evaluated dynamically, at launch, and nothing it says — a binding, a secret,
+a syscall it wants back — takes effect until `chase.approver` has shown a
+person the change and they have said yes (decision 17). `guard` stays, as a
+consistency check between the wrapper and the launcher rather than a gate:
+it catches a launcher started by hand on a checkout the wrapper would have
+sorted differently.
+
+The envelope is data, and the launcher still validates it: the module system
+refuses an option chase does not define (decision 10), and flong refuses a
+syscall name systemd does not list.
 
 **3. Apps declare their credentials; they never reach for one.** An app says
 *"github needs a credential of this shape"*. What binds it is the consumer:
@@ -146,7 +156,7 @@ unknown option, so there is no schema language to invent and no validator to
 write; and version drift disappears, because the project never evaluates chase
 at all — it only names options that chase then defines.
 
-Evaluated as the caller, never as root (decision 2).
+Evaluated as the caller, like everything else in a launch (decision 2).
 
 **11. The launcher evaluates; direnv is not the trigger.** It is tempting to
 have `cd` into a project build the envelope and the launcher read the result.
@@ -210,7 +220,7 @@ its own second session. Reaching a dev server *inside* a sandbox is a separate
 problem and frisket's open question 3.
 
 **16. A port alone is not enough; the envelope carries environment too.**
-nspawn starts a session clean and direnv's hook never fires in it, so a session
+flong starts a session clean and direnv's hook never fires in it, so a session
 with 5432 open still has no `DATABASE_URL` and nothing tells it to look. This
 is why the envelope is not a port list: ports and environment are the same
 feature, and shipping one without the other opens a door nothing walks through.
@@ -235,6 +245,14 @@ of the checkout's tracked files and approves in two stages:
   chase's project options only, and can import other files of the project; a
   change to its result — which includes the digest of the project's sops file
   — is asked about too.
+
+Both stages run before the session is built, in flong's `seccompPolicy`,
+because what the chase section says includes the syscalls a project wants
+beyond its tier's filter, and a filter is installed before anything in the
+session runs. The approved result is staged for `postStart` under the
+session's name, which flong gives both, so two launches of one checkout keep
+their approvals apart; `postStart` applies the rest — secrets, the policy
+document, the environment — without looking at the checkout again.
 
 Only a `flake.nix` that says `chaseModules` is looked at, so an ordinary
 project flake never prompts. Approvals live in `~/.local/state/chase/`, on
@@ -342,8 +360,8 @@ configuration, which is exactly what should not travel.
   session names by path — the tiers' own under `/etc/frisket/policies`, a
   project's written by the launcher under `/run/user/<uid>/chase` — read when
   the session opens and again when it is restored. The control socket is
-  root-only and the caller is chase's fixed launcher, so root still vouches
-  for every policy that reaches the daemon.
+  the user's, and bound into no session, so what vouches for a project's
+  policy is the approval that wrote it (decision 17), not who sent it.
 - **frisket** — *done.* The confirmation gate on destructive requests (`ask`
   beside admit and refuse), so an irreversible operation stops at a dialog
   naming the real request line. What prompts is a callback frisket runs, not a dialog it

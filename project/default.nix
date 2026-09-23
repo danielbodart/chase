@@ -2,15 +2,25 @@
 #
 # For a tier that takes envelopes, each launch:
 #
-#   binds      makes the checkout's environment directory, bound read-only
-#   postStart  as the user, before frisket's steps: evaluates the checkout's
-#              `chaseModules.default` against ./options.nix; asks
-#              `chase.approver` if the result is not the one last approved
-#              for this checkout; decrypts the secrets it binds into
-#              /run/user/<uid>/chase/<machine>/; writes the session's policy
-#              document there, and its environment beside the checkout's
-#   frisket    steers the session under that document, or the tier's own
-#   postStop   removes /run/user/<uid>/chase/<machine>/
+#   binds          makes the checkout's environment directory, bound read-only
+#   seccompPolicy  before the session is built: evaluates the checkout's
+#                  `chaseModules.default` against ./options.nix; asks
+#                  `chase.approver` if the result is not the one last
+#                  approved for this checkout; stages the approved result for
+#                  this launch's postStart, and prints its syscall
+#                  loosenings for flong
+#   postStart      before frisket's steps: decrypts the secrets the staged
+#                  result binds into /run/user/<uid>/chase/<machine>/; writes
+#                  the session's policy document there, and its environment
+#                  beside the checkout's
+#   frisket        steers the session under that document, or the tier's own
+#   postStop       removes /run/user/<uid>/chase/<machine>/ and anything
+#                  staged for it
+#
+# All of it runs as the user who launched: a launcher has no privilege of its
+# own (PLAN.md, decision 2). The approval is split from the rest because a
+# syscall filter is installed before anything in the session runs, so what
+# loosens it has to be known, and approved, before flong starts bwrap.
 #
 # A checkout with no flake, or a flake with no `chaseModules.default`, is the
 # tier as it is. Anything that goes wrong on the way ends the launch: an
@@ -81,12 +91,14 @@ let
       # so a session of the same checkout still running cannot change a file
       # between the approval and its use.
 
+      # The approver's own output goes to stderr: under seccompPolicy,
+      # stdout is the policy flong reads.
       ask() {
         local kind=$1 ws=$2 diff=$3
         [ -n "$approver" ] \
           || die "$ws: its $kind has changed, and there is no chase.approver to ask"
         jq -n --arg kind "$kind" --arg workspace "$ws" --arg diff "$diff" \
-          '{kind: $kind, workspace: $workspace, diff: $diff}' | "$approver" \
+          '{kind: $kind, workspace: $workspace, diff: $diff}' | "$approver" >&2 \
           || die "$ws: its $kind was not approved"
       }
 
@@ -173,9 +185,9 @@ let
         mv "$dir/envelope.json.new" "$dir/envelope.json"
       }
 
-      # The secret an app binds, decrypted from the snapshot's copy of the
-      # sops file -- whose digest was approved -- where frisket reads it and
-      # the session cannot: /run/user/<uid> is bound into no container.
+      # The secret an app binds, decrypted from the staged copy of the sops
+      # file -- whose digest was approved -- where frisket reads it and the
+      # session cannot: /run/user/<uid> is bound into no container.
       decrypt() {
         local ws=$1 file=$2 secret=$3 out=$4
         [ -n "$file" ] || die "$ws: a binding names secret '$secret', and chase.secrets names no file"
@@ -184,22 +196,30 @@ let
         [ -s "$out" ] || die "$ws: '$secret' is empty"
       }
 
-      launch() {
-        local tier=$1 ws=$2 machine=$3 result run doc envfile app secret secrets dir file="" refused unknown
-        # Everything written here is the user's alone: decrypted secrets
-        # above all.
+      # Where seccompPolicy leaves an approved result for postStart: one file
+      # per launch, named for the session flong gives both, under
+      # /run/user/<uid>/chase, which no session sees. Per launch and not per
+      # checkout, so two launches of one checkout approved at once each get
+      # their own. A machine name never starts with a dot.
+      staged() { printf '/run/user/%s/chase/.envelope/%s.json' "$uid" "$1"; }
+
+      # seccompPolicy: snapshot, approve, evaluate, approve, stage. Prints
+      # the approved `allow` and `deny` lines, and nothing else, on stdout.
+      approve() {
+        local ws=$1 machine=$2 result dir secrets file="" stage out
+        exec 3>&1 1>&2
         umask 077
-        envfile=$(env_dir "$ws")/env
+        [ -n "$machine" ] || die "no machine: flong names the session before seccompPolicy runs"
+        [ -d /run/user/$uid ] || die "/run/user/$uid does not exist: log in first"
+        # 0700, by the umask.
+        mkdir -p "/run/user/$uid/chase/.envelope"
+        stage=$(staged "$machine")
         # Only a flake that says chaseModules is looked at at all: any other
         # is the tier as it is, and is never evaluated or asked about.
         if [ ! -f "$ws/flake.nix" ] || ! grep -q chaseModules "$ws/flake.nix"; then
-          rm -f "$envfile"
+          printf 'null\n' > "$stage.$$" && mv "$stage.$$" "$stage"
           return
         fi
-        [ -d /run/user/$uid ] || die "/run/user/$uid does not exist: log in first"
-        [ -d "/run/user/$uid/chase" ] || mkdir -m 0700 "/run/user/$uid/chase"
-        run=/run/user/$uid/chase/$machine
-        mkdir -m 0700 "$run" "$run/secrets"
         dir=$state/approved/$(key "$ws")
 
         mkdir -p "$home/.cache/chase"
@@ -212,9 +232,12 @@ let
         approve_source "$ws" "$src" "$dir"
         result=$(evaluate "$src") || die "$ws: its chaseModules.default does not evaluate"
         if [ "$result" = null ]; then
-          rm -f "$envfile"
+          printf 'null\n' > "$stage.$$" && mv "$stage.$$" "$stage"
           return
         fi
+        # A project that loosens nothing has no seccomp section in what is
+        # approved, so an envelope approved before there was one still is.
+        result=$(jq -c 'if .seccomp == {allow: [], deny: []} then del(.seccomp) else . end' <<< "$result")
         secrets=$(jq -r '.secrets // empty' <<< "$result")
         if [ -n "$secrets" ]; then
           file=$(realpath -e -- "$src/$secrets") || die "$ws: $secrets is not a tracked file"
@@ -225,6 +248,51 @@ let
           result=$(jq --arg d "$(sha256sum < "$file" | cut -d' ' -f1)" '. + {secretsSHA256: $d}' <<< "$result")
         fi
         approve_envelope "$ws" "$result" "$dir"
+
+        # What postStart applies is what was approved, with the snapshot's
+        # sops file beside it: not the checkout, which a session may be
+        # changing.
+        if [ -n "$file" ]; then
+          jq --rawfile s "$file" --arg n "$(basename -- "$file")" \
+            '{result: ., secrets: {name: $n, text: $s}}' <<< "$result" > "$stage.$$"
+        else
+          jq '{result: ., secrets: null}' <<< "$result" > "$stage.$$"
+        fi
+        mv "$stage.$$" "$stage"
+
+        out=$(jq -r '
+          .seccomp // {} | (select(.allow? // [] | length > 0) | "allow \(.allow | join(" "))"),
+                           (select(.deny? // [] | length > 0) | "deny \(.deny | join(" "))")
+        ' <<< "$result")
+        [ -z "$out" ] || printf '%s\n' "$out" >&3
+      }
+
+      # postStart: what seccompPolicy staged for this launch, applied.
+      launch() {
+        local tier=$1 ws=$2 machine=$3 stage staged_doc result run doc envfile app secret dir file="" secrets unknown
+        # Everything written here is the user's alone: decrypted secrets
+        # above all.
+        umask 077
+        envfile=$(env_dir "$ws")/env
+        stage=$(staged "$machine")
+        [ -f "$stage" ] || die "$ws: nothing was approved for this launch: the tier's seccompPolicy did not run"
+        staged_doc=$(cat "$stage")
+        rm -f -- "$stage"
+        if [ "$staged_doc" = null ]; then
+          rm -f "$envfile"
+          return
+        fi
+        result=$(jq -c .result <<< "$staged_doc")
+        secrets=$(jq -r '.secrets // empty' <<< "$result")
+        run=/run/user/$uid/chase/$machine
+        mkdir -m 0700 "$run" "$run/secrets"
+        if [ -n "$secrets" ]; then
+          dir=$(mktemp -d "$run/sops.XXXXXX")
+          file=$dir/$(jq -r .secrets.name <<< "$staged_doc")
+          jq -j .secrets.text <<< "$staged_doc" > "$file"
+          [ "$(sha256sum < "$file" | cut -d' ' -f1)" = "$(jq -r .secretsSHA256 <<< "$result")" ] \
+            || die "$ws: the staged $secrets is not the one approved"
+        fi
 
         doc=$(cat "/etc/frisket/policies/$tier.json")
         local exports=""
@@ -260,6 +328,7 @@ let
           ')$'\n'
           echo "chase: $ws: $app from $secrets:$secret" >&2
         done
+        [ -z "$file" ] || rm -rf -- "$(dirname -- "$file")"
         printf '%s\n' "$doc" > "$run/policy.json"
         mkdir -p "$(dirname "$envfile")"
         printf '%s' "$exports" > "$envfile.new"
@@ -274,7 +343,9 @@ let
           mkdir -p "$dir"
           printf '%s\n' "$dir"
           ;;
-        # postStart, as the user.
+        # seccompPolicy: the approval, and the policy's lines.
+        approve) approve "$2" "''${3:-}" ;;
+        # postStart: the approved envelope, applied.
         launch) launch "$2" "$3" "$4" ;;
         # frisket steer's -policy: the session's own document, or the tier's.
         policy)
@@ -284,7 +355,7 @@ let
             printf '%s\n' "/etc/frisket/policies/$2.json"
           fi
           ;;
-        *) die "usage: chase-envelope env-dir WS | launch TIER WS MACHINE | policy TIER MACHINE" ;;
+        *) die "usage: chase-envelope env-dir WS | approve WS MACHINE | launch TIER WS MACHINE | policy TIER MACHINE" ;;
       esac
     '';
   };
@@ -321,15 +392,17 @@ in
   config = {
     flong = lib.mapAttrs' (name: _: lib.nameValuePair "agent-${name}" {
       path = [ envelope ];
-      # As root, dropping to the user for the part that is theirs: their
-      # flake, their approval, their key.
+      # After the guard, before bwrap: the filter is fixed before anything in
+      # the session runs, so this is where the envelope is approved.
+      seccompPolicy = ''
+        chase-envelope approve "$workspace" "$machine"
+      '';
       postStart = lib.mkOrder 400 ''
-        setpriv --reuid=${toString cfg.uid} --regid=${toString cfg.gid} --init-groups -- \
-          env HOME=${lib.escapeShellArg cfg.home} XDG_RUNTIME_DIR=/run/user/${toString cfg.uid} \
-          chase-envelope launch ${name} "$workspace" "$machine"
+        chase-envelope launch ${name} "$workspace" "$machine"
       '';
       postStop = ''
-        rm -rf -- "/run/user/${toString cfg.uid}/chase/$machine"
+        rm -rf -- "/run/user/${toString cfg.uid}/chase/$machine" \
+          "/run/user/${toString cfg.uid}/chase/.envelope/$machine.json"
       '';
     }) tiers;
 

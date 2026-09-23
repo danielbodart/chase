@@ -63,7 +63,7 @@ let
       mkdir -p ${lib.escapeShellArg stateDir}
       auth=${lib.escapeShellArg authFile}
       out=${lib.escapeShellArg placeholderFile}
-      # Logged in on the host or not, the file must exist: nspawn refuses to
+      # Logged in on the host or not, the file must exist: flong refuses to
       # start when a bind's source is missing.
       real='{}'
       if [ -f "$auth" ]; then real=$(cat "$auth"); fi
@@ -202,7 +202,7 @@ in
     home-manager.users.${cfg.user} = { lib, ... }: {
       home.packages = [ codexWrapped codexRaw ];
 
-      # The placeholder is a bind source: nspawn refuses to start without it.
+      # The placeholder is a bind source: flong refuses to start without it.
       home.activation.codexPlaceholder = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         ${lib.getExe writePlaceholder} || echo "codex: no placeholder login written"
       '';

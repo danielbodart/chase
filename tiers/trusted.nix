@@ -5,6 +5,9 @@
   chase.tiers.trusted = {
     egress = "direct";
     allow = [ "*" ];
+    # strace and gdb, on our own code. ptrace reaches no further than the
+    # session's own processes.
+    seccomp.debug = true;
     # A checkout's own envelope, once approved: its flake's files before
     # anything of it runs, and what its chase section says. PLAN.md, 17.
     envelope = true;

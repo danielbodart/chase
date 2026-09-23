@@ -12,12 +12,17 @@
 #       credential.secret = "cloudflare-token";
 #       accountId = "023e105f4ecef8ad9ca31a8372d0c353";
 #     };
+#     chase.seccomp.allow = [ "io_uring_setup" "io_uring_enter" "io_uring_register" ];
 #   };
 { lib, ... }:
 
 let
   inherit (lib) mkOption types;
   secretKey = types.nullOr (types.strMatching "[A-Za-z0-9_.-]+");
+
+  # A syscall's name or a systemd group's, as flong takes them. flong refuses
+  # a name systemd does not list, at launch.
+  syscallName = types.strMatching "@?[a-z0-9_-]+";
 
   # An operation the project may use without being asked: an operation id
   # from the API's own description, or -- for an endpoint the description
@@ -41,6 +46,32 @@ in
         not a path, so what is approved is where the file is and not whatever
         it happens to hold -- the ciphertext is the project's to rotate.
       '';
+    };
+
+    # Applied before the session starts, since a filter is installed before
+    # anything in it runs: evaluated and approved with the rest, in flong's
+    # seccompPolicy, and handed to flong as allow and deny lines.
+    seccomp = {
+      allow = mkOption {
+        type = types.listOf syscallName;
+        default = [ ];
+        example = [ "io_uring_setup" "io_uring_enter" "io_uring_register" ];
+        description = ''
+          Syscalls, or systemd `@groups`, this project's sessions need beyond
+          the tier's filter. Each one is kernel surface the session gains, and
+          part of what is approved. The fixed filters stay whatever this says:
+          no terminal injection, no audit socket, no namespaces of its own.
+        '';
+      };
+      deny = mkOption {
+        type = types.listOf syscallName;
+        default = [ ];
+        example = [ "ptrace" ];
+        description = ''
+          Syscalls, or `@groups`, taken away from the tier's filter, after
+          `allow`, which this overrides.
+        '';
+      };
     };
 
     bindings.cloudflare = {

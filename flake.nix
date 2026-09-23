@@ -157,6 +157,30 @@
               && lib.any (p: p.refuse or false && p.path or "" == "/api/models/*/*/xet-write-token/*") route.paths
               && ! lib.any (p: p.ask or false) route.paths)
               || throw "assertions: an anonymous huggingface did not hold together";
+            # NO PRIVILEGE ANYWHERE (PLAN.md, decision 2). Every session is
+            # rootless, nothing is granted through sudo, and flong accepts
+            # what chase declares: none of flong's own assertions fail.
+            assert
+              (let
+                config = configWith { };
+                agents = lib.filterAttrs (n: _: lib.hasPrefix "agent-" n) config.flong;
+                failed = map (a: a.message) (lib.filter (a: ! a.assertion) config.assertions);
+              in
+              agents != { }
+              && lib.all (d: d.engine == "rootless") (lib.attrValues agents)
+              && ! lib.any (r: lib.elem "alice" (r.users or [ ])) config.security.sudo.extraRules
+              && failed == [ ]
+                || throw "assertions: the sessions are not rootless, or flong refused them: ${builtins.toJSON failed}");
+            # The tiers' filters: trusted can debug, strict cannot; only a tier
+            # that takes envelopes asks the checkout for more.
+            assert
+              (let config = configWith { }; in
+              config.flong.agent-trusted.seccomp.debug
+              && config.flong.agent-trusted.seccompPolicy != ""
+              && config.flong.agent-strict.seccomp.tier == "strict"
+              && ! config.flong.agent-strict.seccomp.debug
+              && config.flong.agent-strict.seccompPolicy == "")
+              || throw "assertions: the tiers' seccomp is not what they say";
             pkgs.runCommand "assertions" { } "touch $out";
 
           # The version script decides what every release is called, so it is

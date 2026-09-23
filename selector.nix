@@ -120,7 +120,6 @@ let
   # `claude` / `codex` on the host: pick the tier, then run bare or in its container.
   mkWrapper = { name, agent, hostCommand }: pkgs.writeShellApplication {
     inherit name;
-    # Not pkgs.sudo: the store copy is not setuid.
     runtimeInputs = [ agentTier ];
     text = ''
       # Anything unexpected means strict.
@@ -132,12 +131,10 @@ let
           exec ${hostCommand} "$@"
           ;;
         trusted)
-          exec /run/wrappers/bin/sudo --preserve-env=TERM,COLORTERM \
-            ${lib.getExe config.flong.agent-trusted.launcher} ${agent} "$@"
+          exec ${lib.getExe config.flong.agent-trusted.launcher} ${agent} "$@"
           ;;
         strict)
-          exec /run/wrappers/bin/sudo --preserve-env=TERM,COLORTERM \
-            ${lib.getExe config.flong.agent-strict.launcher} ${agent} "$@"
+          exec ${lib.getExe config.flong.agent-strict.launcher} ${agent} "$@"
           ;;
       esac
     '';
@@ -176,8 +173,12 @@ in
   config = {
     chase.internal = { inherit agentTier mkWrapper; };
 
-    # The launchers are NOPASSWD, so trusted re-checks the workspace itself
-    # rather than trusting the wrapper. Strict grants nothing the caller lacks.
+    # A consistency check, not a gate: the launcher runs as the caller, who
+    # could run it with any workspace, or run bwrap without it. It catches
+    # the wrapper and the launcher disagreeing about a checkout -- a launcher
+    # started by hand, or a checkout whose remote changed since the wrapper
+    # sorted it -- before a session is built around the wrong tier. What
+    # gates a checkout's own changes to its session is chase.approver.
     flong.agent-trusted = {
       path = lib.mkBefore [ agentTier ];
       guard = ''
@@ -199,15 +200,6 @@ in
         done <<< "$binds"
       '';
     };
-
-    # Store paths, never systemd-nspawn itself, which would be root.
-    security.sudo.extraRules = [{
-      users = [ cfg.user ];
-      commands = map (name: {
-        command = lib.getExe config.flong."agent-${name}".launcher;
-        options = [ "NOPASSWD" ];
-      }) (builtins.attrNames cfg.tiers);
-    }];
 
     home-manager.users.${cfg.user}.home.packages = [ agentTier chase ];
   };
