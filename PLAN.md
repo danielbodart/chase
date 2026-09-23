@@ -264,6 +264,69 @@ between the approval and its use.
 This replaces decision 8's report for the envelope itself: a line printed at
 launch is easy to miss, and a dialog is not.
 
+**18. Every app answers the same way: three classes, a tier's switch per
+class, and a project's list by name.** Every operation an app knows gets one
+of three classes, generated from the provider's own description as
+[docs/cloudflare.md](docs/cloudflare.md) sets out, and with a reason for every
+exception:
+
+- **read**: a GET or HEAD. Allowed.
+- **write**: anything else, and a read that mints a credential, which is a
+  write reached by a read (Xet's write token). Asks.
+- **guarded**: what cannot be taken back, or widens who can reach something:
+  a DELETE by default, and by exception whatever else deletes, drops,
+  transfers, makes public, or adds a collaborator, key or secret. A DELETE
+  that is easily undone (a reaction, a label) is demoted to write by
+  exception. Refused.
+
+A request is answered by the most specific of these that says anything:
+
+1. **The project, by name**: `chase.bindings.<app>.allow`, `.ask` and
+   `.refuse`, each a list of operation ids, or methods and an exact path for
+   an endpoint the description does not name. Any operation can be named,
+   guarded ones too; the name is exact, and the list is part of what is
+   approved (decision 17). One name in two lists is an error.
+2. **The project, by category**: `"category:<name>"` in the same lists, the
+   provider's own grouping (GitHub's `x-github.category`, Cloudflare's and
+   Hugging Face's tags), so a project does not list thirty ids to allow its
+   pull requests.
+3. **The tier, for one app**: `chase.tiers.<tier>.apps.<app>.writes`,
+   `.guarded` and `.unmatched`, each `allow`, `ask` or `refuse`.
+4. **The tier, for every app**: `chase.tiers.<tier>.writes`, `.guarded` and
+   `.unmatched`. An app that says nothing takes these, so a tier's posture is
+   three lines, and one app differs from it in one more: git's writes
+   allowed where Cloudflare's still ask.
+5. **The defaults**: writes ask, guarded is refused, and anything unmatched,
+   or that cannot be classified (a GraphQL document frisket cannot parse),
+   asks, with the dialog showing what arrived. Not refused: when in doubt, a
+   person decides.
+
+**git is an app of its own, apart from github.** git's smart HTTP and LFS are
+one app, `git`; GitHub's REST and GraphQL APIs are another, `github`, which
+is what gh speaks. They share GitHub's credential binding but not their
+switches, so a tier can let git push while gh's writes still ask. git's
+operations are the protocol's, not GitHub's, so the app is ready for another
+host when one is wanted.
+
+**One way to say it.** There is no `push`: frisket's git rule admits
+`git-receive-pack` because git's writes are allowed, and for no other reason.
+No app keeps a switch of its own for what these three already say.
+
+**A tier with no one to ask says so, and a project cannot loosen it.** strict
+is `writes`, `guarded` and `unmatched` all `refuse`, written out in the tier,
+not a conversion hidden in each app; `ask` anywhere in a tier with no asker is
+an evaluation error. An anonymous app is the same three for that app. A
+project's lists are ignored for both, and that is reported (decision 8):
+strict takes no envelope anyway (decision 13), and a project that needs more
+goes into another tier, which is the machine's decision (decision 5), not the
+checkout's.
+
+This all resolves in chase, at eval: frisket gets rules that already say
+allow, ask or refuse. What frisket must add is the ability to name what it
+cannot see in a method and a path: a GraphQL mutation by its field, the refs a
+push updates, an LFS batch's operation. Each gets an operation id, so git,
+GraphQL and LFS are listed, switched and named like any other app.
+
 ## Considered and rejected
 
 - **Per-project path matching in frisket, to scope a project to one zone.**
@@ -401,5 +464,10 @@ configuration, which is exactly what should not travel.
 3. **What `ask` matches on.** Answered for Cloudflare, and the answer is the
    pattern for the rest: derive the allowlist from the provider's own API
    description, pinned, and let anything not on it ask. See
-   [docs/cloudflare.md](docs/cloudflare.md). Still open for providers that do
-   not publish one.
+   [docs/cloudflare.md](docs/cloudflare.md), and decision 18 for how the
+   answer is chosen. Still open for providers that do not publish one. GitHub
+   publishes three: REST as OpenAPI (`github/rest-api-description`, pinned by
+   commit), GraphQL as a schema (`docs.github.com/public/fpt/schema.docs.graphql`),
+   and git's smart HTTP and LFS as prose and JSON schemas in git's and
+   git-lfs's own repositories. gh has none: what a command sends is what
+   `GH_DEBUG=api`, or frisket's log, shows.
