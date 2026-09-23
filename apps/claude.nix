@@ -71,7 +71,7 @@ let
   # finds them later.
   transcriptBind = ''
     transcripts="${cfg.home}/.claude/projects/''${workspace//[^A-Za-z0-9]/-}"
-    mkdir -p "$transcripts"
+    [ -d "$transcripts" ] || mkdir -p "$transcripts"
     printf '%s:rw\n' "$transcripts"
   '';
 
@@ -264,11 +264,16 @@ in
       mkIf (tier.apps.claude.state != null) {
         bindLines = lib.optional (tier.apps.claude.state == "isolated") transcriptBind
           # flong refuses to start if a bind source is missing, and Claude
-          # Code's own cleanup deletes plans/ once it empties: made at every
-          # launch, as the caller, and binding nothing itself.
+          # Code's own cleanup deletes plans/ once it empties: checked at
+          # every launch, as the caller, and binding nothing itself. Tested
+          # in builtins, so only a launch that finds one missing forks.
           ++ lib.optional (tier.apps.claude.state == "shared") ''
-            mkdir -p ${claudeDir}/{projects,plugins,file-history,plans,paste-cache,sessions}
-            touch ${claudeDir}/history.jsonl
+            missing=()
+            for d in ${claudeDir}/{projects,plugins,file-history,plans,paste-cache,sessions}; do
+              [ -d "$d" ] || missing+=("$d")
+            done
+            if [ ''${#missing[@]} -gt 0 ]; then mkdir -p "''${missing[@]}"; fi
+            [ -e ${claudeDir}/history.jsonl ] || : >> ${claudeDir}/history.jsonl
           '';
         # Written, not bound: Claude Code replaces the file by rename.
         setupLines = [

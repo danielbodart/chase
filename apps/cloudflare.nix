@@ -114,7 +114,7 @@ in
       {
         # On the host, as the user: the file is theirs to read.
         bindLines = [ ''
-          mkdir -p ${lib.escapeShellArg dir}
+          [ -d ${lib.escapeShellArg dir} ] || mkdir -p ${lib.escapeShellArg dir}
           install -m 0600 ${lib.escapeShellArg bindings.accountIdFile} ${lib.escapeShellArg "${dir}/account-id"}
           printf '%s\n' ${lib.escapeShellArg dir}
         '' ];

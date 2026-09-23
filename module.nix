@@ -13,33 +13,31 @@ let
   indent = s: lines (map (l: if l == "" then l else "  " + l) (lib.splitString "\n" s));
 
   # flong's `binds`: the other members of every group the workspace is in, one
-  # PATH:rw per line (a bare PATH would be read-only). Not transitive.
-  groupBinds = ''
-    # Not GROUPS: bash reserves that name and silently ignores assignment.
-    GROUP_TABLE=${lib.escapeShellArg (lines (
-      map (g: builtins.concatStringsSep "\t" g) cfg.workspaceGroups
-    ))}
-    out=
-    while IFS= read -r group; do
-      [ -n "$group" ] || continue
-      IFS=$'\t' read -ra members <<< "$group"
-      mine=
-      for m in "''${members[@]}"; do
-        if [ "$m" = "$workspace" ]; then mine=1; fi
-      done
-      [ -n "$mine" ] || continue
-      for m in "''${members[@]}"; do
-        if [ "$m" != "$workspace" ] && [ -d "$m" ]; then
-          out=$out$m:rw$'\n'
-        fi
-      done
-    done <<< "$GROUP_TABLE"
-    # Printed after the loop so the exit status is printf's (this runs under set -e).
-    printf '%s' "$out" | sort -u
+  # PATH:rw per line (a bare PATH would be read-only). Not transitive. Each
+  # member's list is worked out here, sorted and without repeats, so a launch
+  # only looks its workspace up and checks what exists, in builtins.
+  groupPeers = lib.foldl'
+    (acc: group: lib.foldl'
+      (acc: m: acc // { ${m} = (acc.${m} or [ ]) ++ lib.filter (o: o != m) group; })
+      acc
+      group)
+    { }
+    cfg.workspaceGroups;
+  groupBinds = lib.optionalString (groupPeers != { }) ''
+    case $workspace in
+    ${indent (lines (lib.mapAttrsToList (m: peers: ''
+      ${lib.escapeShellArg m})
+        for m in ${lib.escapeShellArgs (lib.unique (lib.sort lib.lessThan (map (o: "${o}:rw") peers)))}; do
+          if [ -d "''${m%:rw}" ]; then printf '%s\n' "$m"; fi
+        done
+        ;;'') groupPeers))}
+    esac
   '';
 
   # The checkout's root, so all of it is mounted wherever you start; otherwise
-  # the directory itself, which agent-tier can only ever call strict.
+  # the directory itself, which agent-tier can only ever call strict. git's
+  # answer and not a walk up to .git: a gitdir file, GIT_DIR, core.worktree
+  # and safe.directory all change it.
   workspaceSnippet = ''
     ${lib.getExe pkgs.git} -C "$PWD" rev-parse --show-toplevel 2>/dev/null || pwd
   '';

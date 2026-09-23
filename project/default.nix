@@ -73,7 +73,7 @@ let
 
       # A checkout's key: its path, hashed, so a path with anything in it is
       # still one plain file name.
-      key() { printf '%s' "$1" | sha256sum | cut -c1-32; }
+      key() { local h; h=$(printf '%s' "$1" | sha256sum); printf '%s' "''${h:0:32}"; }
 
       env_dir() { printf '%s/env/%s' "$state" "$(key "$1")"; }
 
@@ -212,7 +212,7 @@ let
         [ -n "$machine" ] || die "no machine: flong names the session before seccompPolicy runs"
         [ -d /run/user/$uid ] || die "/run/user/$uid does not exist: log in first"
         # 0700, by the umask.
-        mkdir -p "/run/user/$uid/chase/.envelope"
+        [ -d "/run/user/$uid/chase/.envelope" ] || mkdir -p "/run/user/$uid/chase/.envelope"
         stage=$(staged "$machine")
         # Only a flake that says chaseModules is looked at at all: any other
         # is the tier as it is, and is never evaluated or asked about.
@@ -340,7 +340,7 @@ let
         # binds: the checkout's environment directory, for the session to read.
         env-dir)
           dir=$(env_dir "$2")
-          mkdir -p "$dir"
+          [ -d "$dir" ] || mkdir -p "$dir"
           printf '%s\n' "$dir"
           ;;
         # seccompPolicy: the approval, and the policy's lines.

@@ -255,7 +255,9 @@ in
       # session leaves behind is what the next one authenticates with.
       bindLines = lib.optional (tier.apps.codex.state == "isolated") ''
         ${isolatedHome}
-        mkdir -p "$codex_home"
+        [ -d "$codex_home" ] || mkdir -p "$codex_home"
+        # install, not a redirect: it replaces whatever the last session left
+        # at auth.json, where a redirect would write through a link it planted.
         install -m 0600 ${lib.escapeShellArg placeholderFile} "$codex_home/auth.json"
         printf '%s:rw\n' "$codex_home"
       '';
