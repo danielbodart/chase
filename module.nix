@@ -406,9 +406,6 @@ in
     }) cfg.tiers;
 
     flong = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" ({
-      # As the caller, with no sudo and no root anywhere: a launcher has
-      # exactly the privilege of whoever runs it (PLAN.md, decision 2).
-      engine = "rootless";
       inherit (tier) seccomp;
       user = cfg.user;
       command = [ (lib.getExe (mkCommand name cfg.internal.tiers.${name})) ];
