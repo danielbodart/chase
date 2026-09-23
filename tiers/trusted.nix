@@ -17,6 +17,7 @@
     apps = {
       claude = { state = "shared"; connectors = true; };
       codex.state = "shared";
+      git.enable = true;
       github.enable = true;
     };
   };

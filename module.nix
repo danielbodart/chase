@@ -188,6 +188,7 @@ in
     # and an envelope overlays `trusted`; nothing overlays `strict`.
     ./tiers/trusted.nix
     ./tiers/strict.nix
+    ./apps/git.nix
     ./apps/github.nix
     ./apps/claude.nix
     ./apps/codex.nix

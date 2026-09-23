@@ -15,6 +15,7 @@
     apps = {
       claude = { state = "isolated"; connectors = false; };
       codex.state = "isolated";
+      git = { enable = true; anonymous = true; };
       github = { enable = true; anonymous = true; };
     };
   };

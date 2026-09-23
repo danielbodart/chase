@@ -113,12 +113,35 @@
             assert refused "an unbound github credential"
               { chase.bindings.github.credentialFile = lib.mkForce null; }
               "credentialFile is null";
-            # ... and is fine when no tier asks for a credentialled github.
+            # ... and is fine when no tier asks for a credentialled github or
+            # git.
             assert chaseFailures {
               chase.bindings.github.credentialFile = lib.mkForce null;
-              chase.tiers.trusted.apps.github.anonymous = true;
+              chase.tiers.trusted.apps = { github.anonymous = true; git.anonymous = true; };
             } == [ ]
               || throw "assertions: an anonymous-only github still demanded a credential";
+            # git is github's credential too: one that pushes without it is
+            # refused just the same.
+            assert refused "an unbound credential for git alone"
+              { chase.bindings.github.credentialFile = lib.mkForce null; chase.tiers.trusted.apps.github.anonymous = true; }
+              "credentialFile is null";
+            # A PUSH IS A WRITE (decision 18), answered as git's writes say:
+            # asked about in trusted by default, allowed where git says so
+            # whatever gh's writes are, and refused in strict. gh's GraphQL is
+            # a write too.
+            assert
+              (let
+                policies = extra: (configWith extra).services.frisket.policies;
+                byDefault = policies { };
+                gitAllows = policies { chase.tiers.trusted.apps.git.writes = "allow"; };
+                graphql = p: (lib.findFirst (r: r.path or null == "/graphql") null p.trusted.routes.github.paths);
+              in
+              byDefault.trusted.routes.git.git.push == "ask"
+              && gitAllows.trusted.routes.git.git.push == "allow"
+              && byDefault.strict.routes.git.git.push == "refuse"
+              && byDefault.strict.routes.git.credentialFile == null
+              && (graphql byDefault).ask && ! (graphql gitAllows).refuse && (graphql gitAllows).ask
+              || throw "assertions: git's push or gh's GraphQL was not answered as their writes say");
             # Cloudflare needs no token of the tier's own -- a project brings
             # one -- and without one the tier has no Cloudflare route.
             assert

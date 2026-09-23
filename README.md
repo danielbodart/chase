@@ -72,7 +72,7 @@ running anything.
 | For | your own code | someone else's, forks included |
 | Network | its own, through pasta; frisket answers DNS | none but frisket |
 | Credentials | added on the wire, never in the container | none but the model API's |
-| GitHub | push and merge as you | anonymous: clone and fetch, never write |
+| GitHub | reads as you; writes and pushes ask, deletions refused | anonymous: clone, fetch and read, never write |
 
 `host` is the absence of a tier rather than one of them: it runs bare, for
 work a container cannot do — real sudo, `/dev/input`, KVM, or the network
@@ -108,14 +108,20 @@ on the dots, and not frisket, which compares the whole string. Refreshing stays
 on the host, because a refresh token is single-use and a session racing the
 host would burn it.
 
-**GitHub.** A credential bound from outside, as
+**GitHub**, as two apps sharing one credential, bound from outside as
 `chase.bindings.github.credentialFile` — `gh auth token`'s, read by frisket.
-Remotes are rewritten from `git@github.com:` to HTTPS, so git goes through
-frisket and no key is needed in the session, and the token arrives as Basic
-auth's password under `x-access-token`. Strict is anonymous instead: clone,
-fetch and GET work with no credential in existence, and a push stops at git's
-ref advertisement — refused on the request line rather than by inspecting what
-`git` was asked to do, which is not something a session can route around.
+`github` is the API and gh: its allowlist is generated from GitHub's own REST
+description, and GraphQL, where gh does most of its work, is one POST for
+every query and mutation, so a write until frisket can tell them apart. `git`
+is git over HTTPS: remotes are rewritten from `git@github.com:` to HTTPS, so
+git goes through frisket and no key is needed in the session, and the token
+arrives as Basic auth's password under `x-access-token`. A fetch is a read and
+a push a write, so a tier can let git push while gh's writes still ask; a push
+asked about is asked about once, showing the refs it would update. Strict is
+anonymous instead: clone, fetch and GET work with no credential in existence,
+and a push stops at git's ref advertisement — refused on the request line
+rather than by inspecting what `git` was asked to do, which is not something a
+session can route around. See [docs/github.md](docs/github.md).
 
 **Cloudflare.** wrangler, against an allowlist generated from Cloudflare's own
 API description: what it calls harmless goes through, and everything else waits
@@ -185,10 +191,11 @@ newly allowed:
 ```sh
 scripts/operations.sh cloudflare
 scripts/operations.sh huggingface
+scripts/operations.sh github
 ```
 
-Cloudflare's is fetched from a commit of its own repository; the Hub's lives
-at a URL that moves, so it is vendored. Neither replaces minting the token
+Cloudflare's and GitHub's are fetched from a commit of their own repositories;
+the Hub's lives at a URL that moves, so it is vendored. Neither replaces minting the token
 narrowly: the token's scope is the floor, and the rules only decide which of
 the things it can do need a person. See [docs/cloudflare.md](docs/cloudflare.md)
 and [docs/huggingface.md](docs/huggingface.md).

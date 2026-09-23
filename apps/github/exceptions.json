@@ -1,0 +1,28 @@
+{
+  "read": {
+    "markdown/render": "Renders Markdown it is sent, and changes nothing: a read by POST.",
+    "markdown/render-raw": "Renders Markdown it is sent, and changes nothing: a read by POST.",
+    "orgs/list-attestations-bulk": "Lists attestations for the digests it is sent: a read by POST.",
+    "users/list-attestations-bulk": "Lists attestations for the digests it is sent: a read by POST."
+  },
+  "write": {
+    "secret-scanning/list-alerts-for-org": "Each alert carries the leaked secret itself, in `secret`.",
+    "secret-scanning/list-alerts-for-repo": "Each alert carries the leaked secret itself, in `secret`.",
+    "secret-scanning/get-alert": "The alert carries the leaked secret itself, in `secret`."
+  },
+  "guarded": {},
+  "rules": [
+    {
+      "methods": ["POST"],
+      "path": "/graphql",
+      "class": "write",
+      "operation": {
+        "id": "graphql",
+        "summary": "A GraphQL query or mutation",
+        "description": "Every GraphQL request is a POST here, a read as much as a write: which it is, is in the body, where frisket does not yet look.",
+        "category": "graphql"
+      },
+      "reason": "gh does most of its work over GraphQL, reads included. Until frisket can tell a mutation by its field, the whole endpoint is a write."
+    }
+  ]
+}
