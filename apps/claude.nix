@@ -274,6 +274,8 @@ in
             done
             if [ ''${#missing[@]} -gt 0 ]; then mkdir -p "''${missing[@]}"; fi
             [ -e ${claudeDir}/history.jsonl ] || : >> ${claudeDir}/history.jsonl
+            # Made by the host's Claude Code only once a session starts there.
+            [ -d /run/user/${toString cfg.uid}/cc-socks ] || mkdir -m 700 /run/user/${toString cfg.uid}/cc-socks
           '';
         # Written, not bound: Claude Code replaces the file by rename.
         setupLines = [
