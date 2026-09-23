@@ -7,14 +7,26 @@
 #
 # A name decides before a category, and a category before what the tier and
 # the app said. A name or category the route does not have is an error: a
-# typo would otherwise be a rule that silently decides nothing. So is an
-# entry in two lists, which ../project/default.nix refuses before approval.
+# typo would otherwise be a rule that silently decides nothing. So is a path
+# that one of the route's operations already describes: a literal beats a
+# "*", so {DELETE, /repos/me/app} would decide repos/delete without naming
+# it. An operation the description has is loosened by its name, which is
+# what the person approving it reads. And so is an entry in two lists, which
+# ../project/default.nix refuses before approval.
 # git's push is the operation `git-receive-pack`, in frisket's git rule.
 
 def answer($verb):
   if $verb == "allow" then del(.ask, .refuse)
   elif $verb == "ask" then del(.refuse) | .ask = true
   else del(.ask) | .refuse = true end;
+
+# Whether an exact path and a rule can match one request: segment by
+# segment a literal meets itself or a "*", and a prefix matches that many
+# segments or more.
+def overlaps($path; $rule):
+  ($path | split("/")[1:]) as $x | (($rule.path // $rule.prefix) | split("/")[1:] | map(select(. != ""))) as $y
+  | (if $rule.path then ($x | length) == ($y | length) else ($x | length) >= ($y | length) end)
+    and all(range($y | length); $x[.] == "*" or $y[.] == "*" or $x[.] == $y[.]);
 
 def push($verb): { allow: "allow", ask: "ask", refuse: "refuse" }[$verb];
 
@@ -30,6 +42,9 @@ def push($verb): { allow: "allow", ask: "ask", refuse: "refuse" }[$verb];
 | ([$byId | keys[] | select(. as $x | $ids | index($x) | not)]
    + [$byCategory | keys[] | select(. as $x | $categories | index($x) | not) | "category:\(.)"]) as $unknown
 | if $unknown != [] then error("\($app) has no \($unknown | join(", "))") else . end
+| ([$endpoints[].entry as $e | $route.paths[]? | select(.operation.id? and ([.methods[]] - $e.methods) != .methods and overlaps($e.path; .))
+    | "\($e.methods | join(",")) \($e.path) is \(.operation.id)"] | unique) as $described
+| if $described != [] then error("\($app) describes these, so name them: \($described | join("; "))") else . end
 | .routes[$i] |= (
     .paths = ([.paths[]? | (.operation.id? // null) as $id | (.operation.category? // null) as $c
         | if $id != null and $byId[$id] then answer($byId[$id])

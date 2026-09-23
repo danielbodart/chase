@@ -270,6 +270,10 @@
               ! apply github "$bad" 2>/dev/null || fail "an unknown name was applied: $bad"
             done
             ! apply cloudflare '{"allow": ["x"]}' 2>/dev/null || fail "an app the tier does not have was applied"
+            # A path an operation describes is that operation, and is named:
+            # a literal would otherwise outrank the guarded rule unnamed.
+            ! apply github '{"allow": [{"methods": ["DELETE"], "path": "/repos/me/app/git/refs/main"}]}' 2>/dev/null \
+              || fail "a path an operation describes was allowed without naming it"
             touch $out
           '';
 
