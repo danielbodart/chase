@@ -181,7 +181,10 @@ in
     # gates a checkout's own changes to its session is chase.approver.
     flong.agent-trusted = {
       path = lib.mkBefore [ agentTier ];
-      guard = ''
+      # A command, never shell: a script of its own, under the options
+      # flong's snippets once ran with, finding agent-tier on `path`.
+      guard = [ [ "${pkgs.writeShellScript "chase-agent-trusted-guard" ''
+        set -euo pipefail
         tier=$(agent-tier "$workspace") || tier=unknown
         if [ "$tier" != trusted ]; then
           echo "agent-container-trusted: refusing, this checkout is '$tier'" >&2
@@ -198,7 +201,7 @@ in
           extra_tier=$(agent-tier "$extra") || extra_tier=unknown
           echo "agent-container-trusted: mounting $extra ($extra_tier, ''${bind##*:})" >&2
         done <<< "$binds"
-      '';
+      ''}" ] ];
     };
 
     home-manager.users.${cfg.user}.home.packages = [ agentTier chase ];

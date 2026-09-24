@@ -240,10 +240,10 @@
             assert
               (let config = configWith { }; in
               config.flong.agent-trusted.seccomp.debug
-              && config.flong.agent-trusted.seccompPolicy != ""
+              && config.flong.agent-trusted.seccompPolicy != [ ]
               && config.flong.agent-strict.seccomp.tier == "strict"
               && ! config.flong.agent-strict.seccomp.debug
-              && config.flong.agent-strict.seccompPolicy == "")
+              && config.flong.agent-strict.seccompPolicy == [ ])
               || throw "assertions: the tiers' seccomp is not what they say";
             pkgs.runCommand "assertions" { } "touch $out";
 

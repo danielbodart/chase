@@ -33,6 +33,15 @@ let
   tiers = lib.filterAttrs (_: t: t.envelope) cfg.tiers;
 
   apps = pkgs.writeText "chase-project-apps.json" (builtins.toJSON cfg.internal.projectApps);
+
+  # A flong hook is a command, never shell: one that needs a shell is a
+  # script of its own, under the options flong's snippets once ran with. It
+  # finds chase-envelope on the PATH flong gives it, from `path`, and reads
+  # $workspace and $machine from its environment.
+  hookScript = name: text: "${pkgs.writeShellScript "chase-${name}" ''
+    set -euo pipefail
+    ${text}
+  ''}";
   approver = if cfg.approver == null then "" else cfg.approver;
 
   # WHAT EVALUATES AN ENVELOPE: a flake of chase's, in the store, whose one
@@ -406,16 +415,16 @@ in
       path = [ envelope ];
       # After the guard, before bwrap: the filter is fixed before anything in
       # the session runs, so this is where the envelope is approved.
-      seccompPolicy = ''
+      seccompPolicy = [ [ (hookScript "agent-${name}-seccomp-policy" ''
         chase-envelope approve "$workspace" "$machine"
-      '';
-      postStart = lib.mkOrder 400 ''
+      '') ] ];
+      postStart = lib.mkOrder 400 [ [ (hookScript "agent-${name}-poststart" ''
         chase-envelope launch ${name} "$workspace" "$machine"
-      '';
-      postStop = ''
+      '') ] ];
+      postStop = [ [ (hookScript "agent-${name}-poststop" ''
         rm -rf -- "/run/user/${toString cfg.uid}/chase/$machine" \
           "/run/user/${toString cfg.uid}/chase/.envelope/$machine.json"
-      '';
+      '') ] ];
     }) tiers;
 
     services.frisket.flong = lib.mapAttrs' (name: _: lib.nameValuePair "agent-${name}" {

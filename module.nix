@@ -43,6 +43,13 @@ let
     ${lib.getExe pkgs.git} -C "$PWD" rev-parse --show-toplevel 2>/dev/null || pwd
   '';
 
+  # A flong hook is a command, never shell: one that needs a shell is a
+  # script of its own, under the options flong's snippets once ran with.
+  hookScript = name: text: "${pkgs.writeShellScript "chase-${name}" ''
+    set -euo pipefail
+    ${text}
+  ''}";
+
   # flong's `command`: runs in the container as the user, in the workspace,
   # and execs the agent named by the first argument.
   mkCommand = tier: contributions: pkgs.writeShellApplication {
@@ -411,8 +418,11 @@ in
       inherit (tier) seccomp;
       user = cfg.user;
       command = [ (lib.getExe (mkCommand name cfg.internal.tiers.${name})) ];
-      workspace = workspaceSnippet;
-      binds = groupBinds + lines cfg.internal.tiers.${name}.bindLines;
+      workspace = [ (hookScript "agent-${name}-workspace" workspaceSnippet) ];
+      # One script for every line, as the snippet was: one fork a launch.
+      binds =
+        let text = groupBinds + lines cfg.internal.tiers.${name}.bindLines; in
+        lib.optional (lib.trim text != "") [ (hookScript "agent-${name}-binds" text) ];
     } // lib.optionalAttrs (tier.egress == "direct") {
       network = {
         inherit (tier) forwardPorts;
