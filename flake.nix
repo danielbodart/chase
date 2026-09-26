@@ -68,6 +68,8 @@
                   modules = [
                     self.nixosModules.default
                     home-manager.nixosModules.home-manager
+                    # chase ships no tiers: the example's are the baseline.
+                    ./examples/tiers.nix
                     {
                       boot.isContainer = true;
                       system.stateVersion = "26.05";
@@ -107,6 +109,26 @@
             in
             assert chaseFailures { } == [ ]
               || throw "assertions: the baseline is refused: ${builtins.toJSON (chaseFailures { })}";
+            # THE TIERS ARE THE CONSUMER'S, and what cannot work is refused:
+            # a fallback that is not a tier, or is bare; a tier whose rules
+            # are never asked; a rule that would hold for everything; a
+            # sandbox with no network said; a bare tier given an app.
+            assert refused "a fallback that is not a tier" { chase.fallback = lib.mkForce "nope"; } "chase.fallback is 'nope'";
+            assert refused "a bare fallback" { chase.fallback = lib.mkForce "host"; } "which is bare";
+            assert refused "a tier missing from the order" { chase.order = lib.mkForce [ "host" "strict" ]; } "not in chase.order";
+            assert refused "a rule with no predicate" { chase.tiers.strict.match = [ { } ]; } "sets no predicate";
+            assert refused "a sandbox with no egress" { chase.tiers.extra.apps.git.enable = true; } "sets no `egress`";
+            assert refused "a bare tier with an app" { chase.tiers.host.apps.claude.state = "shared"; } "is bare";
+            # A bare tier is no container, launcher or policy; every other is.
+            assert
+              (let config = configWith { }; in
+              ! config.containers ? agent-host && ! config.flong ? agent-host
+              && ! config.services.frisket.policies ? host
+              && config.containers ? agent-strict && config.flong ? agent-trusted
+              && config.services.frisket.policies ? strict)
+              || throw "assertions: a bare tier was given a sandbox, or a sandbox was not";
+            # The old selector options say where their replacement is.
+            assert refused "a removed selector option" { chase.trustedOrgs = [ "alice" ]; } "chase.tiers.<name>.match";
             # DECLARED BUT UNBOUND REFUSES (PLAN.md, decision 4). trusted
             # enables github without `anonymous`, so a null credential file is
             # a route frisket would serve with no credential at all.
@@ -215,8 +237,8 @@
               && tierAllows.write == [ "allow" ] && tierAllows.guarded == [ "refuse" ]
               && appRefuses == { read = [ "allow" ]; write = [ "refuse" ]; guarded = [ "ask" ]; unmatched = "refuse"; catchAll = true; }
               || throw "assertions: classes were not answered as the tier and the app say: ${builtins.toJSON [ byDefault tierAllows appRefuses ]}");
-            # strict says refuse for all three, and an app in it that sets
-            # nothing asks about nothing.
+            # The example's strict says refuse for all three, and an app in it
+            # that sets nothing asks about nothing.
             assert
               (let tier = (configWith { }).chase.tiers.strict; in
               tier.writes == "refuse" && tier.guarded == "refuse" && tier.unmatched == "refuse"
@@ -235,8 +257,8 @@
               && ! lib.any (r: lib.elem "alice" (r.users or [ ])) config.security.sudo.extraRules
               && failed == [ ]
                 || throw "assertions: a session is granted sudo, or flong refused them: ${builtins.toJSON failed}");
-            # The tiers' filters: trusted can debug, strict cannot; only a tier
-            # that takes envelopes asks the checkout for more.
+            # The example tiers' filters: trusted can debug, strict cannot;
+            # only a tier that takes envelopes asks the checkout for more.
             assert
               (let config = configWith { }; in
               config.flong.agent-trusted.seccomp.debug
@@ -246,6 +268,89 @@
               && config.flong.agent-strict.seccompPolicy == [ ])
               || throw "assertions: the tiers' seccomp is not what they say";
             pkgs.runCommand "assertions" { } "touch $out";
+
+          # THE SELECTOR, run against real repositories. Its rules are the
+          # example's shape at paths under a sentinel, which the test puts
+          # where its build directory is: agent-tier compares resolved paths,
+          # and where a build runs is not known at evaluation.
+          selector =
+            let
+              lib = nixpkgs.lib;
+              root = "/chase-selector-test";
+              config = (lib.nixosSystem {
+                inherit system;
+                modules = [
+                  self.nixosModules.default
+                  home-manager.nixosModules.home-manager
+                  ./examples/tiers.nix
+                  {
+                    boot.isContainer = true;
+                    system.stateVersion = "26.05";
+                    users.users.alice = { isNormalUser = true; uid = 1000; group = "users"; };
+                    home-manager.users.alice.home.stateVersion = "26.05";
+                    chase = {
+                      user = "alice";
+                      uid = 1000;
+                      gid = 100;
+                      bindings = {
+                        claude.package = pkgs.hello;
+                        codex.package = pkgs.hello;
+                        github.credentialFile = "/run/secrets/gh_token";
+                      };
+                      tiers.host.match = lib.mkForce [
+                        { paths = [ "${root}/home" ]; }
+                        { checkouts."alice/nix-config" = "${root}/p/nix-config"; }
+                      ];
+                      tiers.strict.match = lib.mkForce [ { repos = [ "alice/nix-config" ]; } ];
+                      tiers.trusted.match = lib.mkForce [
+                        { owners = [ "alice" ]; rootAuthorDomains = [ "example.com" ]; }
+                      ];
+                    };
+                  }
+                ];
+              }).config;
+            in
+            pkgs.runCommand "selector" { nativeBuildInputs = [ pkgs.git ]; } ''
+              export HOME=$TMPDIR
+              r=$(cd "$TMPDIR" && pwd -P)/root
+              sed "s|${root}|$r|g" ${lib.getExe config.chase.internal.agentTier} > agent-tier
+              fail() { echo "selector: $*" >&2; exit 1; }
+              repo() { # DIR REMOTE AUTHOR
+                mkdir -p "$1"
+                git -C "$1" init -q
+                git -C "$1" -c user.name=x -c user.email="$3" commit -q --allow-empty -m first
+                git -C "$1" remote add origin "$2"
+              }
+              expect() { # DIR TIER REASON-SUBSTRING
+                got=$(bash ./agent-tier --dry-run "$1" | tail -1)
+                tier=$(bash ./agent-tier "$1")
+                [ "$tier" = "$2" ] || fail "$1 is '$tier', not '$2': $got"
+                case $got in *"$3"*) ;; *) fail "$1: expected '$3' in: $got" ;; esac
+              }
+
+              mkdir -p "$r/home" "$r/plain"
+              repo "$r/p/nix-config" git@github.com:alice/nix-config.git a@example.com
+              repo "$r/p/nix-config/nested" https://github.com/alice/nix-config a@example.com
+              repo "$r/elsewhere/nix-config" git@github.com:alice/nix-config.git a@example.com
+              repo "$r/p/mine" git@github.com:Alice/Mine.git a@Example.com
+              repo "$r/p/fork" https://github.com/alice/fork.git x@upstream.org
+              repo "$r/p/other" ssh://git@github.com/bob/thing a@example.com
+              git clone -q --depth 1 "file://$r/p/mine" "$r/p/shallow"
+
+              expect "$r/home" host "path $r/home"
+              expect "$r/p/nix-config" host "alice/nix-config at $r/p/nix-config"
+              expect "$r/p/nix-config/nested" host "alice/nix-config at"
+              # Its remote, anywhere else: strict, because strict is asked
+              # before trusted and lists it.
+              expect "$r/elsewhere/nix-config" strict "repo alice/nix-config"
+              expect "$r/p/mine" trusted "owner alice, first commit by a@Example.com"
+              expect "$r/p/fork" strict "first commit by x@upstream.org"
+              expect "$r/p/other" strict "owner bob is not listed"
+              expect "$r/plain" strict "not a git repository"
+              git -C "$r/p/shallow" remote set-url origin git@github.com:alice/mine.git
+              expect "$r/p/shallow" strict "shallow clone"
+              touch $out
+            '';
 
           # A PROJECT'S LISTS (PLAN.md, decision 18), as launch applies them
           # to a policy document: a name before a category, a category before

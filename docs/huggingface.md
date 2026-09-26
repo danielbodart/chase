@@ -70,11 +70,12 @@ exists). The generator now refuses any hand rule that overlaps an operation
 with a different answer, and that rule is gone: a whole-repository download by
 a legacy name asks, once, for the redirect.
 
-## Strict
+## Anonymous, for other people's code
 
-Strict has no credential and no asker to speak of: a planted token is the
-threat there. So the tier refuses writes, guarded operations and anything
-unnamed, and an anonymous app refuses them whatever the tier says — public downloads work,
+A tier for other people's code has no credential and no asker to speak of: a
+planted token is the threat there. So such a tier refuses writes, guarded
+operations and anything unnamed, and an anonymous app refuses them whatever
+the tier says — public downloads work,
 and nothing that writes or mints a token does. Measured: a planted token asking
 for Xet's write token is refused by rule, in the Hub's own error shape, and so
 is a POST.
@@ -91,7 +92,7 @@ under `hf.co` too, with its own short-lived token. So `huggingface.co` and
 - **A revision with a slash** — `refs/pr/1`, which huggingface_hub sends
   encoded as one segment — matches no template, since frisket will not let a
   `*` stand for something that decodes to two segments. So a download at a
-  pull request's revision asks, and in strict is refused.
+  pull request's revision asks, and anonymously is refused.
 - **What else a client calls.** Found so far by reading huggingface_hub; the
   frisket log is what says whether `datasets`, `transformers` or anything else
   reaches for more. An unmatched request in the log is a gap in the rules.

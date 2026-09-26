@@ -8,6 +8,9 @@ self:
 let
   inherit (lib) mkOption types;
   cfg = config.chase;
+  # Every tier that is a container. A bare one is only a name the selector
+  # can answer with.
+  sandboxes = lib.filterAttrs (_: t: !t.bare) cfg.tiers;
   operations = import ./lib/operations.nix { inherit lib; };
   lines = builtins.concatStringsSep "\n";
   chomp = lib.removeSuffix "\n";
@@ -36,7 +39,7 @@ let
   '';
 
   # The checkout's root, so all of it is mounted wherever you start; otherwise
-  # the directory itself, which agent-tier can only ever call strict. git's
+  # the directory itself, which only a `paths` rule can place. git's
   # answer and not a walk up to .git: a gitdir file, GIT_DIR, core.worktree
   # and safe.directory all change it.
   workspaceSnippet = ''
@@ -95,9 +98,70 @@ let
 
   # "owner/name", as a remote URL carries it. Narrow because selector.nix
   # parses every entry as one, and a malformed slug would otherwise sit in the
-  # configuration matching nothing until the day you wondered why.
+  # configuration matching nothing until the day you wondered why. Compared
+  # lower-cased, as the selector lower-cases the remote's.
   slug = types.strMatching "[^/[:space:]]+/[^/[:space:]]+";
   absPath = types.strMatching "/.*";
+
+  # WHAT PUTS A CHECKOUT IN A TIER. Each predicate is one question the
+  # selector can ask of a directory, and says nothing about how far its answer
+  # should be believed: that is the tier's author's to judge. A path is the
+  # one signal a checkout cannot forge; a remote, an owner and the author of a
+  # first commit are all strings any checkout can claim.
+  ruleType = types.submodule {
+    options = {
+      paths = mkOption {
+        type = types.listOf absPath;
+        default = [ ];
+        example = [ "/home/alice" ];
+        description = ''
+          Directories, matched EXACTLY against the one the agent was started
+          in, with its links resolved -- never as a prefix. Asks git nothing.
+        '';
+      };
+      checkouts = mkOption {
+        type = types.attrsOf absPath;
+        default = { };
+        example = { "alice/nix-config" = "/home/alice/Projects/nix-config"; };
+        description = ''
+          Repositories keyed by "owner/name", matched against `origin`'s URL,
+          and valued by where that checkout lives: the remote has to be one of
+          these AND the checkout's root that path or under it (a worktree
+          kept inside the checkout, say). The same remote anywhere else does
+          not match.
+        '';
+      };
+      repos = mkOption {
+        type = types.listOf slug;
+        default = [ ];
+        example = [ "someone/a-fork" ];
+        description = ''
+          Repositories by "owner/name" alone, matched against `origin`'s URL
+          wherever the checkout is. A remote is a string any checkout can
+          claim, so this is the predicate for a tier a checkout would not
+          want to be in.
+        '';
+      };
+      owners = mkOption {
+        type = types.listOf (types.strMatching "[^/[:space:]]+");
+        default = [ ];
+        example = [ "alice" "her-employer" ];
+        description = "Repository owners, the first half of `origin`'s \"owner/name\".";
+      };
+      rootAuthorDomains = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        example = [ "example.com" ];
+        description = ''
+          Email domains, every one of the repository's FIRST commits having
+          been authored at one of them. A fork's root commit is upstream's, so
+          this is what gives a fork away when its remote looks like yours. A
+          shallow clone, whose first commit is only where it was cut, never
+          matches.
+        '';
+      };
+    };
+  };
 
   # WHERE THE BUNDLE IS is frisket's to say; which variables point at it is
   # not. frisket puts the session's CA at /etc/frisket/ca-bundle.crt and stops
@@ -135,11 +199,34 @@ let
     # writes, guarded and unmatched: how every app in the tier answers what
     # it does not allow outright (PLAN.md, decision 18).
     options = operations.tierOptions // {
+      match = mkOption {
+        type = types.listOf ruleType;
+        default = [ ];
+        description = ''
+          What puts a checkout in this tier: any one of these rules, each
+          holding only when every predicate it sets does. Tiers are asked in
+          `chase.order`, and the first with a rule that holds is the
+          checkout's; a rule that does not hold decides nothing, and the next
+          is asked.
+        '';
+      };
+      bare = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Run with no sandbox at all: no container, no frisket, no envelope.
+          For work a container cannot do -- real sudo, /dev/input, KVM, the
+          network namespaces sessions are made of. Everything below is a
+          sandbox's, and a bare tier sets none of it.
+        '';
+      };
       egress = mkOption {
-        type = types.enum [ "direct" "frisket" ];
+        type = types.nullOr (types.enum [ "direct" "frisket" ]);
+        default = null;
         description = ''
           `direct`: the container's own network (pasta), with frisket answering
-          DNS. `frisket`: no network but frisket.
+          DNS. `frisket`: no network but frisket. Required unless the tier is
+          `bare`.
         '';
       };
       allow = mkOption {
@@ -178,8 +265,8 @@ let
         default = false;
         description = ''
           Whether a checkout's own envelope -- its `chaseModules.default` --
-          is applied to its sessions in this tier, once approved. Never for a
-          tier with nothing local to open (PLAN.md, decision 13).
+          is applied to its sessions in this tier, once approved. Not for a
+          tier that runs other people's code (PLAN.md, decision 13).
         '';
       };
     };
@@ -191,10 +278,6 @@ in
     # Imports frisket's daemon module too.
     self.inputs.frisket.nixosModules.flong
     ./selector.nix
-    # The two tiers chase is opinionated about. A consumer sets their values
-    # and an envelope overlays `trusted`; nothing overlays `strict`.
-    ./tiers/trusted.nix
-    ./tiers/strict.nix
     ./apps/git.nix
     ./apps/github.nix
     ./apps/claude.nix
@@ -202,7 +285,12 @@ in
     ./apps/cloudflare.nix
     ./apps/huggingface.nix
     ./project
-  ];
+  ] ++ map
+    (name: lib.mkRemovedOptionModule [ "chase" name ] ''
+      chase ships no tiers and no selector opinions: a tier says what puts a
+      checkout in it, in `chase.tiers.<name>.match`, and `chase.order` says
+      which is asked first. See chase's README.'')
+    [ "strictRepos" "trustedRepos" "hostRepos" "hostPaths" "trustedOrgs" "trustedAuthorDomains" ];
 
   options.chase = {
     user = mkOption {
@@ -262,80 +350,26 @@ in
         throwaway guests.
       '';
     };
-    # HOW A CHECKOUT IS SORTED. The options below are the selector's inputs,
-    # in the order it consults them: explicit paths, then explicit slugs, then
-    # the heuristic. See ./selector.nix, which is where the order is enforced.
-    #
-    # A repository is named "owner/name", matched against `origin`'s URL. A
-    # slug ALONE is never enough to raise a tier: where the checkout sits has
-    # to agree, because a remote is a string any checkout can claim and a path
-    # is not.
-    strictRepos = mkOption {
-      type = types.listOf slug;
-      default = [ ];
-      example = [ "danielbodart/something-i-do-not-trust" ];
-      description = ''
-        Repositories forced to the strict tier, whatever else would have said.
-        Checked before every other rule, including the paths, so this is how
-        an exception is written down.
-      '';
-    };
-    trustedRepos = mkOption {
-      type = types.attrsOf absPath;
-      default = { };
-      example = { "someorg/a-fork-we-work-on" = "/home/alice/Projects/a-fork-we-work-on"; };
-      description = ''
-        Repositories raised to the trusted tier that the heuristic would not
-        reach -- a fork, whose first commit is upstream's, or a repository in
-        an organisation that is not yours.
-
-        Keyed by "owner/name", valued by where that checkout must live. BOTH
-        have to match: a checkout claiming the slug from anywhere else is
-        sorted strict and told why.
-      '';
-    };
-    hostRepos = mkOption {
-      type = types.attrsOf absPath;
-      default = { };
-      example = { "alice/nix-config" = "/home/alice/Projects/nix-config"; };
-      description = ''
-        Repositories that run with no container at all, for work a container
-        cannot do: real sudo, /dev/input, KVM, or the network namespaces these
-        sessions are made of.
-
-        Keyed and matched exactly as `trustedRepos` is, and for the stronger
-        reason -- this tier has no boundary, so the path agreeing is the whole
-        of what is checked.
-      '';
-    };
-    hostPaths = mkOption {
-      type = types.listOf absPath;
-      default = [ ];
-      example = [ "/home/alice" ];
-      description = ''
-        Directories that run bare, matched EXACTLY and never as a prefix, and
-        consulted before anything asks git a question. The one signal a
-        checkout cannot forge, which is why it is first.
-      '';
-    };
-    trustedOrgs = mkOption {
+    # HOW A CHECKOUT IS SORTED: tiers asked in `order`, each by its own
+    # `match`, and `fallback` for whatever none of them claims. See
+    # ./selector.nix, which is where the order is enforced.
+    order = mkOption {
       type = types.listOf types.str;
       default = [ ];
-      example = [ "alice" "her-employer" ];
+      example = [ "host" "strict" "trusted" ];
       description = ''
-        Repository owners whose work is yours. An unlisted owner is strict
-        without further questions; a listed one still has to pass
-        `trustedAuthorDomains` before the tier is raised.
+        The tiers the selector asks, first to last. The first with a rule in
+        its `match` that holds is the checkout's, so a tier that should win
+        over another is listed before it. Every tier with rules is here.
       '';
     };
-    trustedAuthorDomains = mkOption {
-      type = types.listOf types.str;
-      default = [ ];
-      example = [ "example.com" ];
+    fallback = mkOption {
+      type = types.str;
+      example = "strict";
       description = ''
-        Email domains of the author of a repository's FIRST commit. A fork's
-        root commit is upstream's, so the domain there is what gives a fork
-        away when the slug and the owner both look like yours.
+        The tier a checkout goes to when no tier's rules hold, and whenever
+        sorting it fails at all. Never a bare one: what nothing vouched for
+        runs in a sandbox.
       '';
     };
     workspaceGroups = mkOption {
@@ -355,12 +389,10 @@ in
       type = types.attrsOf tierType;
       default = { };
       description = ''
-        The sandboxes a checkout can be sorted into, by name. chase ships two
-        -- `trusted` and `strict` -- and each becomes a container, a flong
-        launcher and a frisket policy of the same name.
-
-        `host` is deliberately absent: it is the ABSENCE of a tier, not one of
-        them, and a checkout sorted there runs bare.
+        The tiers a checkout can be sorted into, by name. chase ships none:
+        what each one is for, what puts a checkout in it and what it may do
+        are the consumer's to say. Each that is not `bare` becomes a
+        container, a flong launcher and a frisket policy of the same name.
       '';
     };
     # What apps add to each tier's command and binds. Separate from `tiers`,
@@ -379,15 +411,56 @@ in
   };
 
   config = {
+    assertions =
+      let
+        names = lib.attrNames cfg.tiers;
+        predicates = [ "paths" "checkouts" "repos" "owners" "rootAuthorDomains" ];
+      in
+      [
+        {
+          assertion = cfg.tiers ? ${cfg.fallback};
+          message = "chase.fallback is '${cfg.fallback}', which is not one of chase.tiers: ${toString names}.";
+        }
+        {
+          assertion = !(cfg.tiers.${cfg.fallback}.bare or false);
+          message = "chase.fallback is '${cfg.fallback}', which is bare: what no rule vouched for must run in a sandbox.";
+        }
+        {
+          assertion = lib.all (n: cfg.tiers ? ${n}) cfg.order && lib.allUnique cfg.order;
+          message = "chase.order must name each of chase.tiers at most once, and nothing else: ${toString cfg.order}.";
+        }
+      ]
+      ++ lib.concatLists (lib.mapAttrsToList (name: tier: [
+        {
+          assertion = tier.match == [ ] || lib.elem name cfg.order;
+          message = "chase.tiers.${name} has rules in `match`, but is not in chase.order, so they would never be asked.";
+        }
+        {
+          assertion = lib.all (rule: lib.any (p: rule.${p} != [ ] && rule.${p} != { }) predicates) tier.match;
+          message = "chase.tiers.${name}.match has a rule that sets no predicate, which would hold for every checkout. That tier is chase.fallback's to be.";
+        }
+        {
+          assertion = tier.bare || tier.egress != null;
+          message = "chase.tiers.${name} is a sandbox and sets no `egress`: say `direct` or `frisket`.";
+        }
+        {
+          assertion = !tier.bare || !(tier.envelope
+            || config.containers ? "agent-${name}"
+            || config.flong ? "agent-${name}"
+            || config.services.frisket.policies ? ${name});
+          message = "chase.tiers.${name} is bare, and something gives it a sandbox's settings: an app enabled in it, or `envelope`. A bare tier runs with none.";
+        }
+      ]) cfg.tiers);
+
     # The user whose credential files the routes read.
     services.frisket = {
       enable = true;
       user = cfg.user;
-      policies = lib.mapAttrs (_: tier: { allow = tier.allow; }) cfg.tiers;
+      policies = lib.mapAttrs (_: tier: { allow = tier.allow; }) sandboxes;
       flong = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" {
         policy = name;
         set = if tier.egress == "direct" then "service" else "all";
-      }) cfg.tiers;
+      }) sandboxes;
     };
 
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" {
@@ -412,7 +485,7 @@ in
         environment.variables = lib.mapAttrs (_: lib.mkDefault) caVariables;
         environment.systemPackages = with pkgs; [ bun git coreutils gnugrep curl jq ];
       };
-    }) cfg.tiers;
+    }) sandboxes;
 
     flong = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" ({
       inherit (tier) seccomp;
@@ -430,6 +503,6 @@ in
         # 127.0.0.1: the host's localhost has to arrive on the session's.
         hostLoopbackToSession = tier.forwardPorts == "auto";
       };
-    })) cfg.tiers;
+    })) sandboxes;
   };
 }

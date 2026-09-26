@@ -119,7 +119,7 @@ in
     services.frisket.policies = lib.mapAttrs (name: tier: mkIf tier.apps.git.enable (
       let s = ops.settings tier.apps.git; in
       {
-        # For a tier with an allowlist of names; trusted's `*` already covers it.
+        # For a tier with an allowlist of names; one allowing `*` has it already.
         allow = lib.mkAfter hosts;
         routes.git = {
           inherit host;

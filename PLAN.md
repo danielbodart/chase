@@ -97,13 +97,13 @@ prevent in frisket's own config loader: *"a misspelt key in a policy is a rule
 that silently does not apply."*
 
 **5. Trust is the machine's decision; capability is the project's.** A checkout
-cannot be asked whether it is trustworthy, so `trustedOrgs`, the override lists
-and the provenance check stay where the machine owns them. What a project may
-then *ask for* is the project's to declare. Two different questions.
+cannot be asked whether it is trustworthy, so which tiers exist and what sorts
+a checkout into each — every tier's `match` — are the machine's. What a project
+may then *ask for* is the project's to declare. Two different questions.
 
-Note this does not put a project list back on the machine: trust is decided by
-organisation and first-commit authorship, so projects are not enumerated in the
-common case. The override lists are overrides.
+Note this does not put a project list back on the machine: a rule can sort by
+owner and first-commit authorship, so projects are not enumerated in the
+common case. Rules naming a single repository are exceptions.
 
 **6. Per-project scoping is per-project credentials, not per-project matching.**
 The strongest scope is one the provider enforces: a Cloudflare token minted for
@@ -170,32 +170,36 @@ flake evaluation, so a repeat is cheap, and a project direnv has already warmed
 is cheaper still — direnv is not the mechanism, it just does no harm. A
 project with no `flake.nix` costs a stat, which is the ordinary case.
 
-**12. Two tiers, three outcomes.** `trusted` and `strict` are tiers: a
-container, its binds, what is steered, which apps. `host` today is the
-*absence* of one — it runs bare, with no container, no frisket policy and no
-envelope. The selector returns three strings and `tiers` holds two, which is
-already true and worth saying out loud, because the name suggests otherwise.
+**12. chase ships the machinery, not the tiers.** A tier is a name and what it
+is — a container, its network, its filter, its apps, how their writes are
+answered — or `bare`, no sandbox at all. What puts a checkout in one is the
+tier's `match`: rules made of predicates (`paths`, `checkouts`, `repos`,
+`owners`, `rootAuthorDomains`), each a question the selector can ask of a
+directory. Tiers are asked in `chase.order`, first match wins, and
+`chase.fallback` takes what nothing matched and whatever the selector could
+not sort. All of it is the consumer's configuration; chase knows no tier by
+name.
 
-This is a statement of the reason, not a promise about the future. host exists
-for work that needs the host: real sudo, `/dev/input`, KVM, the network
-namespaces themselves. Root defeats every boundary flong or frisket could draw
-around it — including the credential one, since frisket's credential files are
-the user's own and a process with sudo simply reads them, and since a netns can
-be left with `nsenter`. So there is nothing yet that containerising host would
-buy.
+A predicate says nothing about how far its answer should be believed. A path
+cannot be forged; a remote, an owner and a first commit's author can. Which
+predicates are enough for which tier is the tier's author's call, and chase's
+job is to make it visible in one place — the machine's own tier definitions —
+rather than to make it for them. There is one exception, where getting it
+wrong has no recovery: the fallback cannot be bare, because what nothing
+vouched for has to run in a sandbox.
 
-If that reason ever stops holding — a host-tier variant that gives up sudo, or
-some boundary root does not defeat — the conclusion moves with it. What is
-locked is that host gets no container *for as long as it has root*, not that it
-never gets one.
+A bare tier exists for work that needs the host: real sudo, `/dev/input`, KVM,
+the network namespaces themselves. Root defeats every boundary flong or
+frisket could draw around it — including the credential one, since frisket's
+credential files are the user's own and a process with sudo simply reads
+them, and since a netns can be left with `nsenter`. So there is nothing that
+containerising such work would buy, for as long as it has root.
 
-chase ships both tiers, opinionated, and nix-config instantiates them. A
-project overlays `trusted`. Nothing overlays `strict` (decision 13).
-
-**13. strict never takes an envelope.** It has no network to open a port on,
-and "nothing local is reachable" is the whole of what the tier is for. A
-project that ships an envelope and is sorted into strict has it ignored, and
-said so at launch (decision 8).
+**13. A tier for other people's code takes no envelope.** `envelope` is a
+tier's switch, and a tier that runs code nobody vouched for leaves it off: it
+has no network to open a port on, and "nothing local is reachable" is the
+whole of what such a tier is for. A project that ships an envelope and is
+sorted into it has it ignored.
 
 **14. An app declares a credential's shape; a consumer binds its source.**
 Nothing above frisket mentions files. frisket already has the vocabulary for
@@ -312,15 +316,15 @@ host when one is wanted.
 `git-receive-pack` because git's writes are allowed, and for no other reason.
 No app keeps a switch of its own for what these three already say.
 
-**A tier with no one to ask says so, and a project cannot loosen it.** strict
-is `writes`, `guarded` and `unmatched` all `refuse`, written out in the tier,
-not a conversion hidden in each app. frisket's asker is the machine's, not a
+**A tier with no one to ask says so, and a project cannot loosen it.** A tier
+for other people's code is `writes`, `guarded` and `unmatched` all `refuse`,
+written out in the tier, not a conversion hidden in each app. frisket's asker is the machine's, not a
 tier's, so there is nothing for a tier to be checked against: saying so is
 what makes it so. An anonymous app refuses all three whatever its tier says.
 A project's lists are ignored for both, and that is reported (decision 8):
-strict takes no envelope anyway (decision 13), and a project that needs more
-goes into another tier, which is the machine's decision (decision 5), not the
-checkout's.
+such a tier takes no envelope anyway (decision 13), and a project that needs
+more goes into another tier, which is the machine's decision (decision 5), not
+the checkout's.
 
 This all resolves in chase: the tier's and the app's settings at eval, and a
 project's lists at launch, against the tier's own policy document
@@ -359,7 +363,7 @@ schema's operation of that name, generated as a REST operation is.
   owns it, not by a consumer. Decision 1.
 
 - **A host-declared ceiling on what a project's envelope may ask for.** Built
-  for a threat model the trusted tier does not have. Trusted already grants a
+  for a threat model a tier for your own code does not have. One already grants a
   real network stack with the host and LAN reachable; a declared loopback port
   is not a new surface, and the answer to an invisible change is decision 8,
   not a ceiling.
@@ -384,14 +388,14 @@ schema's operation of that name, generated as a REST operation is.
 | | |
 |---|---|
 | `modules/agents/options.nix` | moves |
-| `modules/agents/selector.nix` | moves — tiers, `agent-tier`, the wrappers |
-| `modules/agents/tiers/` | moves |
+| `modules/agents/selector.nix` | moves — `agent-tier`, its predicates, the wrappers |
+| `modules/agents/tiers/` | **stays**: which tiers a machine has, and what sorts a checkout into each, is its own (decision 12) |
 | `modules/agents/apps/` | moves — claude, codex, github, dragoman, mise, audio |
 | `modules/agents/default.nix` | **stays**: it is the instance, not the module |
 | `frisket/nix/flong.nix`'s `caVariables` | moves here |
 
-`default.nix` is `user = "dan"`, the repo lists and `trustedOrgs` — the personal
-configuration, which is exactly what should not travel.
+`default.nix` is `user = "dan"`, the tiers and the rules that sort into them —
+the personal configuration, which is exactly what should not travel.
 
 ### Couplings to break first
 
@@ -421,7 +425,7 @@ configuration, which is exactly what should not travel.
   session's ports are frozen into the script. Wanted: the shape `binds`
   already has — a hook that runs per launch with `$workspace` exported. Generic;
   flong learns nothing about projects. *Partly overtaken:* `forwardPorts =
-  "auto"` publishes whatever a session listens on, and trusted uses it, so a
+  "auto"` publishes whatever a session listens on, and a tier can use it, so a
   dev server needs no declaration. `hostPorts` — a session reaching the
   host's database, say — are still fixed at eval.
 - **frisket** — *done, and wider than asked.* Every policy is a document a

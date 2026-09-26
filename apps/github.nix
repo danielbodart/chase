@@ -93,7 +93,7 @@ in
     services.frisket.policies = lib.mapAttrs (name: tier: mkIf tier.apps.github.enable (
       let s = ops.settings tier.apps.github; in
       {
-        # For a tier with an allowlist of names; trusted's `*` already covers it.
+        # For a tier with an allowlist of names; one allowing `*` has it already.
         allow = lib.mkAfter [ host ];
         routes.github = {
           inherit host refusal;

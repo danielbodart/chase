@@ -132,7 +132,7 @@ in
     })) cfg.tiers;
 
     services.frisket.policies = lib.mapAttrs (name: tier: mkIf tier.apps.huggingface.enable {
-      # For a tier with an allowlist of names; trusted's `*` already covers it.
+      # For a tier with an allowlist of names; one allowing `*` has it already.
       allow = lib.mkAfter hosts;
       routes.huggingface =
         let s = ops.settings tier.apps.huggingface; in

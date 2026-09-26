@@ -136,7 +136,7 @@ in
     # one, api.cloudflare.com is intercepted only in a session whose project
     # brought one, and is otherwise an ordinary allowed name.
     services.frisket.policies = lib.mapAttrs (name: tier: mkIf (tier.apps.cloudflare.enable && bindings.credentialFile != null) {
-      # For a tier with an allowlist of names; trusted's `*` already covers it.
+      # For a tier with an allowlist of names; one allowing `*` has it already.
       allow = lib.mkAfter [ host ];
       routes.cloudflare = removeAttrs (route tier) [ "name" ] // {
         credentialFile = bindings.credentialFile;
@@ -145,7 +145,7 @@ in
 
     # A project that binds its own token, in ../project/options.nix.
     chase.internal.projectApps.cloudflare = {
-      routes = lib.mapAttrs (_: route) cfg.tiers;
+      routes = lib.mapAttrs (_: route) (lib.filterAttrs (_: t: !t.bare) cfg.tiers);
       allow = [ host ];
       env.CLOUDFLARE_API_TOKEN = cfg.placeholder;
       envFromBinding.CLOUDFLARE_ACCOUNT_ID = "accountId";

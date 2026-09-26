@@ -31,8 +31,8 @@ let
     paths = [{ methods = every; prefix = "/"; refuse = true; }];
   };
 
-  trustedScopes = [ "user:file_upload" "user:inference" "user:mcp_servers" "user:profile" "user:sessions:claude_code" ];
-  strictScopes = [ "user:inference" ];
+  connectorScopes = [ "user:file_upload" "user:inference" "user:mcp_servers" "user:profile" "user:sessions:claude_code" ];
+  inferenceScopes = [ "user:inference" ];
   # Shaped like the real login, since Claude Code decides what to offer from
   # it. Never expires, so the container never tries to refresh it.
   claudePlaceholder = scopes: builtins.toJSON {
@@ -281,7 +281,7 @@ in
         setupLines = [
           ''
             (umask 077; printf '%s' ${lib.escapeShellArg (claudePlaceholder (
-              if tier.apps.claude.connectors then trustedScopes else strictScopes
+              if tier.apps.claude.connectors then connectorScopes else inferenceScopes
             ))} \
               > ${claudeDir}/.credentials.json)
           ''

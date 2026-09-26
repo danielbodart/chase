@@ -10,16 +10,19 @@ which apps run inside it, and which credential each of those is given.
 > casts the plate; [frisket](https://github.com/danielbodart/frisket) decides
 > what the sheet is allowed to take; chase is what holds the page.
 
-The repository you start an agent in decides its boundary. `host` runs bare;
-`trusted` and `strict` run in a flong container whose network and credentials
-go through frisket. A credential is never mounted: the container holds a
+The repository you start an agent in decides its tier, and the tiers are
+yours: which there are, what puts a checkout in each, and what each may do. A
+tier runs bare or in a flong container whose network and credentials go
+through frisket. A credential is never mounted: the container holds a
 placeholder, and frisket adds the real one on the wire, where the sandbox
 cannot reach it.
 
-chase holds no secrets and names no machine. Who the user is, which
-organisations are trusted, and where a credential comes from all arrive as
-options — so a project can declare what its agents need by depending on chase,
-never on the configuration of the machine it is being worked on.
+chase holds no secrets, names no machine and ships no tiers. What it carries is
+the machinery — the selector and its predicates, the containers, the apps and
+what each app's credential looks like. Who the user is, which tiers there are,
+what sorts a checkout into each and where a credential comes from all arrive
+as options — so a project can declare what its agents need by depending on
+chase, never on the configuration of the machine it is being worked on.
 
 The design, what was decided and what was turned down, is in [PLAN.md](PLAN.md).
 
@@ -37,13 +40,30 @@ The design, what was decided and what was turned down, is in [PLAN.md](PLAN.md).
     uid = 1000;
     gid = 100;
 
-    # Own-org repositories whose first commit is yours are trusted on the
-    # heuristic. These are the exceptions, and a slug alone never raises a
-    # tier -- the path has to agree.
-    trustedOrgs = [ "alice" ];
-    trustedAuthorDomains = [ "example.com" ];
-    hostPaths = [ "/home/alice" ];
-    hostRepos."alice/nix-config" = "/home/alice/Projects/nix-config";
+    # Asked first to last; the first tier with a rule that holds wins, and
+    # whatever none holds for is the fallback's.
+    order = [ "host" "strict" "trusted" ];
+    fallback = "strict";
+
+    tiers.host = {
+      bare = true;
+      match = [ { paths = [ "/home/alice" ]; } ];
+    };
+    tiers.strict = {
+      egress = "frisket";
+      writes = "refuse"; guarded = "refuse"; unmatched = "refuse";
+      apps.claude.state = "isolated";
+      apps.git = { enable = true; anonymous = true; };
+    };
+    tiers.trusted = {
+      match = [ { owners = [ "alice" ]; rootAuthorDomains = [ "example.com" ]; } ];
+      egress = "direct";
+      allow = [ "*" ];
+      envelope = true;
+      apps.claude = { state = "shared"; connectors = true; };
+      apps.git.enable = true;
+      apps.github.enable = true;
+    };
 
     # What chase declares and you bind. An app names the package it runs and
     # the credential it needs; it never reaches for one, so the same app
@@ -63,20 +83,57 @@ directory you are standing in and either run bare or launch the matching
 container. `chase shell` does the same with a login shell instead of an
 agent: the session exactly as an agent would get it, credentials as
 placeholders and all. `agent-tier --dry-run DIR...` explains a sorting without
-running anything.
+running anything:
+
+```
+DIRECTORY                  TIER      REASON
+alice                      host      path /home/alice
+thing                      trusted   owner alice, first commit by alice@example.com
+a-fork                     strict    first commit by someone@upstream.org
+```
+
+[examples/tiers.nix](examples/tiers.nix) is a fuller set, with the reasoning
+behind each choice, and is what chase's own checks evaluate against.
 
 ## Tiers
 
-| | trusted | strict |
-|---|---|---|
-| For | your own code | someone else's, forks included |
-| Network | its own, through pasta; frisket answers DNS | none but frisket |
-| Credentials | added on the wire, never in the container | none but the model API's |
-| GitHub | reads as you; writes and pushes ask, deletions refused | anonymous: clone, fetch and read, never write |
+A tier is a name and what it is: a container with a network, a seccomp
+filter, the apps it runs and how their writes are answered — or `bare`, no
+sandbox at all, for work a container cannot do: real sudo, `/dev/input`, KVM,
+or the network namespaces these sessions are made of. Each tier that is not
+bare becomes a container, a flong launcher and a frisket policy of the same
+name. There can be as many as you like.
 
-`host` is the absence of a tier rather than one of them: it runs bare, for
-work a container cannot do — real sudo, `/dev/input`, KVM, or the network
-namespaces these sessions are made of.
+### What puts a checkout in a tier
+
+A tier's `match` is a list of rules. A rule holds when every predicate it sets
+holds, and a tier matches when any of its rules does:
+
+| Predicate | Holds when |
+|---|---|
+| `paths` | the directory started in, links resolved, is exactly one of these |
+| `checkouts` | `origin` is one of these `"owner/name"`s, and the checkout's root is the path given for it or beneath it |
+| `repos` | `origin` is one of these `"owner/name"`s, wherever the checkout is |
+| `owners` | `origin`'s owner is one of these |
+| `rootAuthorDomains` | every root commit was authored at one of these email domains; never in a shallow clone |
+
+Tiers are asked in `chase.order`, and the first with a rule that holds is the
+checkout's. A rule that does not hold decides nothing: the next is asked.
+What no rule holds for goes to `chase.fallback`, and so does anything that
+goes wrong on the way — the wrapper, when the selector fails, launches the
+fallback. The fallback cannot be bare.
+
+**How far each predicate is believed is yours to decide, not chase's.** A path
+is the one signal a checkout cannot forge. A remote, an owner and a first
+commit's author are all strings anything in the checkout can set. So the
+example lets a path alone put a checkout on the host, and lets the forgeable
+predicates raise one no further than a sandbox — or lower one: a tier asked
+before the others can list a repository by remote alone, and catch every copy
+of it that is not where `checkouts` says it lives, rather than letting a copy
+fall through to an owner rule.
+
+A launcher checks the selector agrees before it starts a session, so one run
+by hand on the wrong checkout refuses; the fallback's takes anything.
 
 ## Apps
 
@@ -92,7 +149,7 @@ and puts its token on each request, taking the expiry from
 `claudeAiOauth.expiresAt` so a stale token answers 503 rather than 401 — which
 Claude Code retries in the same turn instead of failing it. The container holds
 a login shaped like the real one and made of placeholders, with scopes narrowed
-per tier: strict gets `user:inference` and nothing else. It never expires, so
+per tier: one without `connectors` gets `user:inference` and nothing else. It never expires, so
 the session never tries to refresh it, and the refresh endpoint and the Console
 are routed only to be refused — no response can hand the sandbox a real token.
 Claude Code's own sandbox is turned off, because bubblewrap cannot nest inside
@@ -117,8 +174,8 @@ is git over HTTPS: remotes are rewritten from `git@github.com:` to HTTPS, so
 git goes through frisket and no key is needed in the session, and the token
 arrives as Basic auth's password under `x-access-token`. A fetch is a read and
 a push a write, so a tier can let git push while gh's writes still ask; a push
-asked about is asked about once, showing the refs it would update. Strict is
-anonymous instead: clone, fetch and GET work with no credential in existence,
+asked about is asked about once, showing the refs it would update. A tier can
+have both anonymous instead: clone, fetch and GET work with no credential in existence,
 and a push stops at git's ref advertisement — refused on the request line
 rather than by inspecting what `git` was asked to do, which is not something a
 session can route around. See [docs/github.md](docs/github.md).
@@ -135,7 +192,7 @@ description, as Cloudflare's is: reads go straight through, and writes, the
 reads that mint a token, and anything the description does not name wait for a
 person. The files themselves come from presigned CDN URLs and Xet's store under
 `hf.co`, which take tokens of their own, so they are allowed and never
-intercepted. `anonymous` is strict's: public models download, and what would
+intercepted. `anonymous` is for a tier running other people's code: public models download, and what would
 ask is refused, Xet's write token among it, so a token the session brings of
 its own cannot upload either. See [docs/huggingface.md](docs/huggingface.md). `shared` binds the host's download cache in, so a
 model is downloaded once — not in a tier that runs other people's code, since
@@ -174,8 +231,8 @@ chase.tiers.trusted = {
 };
 ```
 
-strict says `refuse` for all three, and an anonymous app refuses all three
-whatever the tier says.
+A tier with no one to ask on its behalf says `refuse` for all three, and an
+anonymous app refuses all three whatever the tier says.
 
 A project names what it wants otherwise in its envelope, per app — by
 operation id, by the API's own category, or by method and path for an
@@ -191,8 +248,8 @@ chaseModules.default = {
 ```
 
 It is part of what is approved, a name in two lists is refused before anyone
-is asked, and a name the app does not have fails the launch. Not in strict,
-which takes no envelope, nor for an app a tier has anonymously.
+is asked, and a name the app does not have fails the launch. Not in a tier
+that takes no envelope, nor for an app a tier has anonymously.
 
 The line is only where the list starts. `exceptions.json` beside each app says,
 operation by operation and with a reason each, where it is wrong: the reads
@@ -227,8 +284,14 @@ nix flake check
 of a consumer's configuration around it, so a coupling that creeps back in
 fails there rather than on somebody's machine. It also proves the refusals:
 a credential that is declared and left unbound must fail at evaluation rather
-than quietly becoming a route frisket serves with nothing attached. Evaluation
-only — no system is built, which is what keeps it in seconds.
+than quietly becoming a route frisket serves with nothing attached, and a
+tier set up so it cannot work — a bare fallback, a rule with no predicate — must
+fail the same way. Evaluation only — no system is built, which is what keeps it
+in seconds.
+
+`checks.selector` builds `agent-tier` from the example's rules and runs it
+against real repositories: a pinned checkout at its path and elsewhere, a
+fork, a stranger's, a shallow clone, a directory that is not a repository.
 
 ## Licence
 
