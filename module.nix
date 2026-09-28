@@ -285,6 +285,7 @@ in
     ./apps/cloudflare.nix
     ./apps/huggingface.nix
     ./apps/gcloud.nix
+    ./apps/gcloud-renew.nix
     ./project
   ] ++ map
     (name: lib.mkRemovedOptionModule [ "chase" name ] ''

@@ -664,12 +664,98 @@
               touch $out
             '';
 
+          # Google Cloud's renewer, against a fake token endpoint that
+          # verifies each grant against the key's public half.
+          gcloud-renew =
+            let
+              renew = tokenURL: import ./lib/gcloud-renew.nix { inherit pkgs tokenURL; };
+            in
+            pkgs.runCommand "gcloud-renew"
+              { nativeBuildInputs = [ pkgs.jq pkgs.openssl pkgs.python3 (renew "http://127.0.0.1:18080/token") ]; }
+              ''
+                fail() { echo "gcloud-renew: $*" >&2; exit 1; }
+                within() { local n=$(( $1 * 10 )); shift; while ! "$@"; do n=$((n - 1)); [ $n -gt 0 ] || return 1; sleep 0.1; done; }
+                sa=renew@demo.iam.gserviceaccount.com
+                f=$TMPDIR/fake said=$TMPDIR/said
+                mkdir $f && : > $said && : > $f/log
+                for k in sa other; do openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out $f/$k.pem 2>/dev/null; done
+                openssl pkey -in $f/sa.pem -pubout -out $f/sa.pub
+                session() {
+                  mkdir -m 0700 "$1" "$1/secrets"
+                  jq -n --rawfile k "$f/''${2:-sa}.pem" --arg e "''${3:-$sa}" \
+                    '{type: "service_account", project_id: "demo", private_key_id: "x", private_key: $k, client_email: $e}' > "$1/secrets/gcloud"
+                }
+                python3 ${./tests/gcloud-renew/fakegoogle.py} 18080 $f/sa.pub $sa $f &
+                within 10 bash -c 'exec 3<>/dev/tcp/127.0.0.1/18080' 2>/dev/null || fail "the fake did not start"
+                requests() { wc -l < $f/log; }
+                mint() { # EXIT RUN [SA]
+                  local rc=0
+                  CHASE_GCLOUD_SA=''${3-} chase-gcloud-renew mint "$2" >>$said 2>&1 || rc=$?
+                  [ $rc = "$1" ] || fail "mint $2 exited $rc, not $1: $(tail -n 3 $said)"
+                }
+
+                run=$TMPDIR/run && session $run
+                before=$(date +%s%3N); mint 0 $run $sa; after=$(date +%s%3N)
+                [ "$(stat -c %a $run/gcloud-token.json)" = 600 ] || fail "the token file is not 0600"
+                jq -e --arg t "$(tail -n 1 $f/log | jq -r .token)" --argjson lo $((before + 3599000)) --argjson hi $((after + 3599000)) \
+                  'keys == ["access_token", "expiry"] and .access_token == $t and .expiry >= $lo and .expiry <= $hi' $run/gcloud-token.json >/dev/null \
+                  || fail "the token file is wrong: expiry $(jq .expiry $run/gcloud-token.json), sent $before..$after"
+                inode=$(stat -c %i $run/gcloud-token.json)
+                mint 0 $run
+                [ "$(stat -c %i $run/gcloud-token.json)" != "$inode" ] || fail "the token was not replaced by rename"
+                [ "$(ls -A $run | tr '\n' ' ')" = "gcloud-token.json secrets " ] || fail "the run directory holds more: $(ls -A $run)"
+
+                kept=$(cat $run/gcloud-token.json) n=$(requests)
+                mint 3 $run other@demo.iam.gserviceaccount.com
+                [ "$(requests)" = "$n" ] || fail "a key of another account was sent"
+                for code in 400 401 403; do echo $code >> $f/codes; mint 2 $run; done
+                echo 500 >> $f/codes; mint 1 $run
+                [ "$(cat $run/gcloud-token.json)" = "$kept" ] || fail "a failed mint touched the token"
+
+                session $TMPDIR/forged other && mint 2 $TMPDIR/forged
+                [ "$(tail -n 1 $f/log | jq -r .wrong)" = signature ] || fail "the fake took a JWT another key signed"
+                session $TMPDIR/stranger sa stranger@demo.iam.gserviceaccount.com && mint 2 $TMPDIR/stranger
+                [ "$(tail -n 1 $f/log | jq -r .wrong)" = iss ] || fail "the fake took a JWT from another issuer"
+                mkdir -p $TMPDIR/junk/secrets && echo '{}' > $TMPDIR/junk/secrets/gcloud && mint 3 $TMPDIR/junk
+                rc=0; ${pkgs.lib.getExe (renew "http://127.0.0.1:1/token")} mint $run >>$said 2>&1 || rc=$?
+                [ $rc = 1 ] || fail "an unreachable endpoint exited $rc, not 1"
+
+                # Renewed with ten minutes left, and not before.
+                session $TMPDIR/soon
+                jq -n --argjson e $(( $(date +%s%3N) + 605000 )) '{access_token: "old", expiry: $e}' > $TMPDIR/soon/gcloud-token.json
+                n=$(requests) start=$(date +%s)
+                (chase-gcloud-renew loop $TMPDIR/soon >>$said 2>&1; touch $f/soon.done) &
+                more() { [ "$(requests)" -gt "$n" ]; }
+                within 20 more || fail "the loop did not renew"
+                [ $(( $(date +%s) - start )) -ge 4 ] || fail "the loop renewed with more than ten minutes left"
+                [ "$(jq -r .access_token $TMPDIR/soon/gcloud-token.json)" != old ] || fail "the loop did not write its token"
+                rm -rf $TMPDIR/soon
+                within 15 [ -e $f/soon.done ] || fail "the loop outlived its run directory"
+
+                # A failure is tried again a minute later.
+                session $TMPDIR/retry
+                echo 500 >> $f/codes
+                start=$(date +%s)
+                (chase-gcloud-renew loop $TMPDIR/retry >>$said 2>&1; touch $f/retry.done) &
+                within 90 [ -e $TMPDIR/retry/gcloud-token.json ] || fail "the loop did not try again"
+                [ $(( $(date +%s) - start )) -ge 55 ] || fail "the loop tried again too soon"
+                rm -rf $TMPDIR/retry
+                within 15 [ -e $f/retry.done ] || fail "the loop outlived its run directory"
+
+                grep -vF -- ----- $f/sa.pem $f/other.pem | cut -d: -f2 > $f/secret
+                jq -r '(.token // empty), (.assertion | split(".") | .[2] // empty)' $f/log >> $f/secret
+                [ "$(wc -l < $f/secret)" -gt 20 ] || fail "nothing to look for"
+                ! grep -qFf $f/secret $said || fail "a secret was printed: $(grep -Ff $f/secret $said | head -c 80)"
+                cat $said
+                touch $out
+              '';
+
           # The version script decides what every release is called, so it is
           # gated by the same check that gates the release.
           shellcheck = pkgs.runCommand "shellcheck"
             { nativeBuildInputs = [ pkgs.shellcheck ]; }
             ''
-              shellcheck ${./scripts/version.sh} ${./scripts/operations.sh} ${./scripts/gcloud.sh}
+              shellcheck ${./scripts/version.sh} ${./scripts/operations.sh} ${./scripts/gcloud.sh} ${./scripts/gcloud-renew.sh}
               touch $out
             '';
         });
