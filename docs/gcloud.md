@@ -21,8 +21,8 @@ as that project's service account, with:
 
 - no Google credential of any kind in the session — not a key Google knows,
   not a refresh token, not an access or ID token, however short-lived;
-- the service account reached without a service-account key, so it works in
-  organisations that forbid them;
+- the service account's own key only on the host, in the project's sops, and
+  later a keyless way for organisations that forbid keys;
 - every request classified from Google's own API descriptions, the way
   Cloudflare's are.
 
@@ -86,62 +86,68 @@ it:
 
 No project variable is needed: the key file names it.
 
-**4. The real credential is a project's service account, reached by
-federation.** Decision 9 holds: there is no machine-wide Google login, and a person's own
+**4. The real credential is a project's service account and its key.**
+Decision 9 holds: there is no machine-wide Google login, and a person's own
 login is never the source, not even to impersonate. Each project that binds
 Google has:
 
 - a service account in its own Google Cloud project, with the roles it needs
   and no more — the floor (decision 6);
-- a signing key of its own, generated for it, in its sops file (decision 7);
-- a workload identity pool in that Google project, with an OIDC provider whose
-  JWKS is that key's public half, uploaded (no public issuer URL), an issuer
-  of our choosing under `.invalid`, an audience of our own, and the attribute
-  condition `assertion.sub == 'project:<id>'`;
-- `roles/iam.workloadIdentityUser` on the service account for exactly that
-  subject.
+- a key for it, the JSON Google issues, in the project's sops file (decision
+  7), and never anywhere a session can read.
 
-*Measured:* any `https://` issuer is accepted, including an unresolvable one;
-RSA-2048, RSA-4096 and EC P-256 upload and P-384 and Ed25519 do not; a JWKS of
-two keys works, so a key rotates without a gap; a changed JWKS takes effect in
-about 5 seconds. A JWT with the wrong `sub`, audience or issuer, an expired
-one, or one signed by another key is each refused with its own error. The
-audit log names the service account as the caller and the pool's subject as
-the delegator.
+That is the first version: one command to set up, one call to renew, and it
+works wherever keys are allowed, which includes Triptease's organisation
+(checked: key creation is not restricted there). It is what an organisation
+created since May 2024 forbids by default
+(`iam.managed.disableServiceAccountKeyCreation`, and key upload beside it),
+and a key does not expire unless a policy says so; revoking it is deleting the
+key.
 
-A service-account key is the alternative: the same renewer, posting one JWT to
-`oauth2.googleapis.com/token` as the service account rather than two calls.
-It is simpler to set up, and is what an organisation created since May 2024
-forbids by default (`iam.managed.disableServiceAccountKeyCreation`, and key
-upload beside it). Not built unless a project needs it.
+**Keyless, later, by federation.** For an organisation that forbids keys, the
+project holds a signing key of its own instead, and Google trusts it through a
+workload identity pool: an OIDC provider whose JWKS is that key's public half,
+uploaded (no public issuer URL), an issuer of our choosing under `.invalid`,
+an audience of our own, the attribute condition
+`assertion.sub == 'project:<id>'`, and `roles/iam.workloadIdentityUser` on the
+service account for exactly that subject. Only the renewer changes; nothing in
+a session or in frisket does.
+
+*Measured, for when it is built:* any `https://` issuer is accepted, including
+an unresolvable one; RSA-2048, RSA-4096 and EC P-256 upload and P-384 and
+Ed25519 do not; a JWKS of two keys works, so a key rotates without a gap; a
+changed JWKS takes effect in about 5 seconds. A JWT with the wrong `sub`,
+audience or issuer, an expired one, or one signed by another key is each
+refused with its own error. The audit log names the service account as the
+caller and the pool's subject as the delegator. Revoking is removing the
+`workloadIdentityUser` binding (about 90 seconds) or disabling the service
+account: disabling or deleting the provider stops new exchanges within a
+second, but a federated token already issued kept working, and kept minting
+service-account tokens, for as long as it was watched. A deleted pool's name
+is held for 30 days, so pools are per project and not churned. The whole flow
+is STS then `iamcredentials…:generateAccessToken`, about 225 ms, fifteen lines
+of openssl, curl and jq (`spikes/gcloud/wif/renew.sh`).
 
 **5. The renewer is chase's, beside claude-refresh and codex-refresh.**
 frisket never refreshes (frisket decision 10). A user service per project
 binding:
 
-1. signs a JWT with the project's key: `iss`, `sub`, `aud`, `iat` and `exp`,
-   all required; `exp` a few minutes ahead, because Google accepted one valid
-   for eleven years (measured) and a JWT's life is ours to keep short;
-2. exchanges it at `sts.googleapis.com/v1/token` for a federated token, which
-   lives until the JWT's `exp`, at most an hour;
-3. calls `iamcredentials…:generateAccessToken` for the service account, for an
-   hour (the longest the organisation allows; the extension constraint is
-   denied);
-4. writes `{access_token, expiry}` with `expiry` in epoch milliseconds, taken
-   from the response's `expireTime`, never computed;
-5. renews with at least ten minutes left, so a slow renewal never leaves a
+1. signs a JWT as the service account with its key: `iss` the service
+   account's email, `scope` `https://www.googleapis.com/auth/cloud-platform`,
+   `aud` `https://oauth2.googleapis.com/token`, `iat`, and `exp` at most an
+   hour on;
+2. posts it to `oauth2.googleapis.com/token` as a JWT-bearer grant
+   (`urn:ietf:params:oauth:grant-type:jwt-bearer`), for an access token of an
+   hour — the longest the organisation allows, the extension constraint being
+   denied;
+3. writes `{access_token, expiry}` with `expiry` in epoch milliseconds, from
+   the response's `expires_in` counted from when the request was sent;
+4. renews with at least ten minutes left, so a slow renewal never leaves a
    gap: past the file's expiry frisket answers 503, and clients retry that
    quietly for about two minutes (measured).
 
-About 225 ms a renewal, and fifteen lines of openssl, curl and jq (measured).
-The federated token is discarded once used.
-
-**Revoking** is removing the `workloadIdentityUser` binding (about 90 seconds,
-measured) or disabling the service account. Disabling or deleting the provider
-stops new exchanges within a second, but a federated token already issued kept
-working, and kept minting service-account tokens, for as long as it was
-watched (measured). A deleted pool's name is held for 30 days, so pools are
-per project and not churned.
+This is the grant every client in the spikes made against frisket; against
+Google, with a real key, it is not yet measured here.
 
 **6. One route for every Google API.** `*.googleapis.com`, carrying the
 service account's token. A fixed list of hosts cannot keep up: Discovery alone
@@ -237,14 +243,18 @@ messages passed through the interceptor unchanged (measured).
 3. chase: the `gcloud` app — the route, a fake key per session and the
    environment that points at it, the credential shape (a JSON token file with
    an expiry), and the renewer.
-4. `danbodart-sandbox-test`, the test project, bound from a project's sops.
-   Its service account `frisket-spike` reads one bucket; the pool is
-   recreated there under a new name (the spike's is held for 30 days).
+4. `danbodart-sandbox-test`, the test project: a key for its service account
+   `frisket-spike`, which reads one bucket, in a project's sops, bound from
+   there.
 5. In a trusted session: `gcloud storage cat`, a Python, Go and Node read, a
    gRPC call, and a write that asks. Read frisket's log: every Google request
    matched a named operation, or was asked about.
 
 ## Open
+
+- **Keyless, by federation** (decision 4): the renewer's second mode, for
+  organisations that forbid keys. Measured and ready to build; built when a
+  project needs it.
 
 - **ID tokens.** Cloud Run and Functions want an ID token for their own
   audience, sent to `*.run.app`, not a Google API. frisket answers a grant for
