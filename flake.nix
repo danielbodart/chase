@@ -677,7 +677,12 @@
               [ "$(rule demo POST '/google.longrunning.Operations/GetOperation' | jq -r .operation.category)" = google.longrunning.Operations ] || fail "a mixin is not its own"
               [ "$(rule demo GET '/v1/b/*/o/*' | jq -r .encodedSlashes)" = true ] || fail "an object's name cannot hold a slash"
               [ "$(rule demo GET '/v1/projects/*/secrets/*' | jq -r .encodedSlashes)" = null ] || fail "encodedSlashes where nothing said so"
-              [ "$(class demo PUT '/upload/v1/b/*/o')" = write ] || fail "a resumable upload's PUT has no rule"
+              [ "$(rule demo PUT '/upload/v1/b/*/o' | jq -r '.operation | .id + " " + .class')" = "demo.objects.insert.continue read" ] \
+                || fail "a resumable upload's continuing PUT is not a read of its own"
+              [ "$(class demo POST '/upload/v1/b/*/o')" = write ] && [ "$(class demo POST '/resumable/upload/v1/b/*/o')" = write ] \
+                || fail "an upload's first request is not its method's class"
+              [ "$(rule demo PUT '/upload/v1/b/*/o/*' | jq -r '.operation | .id + " " + .class')" = "demo.objects.update write" ] \
+                && [ "$(class demo PUT '/resumable/upload/v1/b/*/o/*')" = write ] || fail "a PUT method's own upload was taken for a continuation"
               [ "$(class demo GET '/download/v1/b/*/o/*')" = read ] || fail "a download has no rule"
               [ "$(class demo GET '/v2/projects/*/secrets/*')" = read ] || fail "a stable version that is not preferred was left out"
               [ "$(rule demo GET '/v1/projects/*/locations/*/secrets/*' | jq -r .operation.id)" = demo.v1.Secrets.GetSecret ] || fail "an HTTP rule Discovery lacks has no REST rule"
@@ -716,6 +721,7 @@
               refused "an API guarded whole that is not generated" '.apis.nothing = "x"' "APIs guarded whole that are not generated"
               refused "an API guarded whole without a reason" '.apis.whole = ""' "needs a reason"
               refused "batch without a reason" 'del(.batch)' "batch has no reason"
+              refused "resumable without a reason" 'del(.resumable)' "resumable has no reason"
               refused "one operation, two classes" '.resources.projects.resources.secrets.methods.get.httpMethod = "DELETE"' "one operation, two classes" discoveries/demo.v2.json
               refused "a path frisket could not match" '.resources.projects.resources.secrets.methods.get.flatPath = "v2/pro%20jects/{p}"' "a path frisket could not match" discoveries/demo.v2.json
               refused "a version Discovery does not have" '.discovery.versions["demo:v9"] = "x"' "versions not in Discovery's index" app/source.json
@@ -733,6 +739,17 @@
                 || fail "the committed table does not guard iamcredentials and sts whole"
               [ "$(jq -r '.[] | select(.path == "/v1/projects/*/locations/*/clusters/*:generateClientCertificate") | .operation.class' ${./apps/gcloud/apis}/alloydb.json)" = guarded ] \
                 || fail "AlloyDB's REST GenerateClientCertificate is not guarded"
+              # An upload's continuing PUT reads; its first request is decided as its method.
+              jq -e -s '[.[][] | select(.operation.id | endswith(".continue"))] | length > 0 and all(.methods == ["PUT"] and .operation.class == "read")' \
+                ${./apps/gcloud/apis}/*.json >/dev/null || fail "an upload's continuing PUT is not a read"
+              [ "$(jq -r '[.[] | select(.path == "/upload/storage/v1/b/*/o") | .methods[0] + " " + .operation.id + " " + .operation.class] | join(", ")' ${./apps/gcloud/apis}/storage.json)" \
+                = "POST storage.objects.insert write, PUT storage.objects.insert.continue read" ] || fail "storage's upload is not a write and its continuation a read"
+              [ "$(jq -r '.[] | select(.path == "/upload/youtube/v3/captions" and .methods == ["PUT"]) | .operation.id + " " + .operation.class' ${./apps/gcloud/apis}/youtube.json)" \
+                = "youtube.captions.update write" ] || fail "a method's own PUT was taken for another's continuation"
+              # A bucket's patch and update ask: they can set its ACLs, and a person is asked.
+              jq -e -s --argjson ids '["storage.buckets.patch", "storage.buckets.update", "google.storage.v2.Storage.UpdateBucket"]' \
+                '[.[][] | select(.operation.id as $i | $ids | index($i))] | (map(.operation.id) | unique | length) == ($ids | length) and all(.operation.class == "write")' \
+                ${./apps/gcloud/apis}/*.json >/dev/null || fail "a bucket's patch or update is not a write"
               touch $out
             '';
 

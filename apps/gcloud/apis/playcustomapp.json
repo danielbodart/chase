@@ -3,5 +3,5 @@
 {"methods":["POST"],"path":"/playcustomapp/v1/accounts/*/customApps","operation":{"id":"playcustomapp.accounts.customApps.create","summary":"Creates a new custom app.","class":"write","category":"playcustomapp"}},
 {"methods":["POST"],"path":"/resumable/upload/playcustomapp/v1/accounts/*/customApps","operation":{"id":"playcustomapp.accounts.customApps.create","summary":"Creates a new custom app.","class":"write","category":"playcustomapp"}},
 {"methods":["POST"],"path":"/upload/playcustomapp/v1/accounts/*/customApps","operation":{"id":"playcustomapp.accounts.customApps.create","summary":"Creates a new custom app.","class":"write","category":"playcustomapp"}},
-{"methods":["PUT"],"path":"/upload/playcustomapp/v1/accounts/*/customApps","operation":{"id":"playcustomapp.accounts.customApps.create","summary":"Creates a new custom app.","class":"write","category":"playcustomapp"}}
+{"methods":["PUT"],"path":"/upload/playcustomapp/v1/accounts/*/customApps","operation":{"id":"playcustomapp.accounts.customApps.create.continue","summary":"Continues an upload that playcustomapp.accounts.customApps.create began: the next chunk of a request already decided.","class":"read","category":"playcustomapp"}}
 ]

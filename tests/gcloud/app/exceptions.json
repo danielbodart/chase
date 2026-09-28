@@ -1,6 +1,7 @@
 {
   "apis": {"whole": "Mints things."},
   "batch": "Carries any operation.",
+  "resumable": "Continues an upload already decided.",
   "patterns": {
     "getIamPolicy": {"class": "read", "reason": "Reads, by POST."},
     "setIamPolicy": {"class": "guarded", "reason": "Widens access."}

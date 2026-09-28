@@ -259,13 +259,14 @@ class Generator:
                   + [k for k, p in self.patterns.items() if not p.get("reason") or p.get("class") not in CLASSES])
         self.used = set()
         self.natural = {}
+        self.continued = set()
 
         docs = self.docs = self.documents()
         apis = {}
         rest = {}
 
         for name, ds in docs.items():
-            rules, hosts, mtls, versions = [], set(), set(), []
+            rules, continuing, hosts, mtls, versions = [], [], set(), set(), []
             for d in ds:
                 versions.append(d["version"])
                 root = host_of(d["rootUrl"])
@@ -297,7 +298,12 @@ class Generator:
                     for proto in protocols.values():
                         paths += [([verb], s) for s in shapes(proto["path"])]
                     if "resumable" in protocols and "simple" in protocols and verb != "PUT":
-                        paths += [(["PUT"], s) for s in shapes(protocols["simple"]["path"])]
+                        self.used.add(("resumable",))
+                        more = {"id": f"{id}.continue", "summary": f"Continues an upload that {id} began: the next chunk of a request already decided.",
+                                "class": "guarded" if name in self.whole else "read", "category": name}
+                        self.continued.add(more["id"])
+                        continuing += [{"methods": ["PUT"], kind: path, **({"encodedSlashes": True} if enc else {}), "operation": more}
+                                       for kind, path in shapes(protocols["simple"]["path"])]
                     if m.get("useMediaDownloadService"):
                         paths += [(methods, s) for s in shapes("/download/" + sp + m["path"], "/download/" + sp + rel)]
                     for ms, (kind, path) in paths:
@@ -307,14 +313,17 @@ class Generator:
                     rules.append({"methods": ["POST"], "path": "/" + d["batchPath"], "operation": {
                         "id": f"{name}.batch", "summary": f"A batch of {d.get('title', name)} requests in one, each a whole request frisket cannot see.",
                         "class": "guarded", "category": name}})
-            apis[name] = {"title": ds[0].get("title", name), "versions": versions, "hosts": hosts, "mtls": mtls, "rules": rules, "grpc": set(), "streaming": set()}
+            apis[name] = {"title": ds[0].get("title", name), "versions": versions, "hosts": hosts, "mtls": mtls, "rules": rules, "continuing": continuing, "grpc": set(), "streaming": set()}
 
         self.grpc(apis, rest)
+        self.uncontinued(apis)
         self.fail("exceptions that name no operation", set(self.explicit) - self.used)
         self.fail("APIs guarded whole that are not generated", {a for a in self.whole if ("api", a) not in self.used})
         self.fail("patterns that match no operation", {p for p in self.patterns if ("pattern", p) not in self.used})
         self.fail("encodedSlashes that name no parameter", {f"{a}.{p}" for a, ps in slashed.items() for p in ps if ("encodedSlashes", a, p) not in self.used})
         self.fail("batch has no reason, and APIs have batch paths", [] if ("batch",) not in self.used or ex.get("batch") else ["batch"])
+        self.fail("resumable has no reason, and APIs have resumable uploads", [] if ("resumable",) not in self.used or ex.get("resumable") else ["resumable"])
+        self.fail("an upload's continuation has an operation's own id", self.continued & set(self.natural))
         for c in CLASSES:
             self.fail(f"an exception gives the class it has anyway ({c})",
                       [id for id, cls in self.explicit.items() if cls == c and self.natural.get(id) == {c}])
@@ -396,6 +405,18 @@ class Generator:
                             continue
                         path, prefix = t
                         a["rules"].append({"methods": ["GET", "HEAD"] if v == "GET" else [v], ("prefix" if prefix else "path"): path, "operation": op})
+
+    def uncontinued(self, apis):
+        """An upload's continuing PUT, but where some method's own PUT has
+        that template: that is the method's first request, and keeps its
+        class."""
+        key = lambda r: ("prefix" in r, (r.get("path") or r.get("prefix")).lower())
+        own = {key(r) for a in apis.values() for r in a["rules"] if "PUT" in r["methods"]}
+        for a in apis.values():
+            continuing = a.pop("continuing", [])
+            kept = [r for r in continuing if key(r) not in own]
+            self.counts["continuations a method's own PUT decides"] += len(continuing) - len(kept)
+            a["rules"] += kept
 
     def lookup(self, rest, api, verb, path):
         t = proto_template(path)

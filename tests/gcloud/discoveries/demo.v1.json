@@ -34,7 +34,11 @@
     "objects": {"methods": {
       "get": {"id": "demo.objects.get", "httpMethod": "GET", "path": "v1/b/{bucket}/o/{object}", "useMediaDownloadService": true, "description": "Gets an object."},
       "insert": {"id": "demo.objects.insert", "httpMethod": "POST", "path": "v1/b/{bucket}/o", "description": "Stores an object.",
-        "mediaUpload": {"protocols": {"simple": {"path": "/upload/v1/b/{bucket}/o"}, "resumable": {"path": "/resumable/upload/v1/b/{bucket}/o"}}}}
+        "mediaUpload": {"protocols": {"simple": {"path": "/upload/v1/b/{bucket}/o"}, "resumable": {"path": "/resumable/upload/v1/b/{bucket}/o"}}}},
+      "update": {"id": "demo.objects.update", "httpMethod": "PUT", "path": "v1/b/{bucket}/o/{object}", "description": "Replaces an object.",
+        "mediaUpload": {"protocols": {"simple": {"path": "/upload/v1/b/{bucket}/o/{object}"}, "resumable": {"path": "/resumable/upload/v1/b/{bucket}/o/{object}"}}}},
+      "append": {"id": "demo.objects.append", "httpMethod": "POST", "path": "v1/b/{bucket}/o/{object}", "description": "Appends to an object.",
+        "mediaUpload": {"protocols": {"simple": {"path": "/upload/v1/b/{bucket}/o/{object}"}, "resumable": {"path": "/resumable/upload/v1/b/{bucket}/o/{object}"}}}}
     }}
   }
 }

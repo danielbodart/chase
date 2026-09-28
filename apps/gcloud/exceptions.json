@@ -4,6 +4,7 @@
     "sts": "Exchanges one credential for a Google access token: returning a token is all it does."
   },
   "batch": "A batch is several requests of the API in one multipart body, each a whole request frisket cannot see: a secret's access went through one (measured).",
+  "resumable": "A PUT to an upload's path is the next chunk of a resumable upload, which only continues one whose first request was already decided: a read, whatever began it.",
   "patterns": {
     "setIamPolicy": {
       "class": "guarded",
@@ -164,7 +165,6 @@
     "google.cloud.visionai.v1.StreamsService.GenerateStreamHlsToken": "Returns a JWT for a stream's contents.",
     "google.cloud.visionai.v1.Warehouse.GenerateRetrievalUrl": "Returns a signed URL to an asset.",
     "google.storage.v2.Storage.LockBucketRetentionPolicy": "Locks the retention policy for good: it cannot be removed or shortened.",
-    "google.storage.v2.Storage.UpdateBucket": "Can set the bucket's ACLs and default object ACLs, allUsers too: storage.buckets.patch, over gRPC.",
     "iam.locations.workforcePools.providers.scimTenants.tokens.create": "Returns a SCIM token, shown only on create.",
     "iam.projects.locations.oauthClients.credentials.create": "Returns the new credential's client secret.",
     "iam.projects.locations.oauthClients.credentials.get": "Returns the credential with its client secret.",
@@ -222,8 +222,6 @@
     "storage.bucketAccessControls.patch": "Changes an entity's access to the bucket.",
     "storage.bucketAccessControls.update": "Changes an entity's access to the bucket.",
     "storage.buckets.lockRetentionPolicy": "Locks the retention policy for good: it cannot be removed or shortened.",
-    "storage.buckets.patch": "Can set the bucket's ACLs and default object ACLs, allUsers too, and turn off public access prevention.",
-    "storage.buckets.update": "Can set the bucket's ACLs and default object ACLs, allUsers too, and turn off public access prevention.",
     "storage.defaultObjectAccessControls.insert": "Grants an entity access to every new object in the bucket.",
     "storage.defaultObjectAccessControls.patch": "Changes an entity's access to every new object in the bucket.",
     "storage.defaultObjectAccessControls.update": "Changes an entity's access to every new object in the bucket.",

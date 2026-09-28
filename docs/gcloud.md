@@ -211,18 +211,21 @@ read, write and guarded, a tier's switch per class, a project's lists by name.
     more the spike found by method name, response schema and proto field),
     signed URLs, ephemeral database client certificates, and every API's
     batch path — `POST /batch` carried a Secret Manager `access` inside it
-    (measured). Also `*.setIamPolicy`, key upload, ACLs, a bucket's patch
-    and update, which can set its ACLs, and what writes instance metadata
-    (ssh keys, startup scripts), `instances.update` too. An object written
-    with `predefinedAcl` or an `acl` is a write, asked like any upload: its
-    ACL is not seen. There is no class beyond guarded for credentials: the
-    tier's `guarded` answers them, refused by default, and a project may
-    name one, as PLAN.md's decision 18 lets it name any operation.
+    (measured). Also `*.setIamPolicy`, key upload, ACLs, and what writes
+    instance metadata (ssh keys, startup scripts), `instances.update` too.
+    A bucket's patch and update, which can set its ACLs, are writes and ask,
+    as an object written with `predefinedAcl` or an `acl` does: the ACL is
+    not seen, and a person is asked. There is no class beyond guarded for
+    credentials: the tier's `guarded` answers them, refused by default, and
+    a project may name one, as PLAN.md's decision 18 lets it name any
+    operation.
   - *write*: `container…clusters.get` and `list`, which can carry a legacy
     client key and are what `get-credentials` reads; and the configs whose
     schemas say a secret may come back, until one authenticated call each
     says otherwise.
-  - *read*: `testIamPermissions` and `getIamPolicy`, which are POSTs.
+  - *read*: `testIamPermissions` and `getIamPolicy`, which are POSTs, and
+    an upload's resumable chunks (`<id>.continue`), which only continue an
+    upload whose first request was decided as its method.
 - **Unmatched** is the tier's, as for every app: trusted asks, strict refuses.
 
 **9. Which APIs a session carries is a tier's default and a project's
@@ -293,8 +296,8 @@ messages passed through the interceptor unchanged (measured).
    `discovery-artifact-manager` 3d84c9e and `googleapis` bf87786 (359 and
    3,684 files, each hashed), writes `apps/gcloud/apis/<api>.json` for 394
    APIs, 79 of them proto-only, and `apps/gcloud/index.json`, each API's
-   versions, hosts, gRPC services and streaming methods: 25,482 rules, 10,588
-   read, 11,199 write and 3,695 guarded, 7,599 of them gRPC, 10.1 MB.
+   versions, hosts, gRPC services and streaming methods: 25,482 rules, 10,616
+   read, 11,174 write and 3,692 guarded, 7,599 of them gRPC, 10.1 MB.
    - *Versions:* the preferred one and every stable one, since `iam`'s
      preferred is v2 while service accounts are v1, and `compute` has none
      preferred. A beta only where it is preferred, or named in
@@ -315,7 +318,8 @@ messages passed through the interceptor unchanged (measured).
      segment, since every depth would be any API's path ending that way.
    - Storage's object and folder names, and Artifact Registry's file ids, are
      one `%2F` segment (`encodedSlashes`); an upload's resumable chunks are a
-     `PUT` to its upload path; Firebase's `securetoken` is undescribed, but its
+     `PUT` to its upload path, a read of their own, except where a method's
+     own `PUT` has that path (YouTube's `captions.update`); Firebase's `securetoken` is undescribed, but its
      `POST /v1/token` is `sts.token`'s, guarded.
    - `nix flake check` runs the generator on a small API of each kind, and
      every way it refuses, and reads the committed table for what returns a
