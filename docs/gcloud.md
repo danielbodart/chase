@@ -180,10 +180,12 @@ read, write and guarded, a tier's switch per class, a project's lists by name.
 - **gRPC** is `POST /<package>.<Service>/<Method>`, classed as the Discovery
   method its http rule maps to, so `AccessSecretVersion` is whatever
   `secretmanager…versions.access` is. 9,935 of 13,659 RPCs map; the rest are
-  classed on their own. Some services have no http rule at all
-  (`google.storage.v2.Storage`, Pub/Sub's `StreamingPull`) and are listed by
-  hand. Mixins (`google.iam.v1.IAMPolicy`, Locations, Operations) come from
-  each service's yaml.
+  classed on their own: by their http rule's method, by name where they have
+  none (`google.storage.v2.Storage`, Pub/Sub's `StreamingPull`), and by hand
+  where the name misleads (`ReadObject`). An http rule Discovery lacks is a
+  REST rule of its RPC: AlloyDB's `generateClientCertificate` has no
+  Discovery method. Mixins (`google.iam.v1.IAMPolicy`, Locations, Operations)
+  come from each service's yaml.
 - **Exceptions**, by operation id, each with its reason:
   - *guarded*: everything that returns or mints a credential. Tokens
     (`iamcredentials.*`, `sts.*`, `cloudshell…generateAccessToken`, which
@@ -193,8 +195,11 @@ read, write and guarded, a tier's switch per class, a project's lists by name.
     more the spike found by method name, response schema and proto field),
     signed URLs, ephemeral database client certificates, and every API's
     batch path — `POST /batch` carried a Secret Manager `access` inside it
-    (measured). Also `*.setIamPolicy`, key upload, ACLs, and what writes
-    instance metadata (ssh keys, startup scripts).
+    (measured). Also `*.setIamPolicy`, key upload, ACLs, a bucket's patch
+    and update, which can set its ACLs, and what writes instance metadata
+    (ssh keys, startup scripts), `instances.update` too. An object written
+    with `predefinedAcl` or an `acl` is a write, asked like any upload: its
+    ACL is not seen.
   - *write*: `container…clusters.get` and `list`, which can carry a legacy
     client key and are what `get-credentials` reads; and the configs whose
     schemas say a secret may come back, until one authenticated call each
@@ -217,34 +222,36 @@ frisket's PLAN.md has the detail.
 
 1. **Wildcard route hosts.** A route for `*.googleapis.com`, the exact route
    winning over the nearest wildcard, the upstream dialled at the name the
-   client asked for. *Prototyped.*
+   client asked for. *Built.*
 2. **A session key.** A JWT-bearer grant the key signed is answered with the
    placeholder, and a bearer JWT the key signed is the placeholder, checked
    with go-jose. Neither is Google's alone: they are OAuth's JWT-bearer flow.
-   *Prototyped.*
+   *Built.*
 3. **`*:verb` path segments.** 6,302 REST templates end in a custom verb, and
    without it `GET …/versions/*` is both `versions.get` and `versions.access`.
+   *Built.*
 4. **Encoded slashes, by opt-in.** A Cloud Storage object name is one
-   `%2F`-encoded segment.
+   `%2F`-encoded segment. *Built.*
 5. **Method overrides applied.** Google honours `X-HTTP-Method-Override` and
    `$httpMethod` (measured: an allowed `GET` ran as a `DELETE`); frisket takes
    the method they name, rewrites the request with it, and decides on that.
+   *Built.*
 6. **Asked bodies by their first bytes**, so a streaming RPC can be asked
-   about like any other request.
+   about like any other request. *Built.*
 
 gRPC itself needs nothing: unary and bidirectional calls, trailers and 8 MiB
 messages passed through the interceptor unchanged (measured).
 
 ## Order of work
 
-1. frisket: 1 to 6.
+1. frisket: 1 to 6. *Done.*
 2. chase: the generator and the pinned sources; read the exceptions before
    anything uses them. *Done:* `scripts/gcloud.sh`, pinned to
    `discovery-artifact-manager` 3d84c9e and `googleapis` bf87786 (359 and
-   3,677 files, each hashed), writes `apps/gcloud/apis/<api>.json` for 394
+   3,684 files, each hashed), writes `apps/gcloud/apis/<api>.json` for 394
    APIs, 79 of them proto-only, and `apps/gcloud/index.json`, each API's
-   versions, hosts, gRPC services and streaming methods: 24,726 rules, 10,379
-   read, 10,735 write and 3,612 guarded, 7,599 of them gRPC, 9.7 MB.
+   versions, hosts, gRPC services and streaming methods: 25,482 rules, 10,588
+   read, 11,199 write and 3,695 guarded, 7,599 of them gRPC, 10.1 MB.
    - *Versions:* the preferred one and every stable one, since `iam`'s
      preferred is v2 while service accounts are v1, and `compute` has none
      preferred. A beta only where it is preferred, or named in
@@ -259,12 +266,17 @@ messages passed through the interceptor unchanged (measured).
      fails the build. So container's `clusters.get`, a write, takes AlloyDB's,
      Redis's, Managed Kafka's and three others' reads at that path with it;
      `sql.instances.get` stays a read, or Spanner's would follow.
-   - Storage's object and folder names are one `%2F` segment
-     (`encodedSlashes`); an upload's resumable chunks are a `PUT` to its
-     upload path; Firebase's `securetoken` is undescribed, but its
+   - *Names of any depth:* a `{+name}` whose pattern ends `.*` is a prefix
+     where nothing follows it, and each depth to twelve where a verb or a
+     segment does; one with nothing literal before it, IAP's, stays one
+     segment, since every depth would be any API's path ending that way.
+   - Storage's object and folder names, and Artifact Registry's file ids, are
+     one `%2F` segment (`encodedSlashes`); an upload's resumable chunks are a
+     `PUT` to its upload path; Firebase's `securetoken` is undescribed, but its
      `POST /v1/token` is `sts.token`'s, guarded.
    - `nix flake check` runs the generator on a small API of each kind, and
-     every way it refuses.
+     every way it refuses, and reads the committed table for what returns a
+     credential.
 3. chase: the `gcloud` app — the route, a fake key per session and the
    environment that points at it, the credential shape (a JSON token file with
    an expiry), and the renewer.
@@ -292,6 +304,11 @@ messages passed through the interceptor unchanged (measured).
   on every `*-docker.pkg.dev` request, which the registry accepts (measured).
 - **The unverified writes.** Each schema that says a secret may come back
   needs one authenticated call to move it to read or guarded.
+- **IAP's resources.** Its `setIamPolicy`, settings and permissions take a
+  resource of any depth (`^.*$`), so on a real one they are unmatched: asked
+  in trusted, where `setIamPolicy` should be refused. Templates per resource
+  IAP names, or frisket matching a name of any depth before a verb, would fix
+  it.
 - **gcloud's own noise.** Every gcloud command calls
   `iamcredentials…/allowedLocations`, which is guarded; gcloud tolerates the
   refusal (measured), but the log has a line per command.
