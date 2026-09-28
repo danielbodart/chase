@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"blogger.batch","summary":"A batch of Blogger API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"blogger"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"blogger.batch","summary":"A batch of Blogger API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"blogger"}},
 {"methods":["GET","HEAD"],"path":"/v3/blogs/*","operation":{"id":"blogger.blogs.get","summary":"Gets a blog by id.","class":"read","category":"blogger"}},
 {"methods":["GET","HEAD"],"path":"/v3/blogs/*/comments","operation":{"id":"blogger.comments.listByBlog","summary":"Lists comments by blog.","class":"read","category":"blogger"}},
 {"methods":["GET","HEAD"],"path":"/v3/blogs/*/pages","operation":{"id":"blogger.pages.list","summary":"Lists pages.","class":"read","category":"blogger"}},

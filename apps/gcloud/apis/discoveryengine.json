@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"discoveryengine.batch","summary":"A batch of Discovery Engine API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"discoveryengine"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"discoveryengine.batch","summary":"A batch of Discovery Engine API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"discoveryengine"}},
 {"methods":["POST"],"path":"/google.cloud.discoveryengine.v1.AssistantService/StreamAssist","operation":{"id":"google.cloud.discoveryengine.v1.AssistantService.StreamAssist","summary":"Assists the user with a query in a streaming fashion.","class":"write","category":"discoveryengine"}},
 {"methods":["POST"],"path":"/google.cloud.discoveryengine.v1.CmekConfigService/DeleteCmekConfig","operation":{"id":"google.cloud.discoveryengine.v1.CmekConfigService.DeleteCmekConfig","summary":"De-provisions a CmekConfig.","class":"guarded","category":"discoveryengine"}},
 {"methods":["POST"],"path":"/google.cloud.discoveryengine.v1.CmekConfigService/GetCmekConfig","operation":{"id":"google.cloud.discoveryengine.v1.CmekConfigService.GetCmekConfig","summary":"Gets the CmekConfig.","class":"read","category":"discoveryengine"}},

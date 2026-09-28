@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"workloadmanager.batch","summary":"A batch of Workload Manager API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"workloadmanager"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"workloadmanager.batch","summary":"A batch of Workload Manager API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"workloadmanager"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/GetLocation","operation":{"id":"google.cloud.location.Locations.GetLocation","summary":"Gets information about a location.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/ListLocations","operation":{"id":"google.cloud.location.Locations.ListLocations","summary":"Lists information about the supported locations for this service.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.workloadmanager.v1.WorkloadManager/CreateEvaluation","operation":{"id":"google.cloud.workloadmanager.v1.WorkloadManager.CreateEvaluation","summary":"Creates a new Evaluation in a given project and location.","class":"write","category":"workloadmanager"}},

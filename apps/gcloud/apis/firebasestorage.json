@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"firebasestorage.batch","summary":"A batch of Cloud Storage for Firebase API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"firebasestorage"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"firebasestorage.batch","summary":"A batch of Cloud Storage for Firebase API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"firebasestorage"}},
 {"methods":["GET","HEAD"],"path":"/v1beta/projects/*/buckets","operation":{"id":"firebasestorage.projects.buckets.list","summary":"Lists the linked storage buckets for a project.","class":"read","category":"firebasestorage"}},
 {"methods":["GET","HEAD"],"path":"/v1beta/projects/*/buckets/*","operation":{"id":"firebasestorage.projects.buckets.get","summary":"Gets a single linked storage bucket.","class":"read","category":"firebasestorage"}},
 {"methods":["POST"],"path":"/v1beta/projects/*/buckets/*:addFirebase","operation":{"id":"firebasestorage.projects.buckets.addFirebase","summary":"Links a Google Cloud Storage bucket to a Firebase project.","class":"write","category":"firebasestorage"}},

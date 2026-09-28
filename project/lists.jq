@@ -12,8 +12,7 @@
 # "*", so {DELETE, /repos/me/app} would decide repos/delete without naming
 # it. An operation the description has is loosened by its name, which is
 # what the person approving it reads. And so is an entry in two lists, which
-# ../project/default.nix refuses before approval. A rule the app made
-# `fixed` is no list's: naming it is an error, and no category reaches it.
+# ../project/default.nix refuses before approval.
 # git's push is the operation `git-receive-pack`, in frisket's git rule; a
 # GraphQL query and each mutation are operations of their own, in its
 # graphql rules, and an endpoint's path is theirs.
@@ -34,8 +33,7 @@ def overlaps($path; $rule):
 # One of a route's operations, answered by name or else by category.
 def decided($byId; $byCategory):
   (.operation.id? // null) as $id | (.operation.category? // null) as $c
-  | if .fixed then .
-    elif $id != null and $byId[$id] then answer($byId[$id])
+  | if $id != null and $byId[$id] then answer($byId[$id])
     elif $c != null and $byCategory[$c] then answer($byCategory[$c])
     else . end;
 
@@ -49,11 +47,8 @@ def push($verb): { allow: "allow", ask: "ask", refuse: "refuse" }[$verb];
 | if $i == null then error("\($app) is not in this tier") else . end
 | .routes[$i] as $route
 | ([$route.graphql[]? | (.query // empty), .mutations[]?, .subscriptions[]?]) as $fields
-| ([$route.paths[]? | select(.fixed) | .operation.id? // empty]) as $fixed
-| ([$byId | keys[] | select(. as $x | $fixed | index($x))]) as $named
-| if $named != [] then error("\($app): no list decides \($named | join(", ")): it is refused whatever a project says") else . end
-| ([($route.paths[]? | select(.fixed | not) | .operation.id? // empty), $fields[].operation.id? // empty] + (if $route.git then ["git-receive-pack"] else [] end)) as $ids
-| ([($route.paths[]? | select(.fixed | not) | .operation.category? // empty), $fields[].operation.category? // empty] | unique) as $categories
+| ([$route.paths[]?.operation.id? // empty, $fields[].operation.id? // empty] + (if $route.git then ["git-receive-pack"] else [] end)) as $ids
+| ([$route.paths[]?.operation.category? // empty, $fields[].operation.category? // empty] | unique) as $categories
 | ([$byId | keys[] | select(. as $x | $ids | index($x) | not)]
    + [$byCategory | keys[] | select(. as $x | $categories | index($x) | not) | "category:\(.)"]) as $unknown
 | if $unknown != [] then error("\($app) has no \($unknown | join(", "))") else . end

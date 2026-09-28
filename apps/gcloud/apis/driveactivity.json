@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"driveactivity.batch","summary":"A batch of Drive Activity API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"driveactivity"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"driveactivity.batch","summary":"A batch of Drive Activity API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"driveactivity"}},
 {"methods":["POST"],"path":"/google.apps.drive.activity.v2.DriveActivityService/QueryDriveActivity","operation":{"id":"google.apps.drive.activity.v2.DriveActivityService.QueryDriveActivity","summary":"Query past activity in Google Drive.","class":"write","category":"driveactivity"}},
 {"methods":["POST"],"path":"/v2/activity:query","operation":{"id":"driveactivity.activity.query","summary":"Query past activity in Google Drive.","class":"write","category":"driveactivity"}}
 ]

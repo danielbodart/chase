@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"trafficdirector.batch","summary":"A batch of Traffic Director API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"trafficdirector"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"trafficdirector.batch","summary":"A batch of Traffic Director API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"trafficdirector"}},
 {"methods":["POST"],"path":"/v2/discovery:client_status","operation":{"id":"trafficdirector.discovery.client_status","summary":"trafficdirector.discovery.client_status","class":"write","category":"trafficdirector"}},
 {"methods":["POST"],"path":"/v3/discovery:client_status","operation":{"id":"trafficdirector.discovery.client_status","summary":"trafficdirector.discovery.client_status","class":"write","category":"trafficdirector"}}
 ]

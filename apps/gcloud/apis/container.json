@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"container.batch","summary":"A batch of Kubernetes Engine API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"container"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"container.batch","summary":"A batch of Kubernetes Engine API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"container"}},
 {"methods":["POST"],"path":"/google.container.v1.ClusterManager/CancelOperation","operation":{"id":"google.container.v1.ClusterManager.CancelOperation","summary":"Cancels the specified operation.","class":"write","category":"container"}},
 {"methods":["POST"],"path":"/google.container.v1.ClusterManager/CheckAutopilotCompatibility","operation":{"id":"google.container.v1.ClusterManager.CheckAutopilotCompatibility","summary":"Checks the cluster compatibility with Autopilot mode, and returns a list of compatibility issues.","class":"read","category":"container"}},
 {"methods":["POST"],"path":"/google.container.v1.ClusterManager/CompleteControlPlaneUpgrade","operation":{"id":"google.container.v1.ClusterManager.CompleteControlPlaneUpgrade","summary":"CompleteControlPlaneUpgrade completes the rollback-safe upgrade by performing the step two upgrade for a specific cluster.","class":"write","category":"container"}},

@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"youtube.batch","summary":"A batch of YouTube Data API v3 requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"youtube"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"youtube.batch","summary":"A batch of YouTube Data API v3 requests in one, each a whole request frisket cannot see.","class":"guarded","category":"youtube"}},
 {"methods":["GET","HEAD"],"path":"/download/youtube/v3/captions/*","operation":{"id":"youtube.captions.download","summary":"Downloads a caption track.","class":"read","category":"youtube"}},
 {"methods":["POST"],"path":"/resumable/upload/youtube/v3/captions","operation":{"id":"youtube.captions.insert","summary":"Inserts a new resource into this collection.","class":"write","category":"youtube"}},
 {"methods":["PUT"],"path":"/resumable/upload/youtube/v3/captions","operation":{"id":"youtube.captions.update","summary":"Updates an existing resource.","class":"write","category":"youtube"}},

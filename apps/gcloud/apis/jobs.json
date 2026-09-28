@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"jobs.batch","summary":"A batch of Cloud Talent Solution API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"jobs"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"jobs.batch","summary":"A batch of Cloud Talent Solution API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"jobs"}},
 {"methods":["POST"],"path":"/google.cloud.talent.v4.CompanyService/CreateCompany","operation":{"id":"google.cloud.talent.v4.CompanyService.CreateCompany","summary":"Creates a new company entity.","class":"write","category":"jobs"}},
 {"methods":["POST"],"path":"/google.cloud.talent.v4.CompanyService/DeleteCompany","operation":{"id":"google.cloud.talent.v4.CompanyService.DeleteCompany","summary":"Deletes specified company.","description":"Deletes specified company. Prerequisite: The company has no jobs associated with it.","class":"guarded","category":"jobs"}},
 {"methods":["POST"],"path":"/google.cloud.talent.v4.CompanyService/GetCompany","operation":{"id":"google.cloud.talent.v4.CompanyService.GetCompany","summary":"Retrieves specified company.","class":"read","category":"jobs"}},

@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"playcustomapp.batch","summary":"A batch of Google Play Custom App Publishing API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"playcustomapp"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"playcustomapp.batch","summary":"A batch of Google Play Custom App Publishing API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"playcustomapp"}},
 {"methods":["POST"],"path":"/playcustomapp/v1/accounts/*/customApps","operation":{"id":"playcustomapp.accounts.customApps.create","summary":"Creates a new custom app.","class":"write","category":"playcustomapp"}},
 {"methods":["POST"],"path":"/resumable/upload/playcustomapp/v1/accounts/*/customApps","operation":{"id":"playcustomapp.accounts.customApps.create","summary":"Creates a new custom app.","class":"write","category":"playcustomapp"}},
 {"methods":["POST"],"path":"/upload/playcustomapp/v1/accounts/*/customApps","operation":{"id":"playcustomapp.accounts.customApps.create","summary":"Creates a new custom app.","class":"write","category":"playcustomapp"}},

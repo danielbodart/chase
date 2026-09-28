@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"doubleclickbidmanager.batch","summary":"A batch of DoubleClick Bid Manager API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"doubleclickbidmanager"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"doubleclickbidmanager.batch","summary":"A batch of DoubleClick Bid Manager API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"doubleclickbidmanager"}},
 {"methods":["GET","HEAD"],"path":"/v2/queries","operation":{"id":"doubleclickbidmanager.queries.list","summary":"Lists queries created by the current user.","class":"read","category":"doubleclickbidmanager"}},
 {"methods":["POST"],"path":"/v2/queries","operation":{"id":"doubleclickbidmanager.queries.create","summary":"Creates a new query.","class":"write","category":"doubleclickbidmanager"}},
 {"methods":["DELETE"],"path":"/v2/queries/*","operation":{"id":"doubleclickbidmanager.queries.delete","summary":"Deletes an existing query as well as its generated reports.","class":"guarded","category":"doubleclickbidmanager"}},

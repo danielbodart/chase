@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"customsearch.batch","summary":"A batch of Custom Search API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"customsearch"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"customsearch.batch","summary":"A batch of Custom Search API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"customsearch"}},
 {"methods":["GET","HEAD"],"path":"/customsearch/v1","operation":{"id":"search.cse.list","summary":"Returns metadata about the search performed, metadata about the engine used for the search, and the search results.","class":"read","category":"customsearch"}},
 {"methods":["GET","HEAD"],"path":"/customsearch/v1/siterestrict","operation":{"id":"search.cse.siterestrict.list","summary":"Returns metadata about the search performed, metadata about the engine used for the search, and the search results.","description":"Returns metadata about the search performed, metadata about the engine used for the search, and the search results. Uses a small set of url patterns.","class":"read","category":"customsearch"}}
 ]

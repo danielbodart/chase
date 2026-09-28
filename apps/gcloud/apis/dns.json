@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"dns.batch","summary":"A batch of Cloud DNS API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"dns"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"dns.batch","summary":"A batch of Cloud DNS API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"dns"}},
 {"methods":["GET","HEAD"],"path":"/dns/v1/projects/*","operation":{"id":"dns.projects.get","summary":"Fetches the representation of an existing Project.","class":"read","category":"dns"}},
 {"methods":["GET","HEAD"],"path":"/dns/v1/projects/*/managedZones","operation":{"id":"dns.managedZones.list","summary":"Enumerates ManagedZones that have been created but not yet deleted.","class":"read","category":"dns"}},
 {"methods":["POST"],"path":"/dns/v1/projects/*/managedZones","operation":{"id":"dns.managedZones.create","summary":"Creates a new ManagedZone.","description":"Creates a new ManagedZone. Note: While `dns.managedZones.create` is the baseline permission required to invoke this method, additional permissions are required if the managed zone configuration references other resources.","class":"write","category":"dns"}},

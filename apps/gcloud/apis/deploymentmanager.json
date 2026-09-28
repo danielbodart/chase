@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"deploymentmanager.batch","summary":"A batch of Cloud Deployment Manager V2 API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"deploymentmanager"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"deploymentmanager.batch","summary":"A batch of Cloud Deployment Manager V2 API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"deploymentmanager"}},
 {"methods":["GET","HEAD"],"path":"/deploymentmanager/v2/projects/*/global/deployments","operation":{"id":"deploymentmanager.deployments.list","summary":"Lists all deployments for a given project.","class":"read","category":"deploymentmanager"}},
 {"methods":["POST"],"path":"/deploymentmanager/v2/projects/*/global/deployments","operation":{"id":"deploymentmanager.deployments.insert","summary":"Creates a deployment and all of the resources described by the deployment manifest.","class":"write","category":"deploymentmanager"}},
 {"methods":["DELETE"],"path":"/deploymentmanager/v2/projects/*/global/deployments/*","operation":{"id":"deploymentmanager.deployments.delete","summary":"Deletes a deployment and all of the resources in the deployment.","class":"guarded","category":"deploymentmanager"}},

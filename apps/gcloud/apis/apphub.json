@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"apphub.batch","summary":"A batch of App Hub API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"apphub"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"apphub.batch","summary":"A batch of App Hub API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"apphub"}},
 {"methods":["POST"],"path":"/google.cloud.apphub.v1.AppHub/CreateApplication","operation":{"id":"google.cloud.apphub.v1.AppHub.CreateApplication","summary":"Creates an Application in a host project and location.","class":"write","category":"apphub"}},
 {"methods":["POST"],"path":"/google.cloud.apphub.v1.AppHub/CreateService","operation":{"id":"google.cloud.apphub.v1.AppHub.CreateService","summary":"Creates a Service in an Application.","class":"write","category":"apphub"}},
 {"methods":["POST"],"path":"/google.cloud.apphub.v1.AppHub/CreateServiceProjectAttachment","operation":{"id":"google.cloud.apphub.v1.AppHub.CreateServiceProjectAttachment","summary":"Attaches a service project to the host project.","class":"write","category":"apphub"}},

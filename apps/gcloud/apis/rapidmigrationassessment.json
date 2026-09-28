@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"rapidmigrationassessment.batch","summary":"A batch of Rapid Migration Assessment API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"rapidmigrationassessment"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"rapidmigrationassessment.batch","summary":"A batch of Rapid Migration Assessment API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"rapidmigrationassessment"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/GetLocation","operation":{"id":"google.cloud.location.Locations.GetLocation","summary":"Gets information about a location.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/ListLocations","operation":{"id":"google.cloud.location.Locations.ListLocations","summary":"Lists information about the supported locations for this service.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.rapidmigrationassessment.v1.RapidMigrationAssessment/CreateAnnotation","operation":{"id":"google.cloud.rapidmigrationassessment.v1.RapidMigrationAssessment.CreateAnnotation","summary":"Creates an Annotation","class":"write","category":"rapidmigrationassessment"}},

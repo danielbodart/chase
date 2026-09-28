@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"migrationcenter.batch","summary":"A batch of Migration Center API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"migrationcenter"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"migrationcenter.batch","summary":"A batch of Migration Center API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"migrationcenter"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/GetLocation","operation":{"id":"google.cloud.location.Locations.GetLocation","summary":"Gets information about a location.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/ListLocations","operation":{"id":"google.cloud.location.Locations.ListLocations","summary":"Lists information about the supported locations for this service.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.migrationcenter.v1.MigrationCenter/AddAssetsToGroup","operation":{"id":"google.cloud.migrationcenter.v1.MigrationCenter.AddAssetsToGroup","summary":"Adds assets to a group.","class":"write","category":"migrationcenter"}},

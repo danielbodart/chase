@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"css.batch","summary":"A batch of CSS API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"css"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"css.batch","summary":"A batch of CSS API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"css"}},
 {"methods":["POST"],"path":"/google.shopping.css.v1.AccountLabelsService/CreateAccountLabel","operation":{"id":"google.shopping.css.v1.AccountLabelsService.CreateAccountLabel","summary":"Creates a new label, not assigned to any account.","class":"write","category":"css"}},
 {"methods":["POST"],"path":"/google.shopping.css.v1.AccountLabelsService/DeleteAccountLabel","operation":{"id":"google.shopping.css.v1.AccountLabelsService.DeleteAccountLabel","summary":"Deletes a label and removes it from all accounts to which it was assigned.","class":"guarded","category":"css"}},
 {"methods":["POST"],"path":"/google.shopping.css.v1.AccountLabelsService/ListAccountLabels","operation":{"id":"google.shopping.css.v1.AccountLabelsService.ListAccountLabels","summary":"Lists the labels owned by an account.","class":"read","category":"css"}},

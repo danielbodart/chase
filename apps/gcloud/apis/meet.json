@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"meet.batch","summary":"A batch of Google Meet API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"meet"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"meet.batch","summary":"A batch of Google Meet API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"meet"}},
 {"methods":["POST"],"path":"/google.apps.meet.v2.ConferenceRecordsService/GetConferenceRecord","operation":{"id":"google.apps.meet.v2.ConferenceRecordsService.GetConferenceRecord","summary":"Gets a conference record by conference ID.","class":"read","category":"meet"}},
 {"methods":["POST"],"path":"/google.apps.meet.v2.ConferenceRecordsService/GetParticipant","operation":{"id":"google.apps.meet.v2.ConferenceRecordsService.GetParticipant","summary":"Gets a participant by participant ID.","class":"read","category":"meet"}},
 {"methods":["POST"],"path":"/google.apps.meet.v2.ConferenceRecordsService/GetParticipantSession","operation":{"id":"google.apps.meet.v2.ConferenceRecordsService.GetParticipantSession","summary":"Gets a participant session by participant session ID.","class":"read","category":"meet"}},

@@ -1,4 +1,4 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"kgsearch.batch","summary":"A batch of Knowledge Graph Search API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"kgsearch"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"kgsearch.batch","summary":"A batch of Knowledge Graph Search API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"kgsearch"}},
 {"methods":["GET","HEAD"],"path":"/v1/entities:search","operation":{"id":"kgsearch.entities.search","summary":"Searches Knowledge Graph for entities that match the constraints.","description":"Searches Knowledge Graph for entities that match the constraints. A list of matched entities will be returned in response, which will be in JSON-LD format and compatible with http://schema.org","class":"read","category":"kgsearch"}}
 ]

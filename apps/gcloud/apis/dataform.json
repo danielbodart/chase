@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"dataform.batch","summary":"A batch of Dataform API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"dataform"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"dataform.batch","summary":"A batch of Dataform API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"dataform"}},
 {"methods":["POST"],"path":"/google.cloud.dataform.v1.Dataform/CancelWorkflowInvocation","operation":{"id":"google.cloud.dataform.v1.Dataform.CancelWorkflowInvocation","summary":"Requests cancellation of a running WorkflowInvocation.","class":"write","category":"dataform"}},
 {"methods":["POST"],"path":"/google.cloud.dataform.v1.Dataform/CommitRepositoryChanges","operation":{"id":"google.cloud.dataform.v1.Dataform.CommitRepositoryChanges","summary":"Applies a Git commit to a Repository.","description":"Applies a Git commit to a Repository. The Repository must not have a value for `git_remote_settings.url`.","class":"write","category":"dataform"}},
 {"methods":["POST"],"path":"/google.cloud.dataform.v1.Dataform/CommitWorkspaceChanges","operation":{"id":"google.cloud.dataform.v1.Dataform.CommitWorkspaceChanges","summary":"Applies a Git commit for uncommitted files in a Workspace.","class":"write","category":"dataform"}},

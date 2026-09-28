@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"eventarc.batch","summary":"A batch of Eventarc API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"eventarc"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"eventarc.batch","summary":"A batch of Eventarc API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"eventarc"}},
 {"methods":["POST"],"path":"/google.cloud.eventarc.v1.Eventarc/CreateChannel","operation":{"id":"google.cloud.eventarc.v1.Eventarc.CreateChannel","summary":"Create a new channel in a particular project and location.","class":"write","category":"eventarc"}},
 {"methods":["POST"],"path":"/google.cloud.eventarc.v1.Eventarc/CreateChannelConnection","operation":{"id":"google.cloud.eventarc.v1.Eventarc.CreateChannelConnection","summary":"Create a new ChannelConnection in a particular project and location.","class":"write","category":"eventarc"}},
 {"methods":["POST"],"path":"/google.cloud.eventarc.v1.Eventarc/CreateEnrollment","operation":{"id":"google.cloud.eventarc.v1.Eventarc.CreateEnrollment","summary":"Create a new Enrollment in a particular project and location.","class":"write","category":"eventarc"}},

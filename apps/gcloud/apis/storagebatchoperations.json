@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"storagebatchoperations.batch","summary":"A batch of Storage Batch Operations API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"storagebatchoperations"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"storagebatchoperations.batch","summary":"A batch of Storage Batch Operations API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"storagebatchoperations"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/GetLocation","operation":{"id":"google.cloud.location.Locations.GetLocation","summary":"Gets information about a location.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/ListLocations","operation":{"id":"google.cloud.location.Locations.ListLocations","summary":"Lists information about the supported locations for this service.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.storagebatchoperations.v1.StorageBatchOperations/CancelJob","operation":{"id":"google.cloud.storagebatchoperations.v1.StorageBatchOperations.CancelJob","summary":"Cancels a batch job.","class":"write","category":"storagebatchoperations"}},

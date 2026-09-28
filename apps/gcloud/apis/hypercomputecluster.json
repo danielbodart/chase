@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"hypercomputecluster.batch","summary":"A batch of Cluster Director API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"hypercomputecluster"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"hypercomputecluster.batch","summary":"A batch of Cluster Director API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"hypercomputecluster"}},
 {"methods":["POST"],"path":"/google.cloud.hypercomputecluster.v1.HypercomputeCluster/CreateCluster","operation":{"id":"google.cloud.hypercomputecluster.v1.HypercomputeCluster.CreateCluster","summary":"Creates a new Cluster in a given project and location.","class":"write","category":"hypercomputecluster"}},
 {"methods":["POST"],"path":"/google.cloud.hypercomputecluster.v1.HypercomputeCluster/DeleteCluster","operation":{"id":"google.cloud.hypercomputecluster.v1.HypercomputeCluster.DeleteCluster","summary":"Deletes a single Cluster.","class":"guarded","category":"hypercomputecluster"}},
 {"methods":["POST"],"path":"/google.cloud.hypercomputecluster.v1.HypercomputeCluster/GetCluster","operation":{"id":"google.cloud.hypercomputecluster.v1.HypercomputeCluster.GetCluster","summary":"Gets details of a single Cluster.","class":"write","category":"hypercomputecluster"}},

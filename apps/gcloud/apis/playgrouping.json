@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"playgrouping.batch","summary":"A batch of Google Play Grouping API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"playgrouping"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"playgrouping.batch","summary":"A batch of Google Play Grouping API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"playgrouping"}},
 {"methods":["POST"],"path":"/v1alpha1/apps/*/tokens/*/tags:createOrUpdate","operation":{"id":"playgrouping.apps.tokens.tags.createOrUpdate","summary":"Create or update tags for the user and app that are represented by the given token.","class":"write","category":"playgrouping"}},
 {"methods":["POST"],"path":"/v1alpha1/apps/*/tokens/*:verify","operation":{"id":"playgrouping.apps.tokens.verify","summary":"Verify an API token by asserting the app and persona it belongs to.","description":"Verify an API token by asserting the app and persona it belongs to. The verification is a protection against client-side attacks and will fail if the contents of the token don't match the provided values. A token must be verified before it can be used to manipulate user tags.","class":"write","category":"playgrouping"}}
 ]

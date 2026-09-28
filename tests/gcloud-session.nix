@@ -485,7 +485,6 @@ in
           routes = {r["name"]: r for r in policy["routes"]}
           ids = {p["operation"]["id"] for p in routes["gcloud"]["paths"] if "operation" in p}
           assert {"storage.objects.get", "pubsub.projects.topics.get"} <= ids and "bigquery.datasets.get" not in ids, sorted(ids)[:40]
-          assert not [p for p in routes["gcloud"]["paths"] if "fixed" in p or "credential" in p.get("operation", {})]
           assert routes["gcloud"]["sessionKey"]["issuer"] == "${sa}"
           assert "*.googleapis.com" in policy["allow"] or "*" in policy["allow"], policy["allow"]
 
@@ -536,7 +535,7 @@ in
           assert ops.count("google.pubsub.v1.Publisher.Publish") == 2, asked()
           assert set(ops) == {"storage.objects.insert", "google.pubsub.v1.Publisher.Publish"}, asked()
 
-      with subtest("what returns a credential is refused unasked, from an API the session does not carry"):
+      with subtest("what returns a credential is guarded, refused unasked, from an API the session does not carry"):
           for f in ["mint", "secret"]:
               assert machine.succeed(f"cat {out}/{f}").strip() == "403", (f, machine.succeed(f"cat {out}/{f}"))
           assert not [l for l in google_log() if l.get("host", "").startswith(("iamcredentials.", "secretmanager."))], google_log()

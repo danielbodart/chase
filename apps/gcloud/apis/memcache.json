@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"memcache.batch","summary":"A batch of Cloud Memorystore for Memcached API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"memcache"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"memcache.batch","summary":"A batch of Cloud Memorystore for Memcached API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"memcache"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/GetLocation","operation":{"id":"google.cloud.location.Locations.GetLocation","summary":"Gets information about a location.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/ListLocations","operation":{"id":"google.cloud.location.Locations.ListLocations","summary":"Lists information about the supported locations for this service.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.memcache.v1.CloudMemcache/ApplyParameters","operation":{"id":"google.cloud.memcache.v1.CloudMemcache.ApplyParameters","summary":"`ApplyParameters` restarts the set of specified nodes in order to update them to the current set of parameters for the Memcached Instance.","class":"write","category":"memcache"}},

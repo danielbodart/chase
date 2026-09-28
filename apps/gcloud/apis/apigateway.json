@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"apigateway.batch","summary":"A batch of API Gateway API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"apigateway"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"apigateway.batch","summary":"A batch of API Gateway API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"apigateway"}},
 {"methods":["POST"],"path":"/google.cloud.apigateway.v1.ApiGatewayService/CreateApi","operation":{"id":"google.cloud.apigateway.v1.ApiGatewayService.CreateApi","summary":"Creates a new Api in a given project and location.","class":"write","category":"apigateway"}},
 {"methods":["POST"],"path":"/google.cloud.apigateway.v1.ApiGatewayService/CreateApiConfig","operation":{"id":"google.cloud.apigateway.v1.ApiGatewayService.CreateApiConfig","summary":"Creates a new ApiConfig in a given project and location.","class":"write","category":"apigateway"}},
 {"methods":["POST"],"path":"/google.cloud.apigateway.v1.ApiGatewayService/CreateGateway","operation":{"id":"google.cloud.apigateway.v1.ApiGatewayService.CreateGateway","summary":"Creates a new Gateway in a given project and location.","class":"write","category":"apigateway"}},

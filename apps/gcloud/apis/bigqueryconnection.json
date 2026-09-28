@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"bigqueryconnection.batch","summary":"A batch of BigQuery Connection API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"bigqueryconnection"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"bigqueryconnection.batch","summary":"A batch of BigQuery Connection API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"bigqueryconnection"}},
 {"methods":["POST"],"path":"/google.cloud.bigquery.connection.v1.ConnectionService/CreateConnection","operation":{"id":"google.cloud.bigquery.connection.v1.ConnectionService.CreateConnection","summary":"Creates a new connection.","class":"write","category":"bigqueryconnection"}},
 {"methods":["POST"],"path":"/google.cloud.bigquery.connection.v1.ConnectionService/DeleteConnection","operation":{"id":"google.cloud.bigquery.connection.v1.ConnectionService.DeleteConnection","summary":"Deletes connection and associated credential.","class":"guarded","category":"bigqueryconnection"}},
 {"methods":["POST"],"path":"/google.cloud.bigquery.connection.v1.ConnectionService/GetConnection","operation":{"id":"google.cloud.bigquery.connection.v1.ConnectionService.GetConnection","summary":"Returns specified connection.","class":"read","category":"bigqueryconnection"}},

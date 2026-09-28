@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"speech.batch","summary":"A batch of Cloud Speech-to-Text API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"speech"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"speech.batch","summary":"A batch of Cloud Speech-to-Text API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"speech"}},
 {"methods":["POST"],"path":"/google.cloud.speech.v1.Adaptation/CreateCustomClass","operation":{"id":"google.cloud.speech.v1.Adaptation.CreateCustomClass","summary":"Create a custom class.","class":"write","category":"speech"}},
 {"methods":["POST"],"path":"/google.cloud.speech.v1.Adaptation/CreatePhraseSet","operation":{"id":"google.cloud.speech.v1.Adaptation.CreatePhraseSet","summary":"Create a set of phrase hints.","description":"Create a set of phrase hints. Each item in the set can be a single word or a multi-word phrase. The items in the PhraseSet are favored by the recognition model when you send a call that includes the PhraseSet.","class":"write","category":"speech"}},
 {"methods":["POST"],"path":"/google.cloud.speech.v1.Adaptation/DeleteCustomClass","operation":{"id":"google.cloud.speech.v1.Adaptation.DeleteCustomClass","summary":"Delete a custom class.","class":"guarded","category":"speech"}},

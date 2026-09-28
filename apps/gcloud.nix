@@ -15,9 +15,10 @@ let
 
   # Every API's guarded operations, whichever a session carries: a request
   # to an API it does not carry is unmatched, but never one of these, and a
-  # carried API's "*" never decides another's "*:verb" among them.
-  guarded = pkgs.runCommand "chase-gcloud-guarded.json" { nativeBuildInputs = [ pkgs.jq ]; } ''
-    jq -c -s '[.[][] | select(.operation.class == "guarded") | del(.operation.description)]' ${apis}/*.json > $out
+  # carried API's "*" never decides another's "*:verb" among them. Named,
+  # not categorised: a category is an API the session carries.
+  floor = pkgs.runCommand "chase-gcloud-floor.json" { nativeBuildInputs = [ pkgs.jq ]; } ''
+    jq -c -s '[.[][] | select(.operation.class == "guarded") | .operation |= del(.description, .category)]' ${apis}/*.json > $out
   '';
 
   enabled = lib.filterAttrs (_: t: !t.bare && t.apps.gcloud.enable) cfg.tiers;
@@ -66,17 +67,12 @@ let
         | ($s.apis + (.apis.add // []) - (.apis.remove // [])) | unique' <<< "$binding") \
         || die "its APIs do not resolve"
       mapfile -t files < <(jq -r --arg d ${apis} '.[] | "\($d)/\(.).json"' <<< "$selected")
-      # What returns a credential, and an API's guarded operations the
-      # session does not carry, are refused whatever the tier or the project
-      # says: `fixed`, which the launch takes off before frisket reads it.
-      paths=$(jq -n -c --argjson s "$settings" --argjson every "$every" --slurpfile guarded ${guarded} '
+      paths=$(jq -n -c --argjson s "$settings" --argjson every "$every" --slurpfile floor ${floor} '
         def outcome($a): if $a == "ask" then {ask: true} elif $a == "refuse" then {refuse: true} else {} end;
-        ([inputs[]] | map(if .operation.credential then . + {refuse: true, fixed: true}
-                          else . + outcome({read: "allow", write: $s.writes, guarded: $s.guarded}[.operation.class]) end))
-        + ($guarded[0] | map(. + {refuse: true, fixed: true}))
+        [inputs[]] + ($floor[0] | map(. + {floor: true}))
         | group_by([.methods, .path, .prefix])
-        | map(max_by([(.fixed | not), .encodedSlashes // false, .operation.description != null]))
-        | map(.operation |= del(.credential))
+        | map(max_by([(.floor | not), .encodedSlashes // false]) | del(.floor))
+        | map(. + outcome({read: "allow", write: $s.writes, guarded: $s.guarded}[.operation.class]))
         + (if $s.unmatched == "allow" then [{methods: $every, prefix: "/"}] else [] end)
       ' "''${files[@]}" /dev/null)
 

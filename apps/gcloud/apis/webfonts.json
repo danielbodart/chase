@@ -1,4 +1,4 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"webfonts.batch","summary":"A batch of Web Fonts Developer API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"webfonts"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"webfonts.batch","summary":"A batch of Web Fonts Developer API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"webfonts"}},
 {"methods":["GET","HEAD"],"path":"/v1/webfonts","operation":{"id":"webfonts.webfonts.list","summary":"Retrieves the list of fonts currently served by the Google Fonts Developer API.","class":"read","category":"webfonts"}}
 ]

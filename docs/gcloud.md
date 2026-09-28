@@ -203,25 +203,21 @@ read, write and guarded, a tier's switch per class, a project's lists by name.
   Discovery method. Mixins (`google.iam.v1.IAMPolicy`, Locations, Operations)
   come from each service's yaml.
 - **Exceptions**, by operation id, each with its reason:
-  - *guarded*, and marked `credential`: everything that returns or mints a
-    credential, in `exceptions.json`'s `credential`. Tokens
+  - *guarded*: everything that returns or mints a credential. Tokens
     (`iamcredentials.*`, `sts.*`, `cloudshell…generateAccessToken`, which
     mints one by GET), keys and secrets (`serviceAccounts.keys.create`,
     `storage.projects.hmacKeys.create`, `apikeys…getKeyString`,
     `secretmanager…versions.access`, `redis…getAuthString`, and about sixty
     more the spike found by method name, response schema and proto field),
-    signed URLs (but Cloud Functions' `generateUploadUrl`, which gcloud's
-    deploy needs, and which is only guarded), ephemeral database client
-    certificates, and every API's
+    signed URLs, ephemeral database client certificates, and every API's
     batch path — `POST /batch` carried a Secret Manager `access` inside it
-    (measured). A gRPC method takes the mark of the REST method it maps to.
-    These are refused whatever a tier or a project says.
-  - *guarded*, in `exceptions.json`'s `guarded`: `*.setIamPolicy`, key
-    upload, ACLs, a bucket's patch
+    (measured). Also `*.setIamPolicy`, key upload, ACLs, a bucket's patch
     and update, which can set its ACLs, and what writes instance metadata
     (ssh keys, startup scripts), `instances.update` too. An object written
     with `predefinedAcl` or an `acl` is a write, asked like any upload: its
-    ACL is not seen.
+    ACL is not seen. There is no class beyond guarded for credentials: the
+    tier's `guarded` answers them, refused by default, and a project may
+    name one, as PLAN.md's decision 18 lets it name any operation.
   - *write*: `container…clusters.get` and `list`, which can carry a legacy
     client key and are what `get-credentials` reads; and the configs whose
     schemas say a secret may come back, until one authenticated call each
@@ -251,12 +247,16 @@ chaseModules.default.chase.bindings.gcloud = {
 Resolved at launch: the named APIs' rules, one rule per method and template,
 answered as the tier's switches say and then as the project's lists; a
 category is the API. A name with no API is an error, and a request to an API
-not carried is unmatched, unless it is one of that API's guarded operations:
-every API's are in the route whatever is carried, refused, so a carried API's
-`*` never decides another's `*:verb`. Those, and what returns a credential in
-a carried API, are `fixed`: no project list names them, and no category
-reaches them. Only a tier that takes envelopes can enable it, and
-nothing of Google's is in a tier's own policy.
+not carried is unmatched, unless it is one of that API's guarded operations.
+Those are the floor: every API's guarded rules are in the route whatever is
+carried, so what mints a token or returns a secret from an API the session
+does not carry is guarded, not unmatched, and a carried API's `*` never
+decides another's `*:verb`. A carried API's own rule wins where both have a
+template. The floor is answered as the tier's `guarded` says, refused by
+default in trusted and strict alike, and a project may name any of its
+operations; it has no categories, since a category is an API the session
+carries. Only a tier that takes envelopes can enable it, and nothing of
+Google's is in a tier's own policy.
 
 ## What frisket needs
 
@@ -356,7 +356,7 @@ messages passed through the interceptor unchanged (measured).
   IAP names, or frisket matching a name of any depth before a verb, would fix
   it.
 - **gcloud's own noise.** Every gcloud command calls
-  `iamcredentials…/allowedLocations`, which is refused; gcloud tolerates the
+  `iamcredentials…/allowedLocations`, which is guarded; gcloud tolerates the
   refusal (measured), but the log has a line per command.
 - **The host's name service.** With `/run/nscd` visible, a session resolved a
   name outside its allowlist; the connection was still refused. Whether flong

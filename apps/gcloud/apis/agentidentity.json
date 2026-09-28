@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"agentidentity.batch","summary":"A batch of Agent Identity API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"agentidentity"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"agentidentity.batch","summary":"A batch of Agent Identity API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"agentidentity"}},
 {"methods":["POST"],"path":"/google.cloud.agentidentity.v1.AuthProviderService/CreateAuthProvider","operation":{"id":"google.cloud.agentidentity.v1.AuthProviderService.CreateAuthProvider","summary":"Creates a new AuthProvider in a given project and location.","class":"write","category":"agentidentity"}},
 {"methods":["POST"],"path":"/google.cloud.agentidentity.v1.AuthProviderService/DeleteAuthProvider","operation":{"id":"google.cloud.agentidentity.v1.AuthProviderService.DeleteAuthProvider","summary":"Deletes a single AuthProvider.","class":"guarded","category":"agentidentity"}},
 {"methods":["POST"],"path":"/google.cloud.agentidentity.v1.AuthProviderService/DeleteAuthorization","operation":{"id":"google.cloud.agentidentity.v1.AuthProviderService.DeleteAuthorization","summary":"Deletes a single Authorization.","class":"guarded","category":"agentidentity"}},

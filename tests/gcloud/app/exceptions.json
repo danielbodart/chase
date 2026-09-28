@@ -8,6 +8,5 @@
   "encodedSlashes": {"demo": {"object": "An object's name.", "filesId": "A file's id."}},
   "read": {},
   "write": {},
-  "guarded": {},
-  "credential": {"demo.projects.secrets.versions.access": "Returns the payload."}
+  "guarded": {"demo.projects.secrets.versions.access": "Returns the payload."}
 }

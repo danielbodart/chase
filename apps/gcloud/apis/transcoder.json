@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"transcoder.batch","summary":"A batch of Transcoder API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"transcoder"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"transcoder.batch","summary":"A batch of Transcoder API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"transcoder"}},
 {"methods":["POST"],"path":"/google.cloud.video.transcoder.v1.TranscoderService/CreateJob","operation":{"id":"google.cloud.video.transcoder.v1.TranscoderService.CreateJob","summary":"Creates a job in the specified region.","class":"write","category":"transcoder"}},
 {"methods":["POST"],"path":"/google.cloud.video.transcoder.v1.TranscoderService/CreateJobTemplate","operation":{"id":"google.cloud.video.transcoder.v1.TranscoderService.CreateJobTemplate","summary":"Creates a job template in the specified region.","class":"write","category":"transcoder"}},
 {"methods":["POST"],"path":"/google.cloud.video.transcoder.v1.TranscoderService/DeleteJob","operation":{"id":"google.cloud.video.transcoder.v1.TranscoderService.DeleteJob","summary":"Deletes a job.","class":"guarded","category":"transcoder"}},

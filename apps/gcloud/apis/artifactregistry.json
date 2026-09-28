@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"artifactregistry.batch","summary":"A batch of Artifact Registry API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"artifactregistry"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"artifactregistry.batch","summary":"A batch of Artifact Registry API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"artifactregistry"}},
 {"methods":["GET","HEAD"],"path":"/download/v1/projects/*/locations/*/repositories/*/files/*:download","encodedSlashes":true,"operation":{"id":"artifactregistry.projects.locations.repositories.files.download","summary":"Download a file.","class":"read","category":"artifactregistry"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/GetLocation","operation":{"id":"google.cloud.location.Locations.GetLocation","summary":"Gets information about a location.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/ListLocations","operation":{"id":"google.cloud.location.Locations.ListLocations","summary":"Lists information about the supported locations for this service.","class":"read","category":"google.cloud.location.Locations"}},

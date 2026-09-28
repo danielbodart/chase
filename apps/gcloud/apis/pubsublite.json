@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"pubsublite.batch","summary":"A batch of Pub/Sub Lite API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"pubsublite"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"pubsublite.batch","summary":"A batch of Pub/Sub Lite API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"pubsublite"}},
 {"methods":["POST"],"path":"/google.cloud.pubsublite.v1.AdminService/CreateReservation","operation":{"id":"google.cloud.pubsublite.v1.AdminService.CreateReservation","summary":"Creates a new reservation.","class":"write","category":"pubsublite"}},
 {"methods":["POST"],"path":"/google.cloud.pubsublite.v1.AdminService/CreateSubscription","operation":{"id":"google.cloud.pubsublite.v1.AdminService.CreateSubscription","summary":"Creates a new subscription.","class":"write","category":"pubsublite"}},
 {"methods":["POST"],"path":"/google.cloud.pubsublite.v1.AdminService/CreateTopic","operation":{"id":"google.cloud.pubsublite.v1.AdminService.CreateTopic","summary":"Creates a new topic.","class":"write","category":"pubsublite"}},

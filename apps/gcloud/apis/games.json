@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"games.batch","summary":"A batch of Google Play Games Services API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"games"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"games.batch","summary":"A batch of Google Play Games Services API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"games"}},
 {"methods":["POST"],"path":"/games/v1/accesstokens/generatePlayGroupingApiToken","operation":{"id":"games.accesstokens.generatePlayGroupingApiToken","summary":"Generates a Play Grouping API token for the PGS user identified by the attached credential.","class":"write","category":"games"}},
 {"methods":["POST"],"path":"/games/v1/accesstokens/generateRecallPlayGroupingApiToken","operation":{"id":"games.accesstokens.generateRecallPlayGroupingApiToken","summary":"Generates a Play Grouping API token for the PGS user identified by the Recall session ID provided in the request.","class":"write","category":"games"}},
 {"methods":["GET","HEAD"],"path":"/games/v1/achievements","operation":{"id":"games.achievementDefinitions.list","summary":"Lists all the achievement definitions for your application.","class":"read","category":"games"}},

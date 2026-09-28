@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"ids.batch","summary":"A batch of Cloud IDS API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"ids"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"ids.batch","summary":"A batch of Cloud IDS API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"ids"}},
 {"methods":["POST"],"path":"/google.cloud.ids.v1.IDS/CreateEndpoint","operation":{"id":"google.cloud.ids.v1.IDS.CreateEndpoint","summary":"Creates a new Endpoint in a given project and location.","class":"write","category":"ids"}},
 {"methods":["POST"],"path":"/google.cloud.ids.v1.IDS/DeleteEndpoint","operation":{"id":"google.cloud.ids.v1.IDS.DeleteEndpoint","summary":"Deletes a single Endpoint.","class":"guarded","category":"ids"}},
 {"methods":["POST"],"path":"/google.cloud.ids.v1.IDS/GetEndpoint","operation":{"id":"google.cloud.ids.v1.IDS.GetEndpoint","summary":"Gets details of a single Endpoint.","class":"read","category":"ids"}},

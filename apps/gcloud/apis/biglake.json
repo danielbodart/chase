@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"biglake.batch","summary":"A batch of Lakehouse API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"biglake"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"biglake.batch","summary":"A batch of Lakehouse API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"biglake"}},
 {"methods":["POST"],"path":"/google.cloud.bigquery.biglake.v1.MetastoreService/CreateCatalog","operation":{"id":"google.cloud.bigquery.biglake.v1.MetastoreService.CreateCatalog","summary":"Creates a new catalog.","class":"write","category":"biglake"}},
 {"methods":["POST"],"path":"/google.cloud.bigquery.biglake.v1.MetastoreService/CreateDatabase","operation":{"id":"google.cloud.bigquery.biglake.v1.MetastoreService.CreateDatabase","summary":"Creates a new database.","class":"write","category":"biglake"}},
 {"methods":["POST"],"path":"/google.cloud.bigquery.biglake.v1.MetastoreService/CreateTable","operation":{"id":"google.cloud.bigquery.biglake.v1.MetastoreService.CreateTable","summary":"Creates a new table.","class":"write","category":"biglake"}},

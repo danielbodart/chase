@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"admob.batch","summary":"A batch of AdMob API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"admob"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"admob.batch","summary":"A batch of AdMob API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"admob"}},
 {"methods":["GET","HEAD"],"path":"/v1/accounts","operation":{"id":"admob.accounts.list","summary":"Lists the AdMob publisher account that was most recently signed in to from the AdMob UI.","description":"Lists the AdMob publisher account that was most recently signed in to from the AdMob UI. For more information, see https://support.google.com/admob/answer/10243672.","class":"read","category":"admob"}},
 {"methods":["GET","HEAD"],"path":"/v1/accounts/*","operation":{"id":"admob.accounts.get","summary":"Gets information about the specified AdMob publisher account.","class":"read","category":"admob"}},
 {"methods":["GET","HEAD"],"path":"/v1/accounts/*/adUnits","operation":{"id":"admob.accounts.adUnits.list","summary":"List the ad units under the specified AdMob account.","class":"read","category":"admob"}},

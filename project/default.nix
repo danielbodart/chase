@@ -354,7 +354,7 @@ let
           doc=$(jq --arg app "$app" --argjson lists "$(jq -c --arg a "$app" '.bindings[$a] | {allow, ask, refuse} | map_values(. // [])' <<< "$result")" \
             -f "$lists" <<< "$doc") || die "$ws: its $app lists do not apply"
         done
-        jq 'del(.routes[]?.paths[]?.fixed)' <<< "$doc" > "$run/policy.json"
+        printf '%s\n' "$doc" > "$run/policy.json"
         mkdir -p "$(dirname "$envfile")"
         printf '%s' "$exports" > "$envfile.new"
         chmod 0644 "$envfile.new"
@@ -417,8 +417,7 @@ in
         `prepare TIER WORKSPACE RUN ENVDIR` with the approved binding on
         stdin, printing `{routes, allow, env}`; and `stop`, run in postStop
         as `stop MACHINE` before RUN is removed, to release what `prepare`
-        started. A path rule it makes `fixed` is no project list's, and the
-        mark is taken off before frisket reads the document.
+        started.
       '';
     };
   };

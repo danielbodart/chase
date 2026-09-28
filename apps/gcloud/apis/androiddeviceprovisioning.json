@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"androiddeviceprovisioning.batch","summary":"A batch of Android Device Provisioning Partner API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"androiddeviceprovisioning"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"androiddeviceprovisioning.batch","summary":"A batch of Android Device Provisioning Partner API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"androiddeviceprovisioning"}},
 {"methods":["GET","HEAD"],"path":"/v1/customers","operation":{"id":"androiddeviceprovisioning.customers.list","summary":"Lists the user's customer accounts.","class":"read","category":"androiddeviceprovisioning"}},
 {"methods":["GET","HEAD"],"path":"/v1/customers/*/configurations","operation":{"id":"androiddeviceprovisioning.customers.configurations.list","summary":"Lists a customer's configurations.","class":"read","category":"androiddeviceprovisioning"}},
 {"methods":["POST"],"path":"/v1/customers/*/configurations","operation":{"id":"androiddeviceprovisioning.customers.configurations.create","summary":"Creates a new configuration.","description":"Creates a new configuration. Once created, a customer can apply the configuration to devices.","class":"write","category":"androiddeviceprovisioning"}},

@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"groupsmigration.batch","summary":"A batch of Groups Migration API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"groupsmigration"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"groupsmigration.batch","summary":"A batch of Groups Migration API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"groupsmigration"}},
 {"methods":["POST"],"path":"/groups/v1/groups/*/archive","operation":{"id":"groupsmigration.archive.insert","summary":"Inserts a new mail into the archive of the Google group.","class":"write","category":"groupsmigration"}},
 {"methods":["POST"],"path":"/upload/groups/v1/groups/*/archive","operation":{"id":"groupsmigration.archive.insert","summary":"Inserts a new mail into the archive of the Google group.","class":"write","category":"groupsmigration"}}
 ]

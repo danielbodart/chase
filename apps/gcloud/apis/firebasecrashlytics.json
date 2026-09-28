@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"firebasecrashlytics.batch","summary":"A batch of Firebase Crashlytics API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"firebasecrashlytics"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"firebasecrashlytics.batch","summary":"A batch of Firebase Crashlytics API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"firebasecrashlytics"}},
 {"methods":["GET","HEAD"],"path":"/v1alpha/projects/*/apps/*/events","operation":{"id":"firebasecrashlytics.projects.apps.events.list","summary":"List the events for an issue matching filter criteria, sorted in descending order by timestamp.","class":"read","category":"firebasecrashlytics"}},
 {"methods":["GET","HEAD"],"path":"/v1alpha/projects/*/apps/*/events:batchGet","operation":{"id":"firebasecrashlytics.projects.apps.events.batchGet","summary":"Fetch a batch of up to 100 events by name.","class":"read","category":"firebasecrashlytics"}},
 {"methods":["GET","HEAD"],"path":"/v1alpha/projects/*/apps/*/issues/*","operation":{"id":"firebasecrashlytics.projects.apps.issues.get","summary":"Retrieve an issue.","class":"read","category":"firebasecrashlytics"}},

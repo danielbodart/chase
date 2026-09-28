@@ -25,14 +25,6 @@ class Failed(Exception):
     pass
 
 
-def strictness(op):
-    return CLASSES.index(op["class"]) + bool(op.get("credential"))
-
-
-def label(op):
-    return op["class"] + (" credential" if op.get("credential") else "")
-
-
 def natural(verb):
     return "read" if verb in ("GET", "HEAD") else "guarded" if verb == "DELETE" else "write"
 
@@ -244,9 +236,6 @@ class Generator:
             return self.explicit[id]
         return base
 
-    def credential(self, id, api):
-        return {"credential": True} if api in self.whole or id in self.credentials else {}
-
     def base(self, leaf, verb):
         pattern = self.patterns.get(leaf)
         if pattern:
@@ -260,12 +249,11 @@ class Generator:
         self.patterns = ex.get("patterns", {})
         slashed = ex.get("encodedSlashes", {})
         self.explicit = {}
-        self.credentials = set(ex.get("credential", {}))
-        for c in CLASSES + ["credential"]:
+        for c in CLASSES:
             for id, reason in ex.get(c, {}).items():
                 self.fail("in more than one class", [id] if id in self.explicit else [])
-                self.explicit[id] = "guarded" if c == "credential" else c
-        self.fail("an exception needs a reason", [k for c in CLASSES + ["credential"] for k, r in ex.get(c, {}).items() if not isinstance(r, str) or not r]
+                self.explicit[id] = c
+        self.fail("an exception needs a reason", [k for c in CLASSES for k, r in ex.get(c, {}).items() if not isinstance(r, str) or not r]
                   + [k for k, r in self.whole.items() if not isinstance(r, str) or not r]
                   + [f"{a}.{k}" for a, ps in slashed.items() for k, r in ps.items() if not isinstance(r, str) or not r]
                   + [k for k, p in self.patterns.items() if not p.get("reason") or p.get("class") not in CLASSES])
@@ -296,7 +284,7 @@ class Generator:
                     id, verb = m["id"], m["httpMethod"]
                     rel = m.get("flatPath") or m["path"]
                     cls = self.classify(id, self.base(id.split(".")[-1], verb), name)
-                    op = {"id": id, **words(id, m.get("description")), "class": cls, **self.credential(id, name), "category": name}
+                    op = {"id": id, **words(id, m.get("description")), "class": cls, "category": name}
                     enc = [p for p in slashed.get(name, {}) if "{" + p + "}" in m["path"] + m.get("flatPath", "")]
                     self.used |= {("encodedSlashes", name, p) for p in enc}
                     methods = ["GET", "HEAD"] if verb == "GET" else [verb]
@@ -318,7 +306,7 @@ class Generator:
                     self.used.add(("batch",))
                     rules.append({"methods": ["POST"], "path": "/" + d["batchPath"], "operation": {
                         "id": f"{name}.batch", "summary": f"A batch of {d.get('title', name)} requests in one, each a whole request frisket cannot see.",
-                        "class": "guarded", "credential": True, "category": name}})
+                        "class": "guarded", "category": name}})
             apis[name] = {"title": ds[0].get("title", name), "versions": versions, "hosts": hosts, "mtls": mtls, "rules": rules, "grpc": set(), "streaming": set()}
 
         self.grpc(apis, rest)
@@ -329,7 +317,7 @@ class Generator:
         self.fail("batch has no reason, and APIs have batch paths", [] if ("batch",) not in self.used or ex.get("batch") else ["batch"])
         for c in CLASSES:
             self.fail(f"an exception gives the class it has anyway ({c})",
-                      [id for id, cls in self.explicit.items() if cls == c and id not in self.credentials and self.natural.get(id) == {c}])
+                      [id for id, cls in self.explicit.items() if cls == c and self.natural.get(id) == {c}])
         self.invariants(apis)
         if self.problems:
             raise Failed("\n".join(self.problems))
@@ -390,9 +378,7 @@ class Generator:
                 base = max((rest_ops[m]["class"] for m in mapped), key=CLASSES.index) if mapped else self.base(leaf, verb)
                 if not r["http"] and r["service"] not in MIXINS:
                     self.counts["classed by name"] += 1
-                api = None if r["service"] in MIXINS else name
-                credential = self.credential(r["name"], api) or ({"credential": True} if any(rest_ops[m].get("credential") for m in mapped) else {})
-                op = {"id": r["name"], **words(r["name"], r["comment"]), "class": self.classify(r["name"], base, api), **credential,
+                op = {"id": r["name"], **words(r["name"], r["comment"]), "class": self.classify(r["name"], base, None if r["service"] in MIXINS else name),
                       "category": r["service"] if r["service"] in MIXINS else name}
                 if r["service"] in grpc or r["service"] in MIXINS:
                     a["rules"].append({"methods": ["POST"], "path": r["path"], "operation": op})
@@ -447,8 +433,8 @@ class Generator:
             for r in a["rules"]:
                 for m in r["methods"]:
                     key = (m, "prefix" in r, (r.get("path") or r.get("prefix")).lower())
-                    table[key].add((label(r["operation"]), r["operation"]["id"]))
-                ids[r["operation"]["id"]].add(label(r["operation"]))
+                    table[key].add((r["operation"]["class"], r["operation"]["id"]))
+                ids[r["operation"]["id"]].add(r["operation"]["class"])
         self.fail("one method and template, two classes",
                   [f"{m} {p} ({', '.join(sorted(f'{i} {c}' for c, i in v))})" for (m, _, p), v in table.items() if len({c for c, _ in v}) > 1])
         self.fail("one operation, two classes", [i for i, v in ids.items() if len(v) > 1])
@@ -469,7 +455,7 @@ class Generator:
                 if "path" in r:
                     segs = r["path"].lower().split("/")[1:]
                     for m in r["methods"]:
-                        by[(m, len(segs))].append((name, strictness(r["operation"]), segs, r["operation"]["id"]))
+                        by[(m, len(segs))].append((name, CLASSES.index(r["operation"]["class"]), segs, r["operation"]["id"]))
         out = set()
         for rules in by.values():
             for name, cls, segs, id in rules:
