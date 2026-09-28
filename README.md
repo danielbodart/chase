@@ -266,13 +266,16 @@ newly allowed:
 nix develop -c scripts/operations.sh cloudflare
 nix develop -c scripts/operations.sh huggingface
 nix develop -c scripts/operations.sh github
+nix develop -c scripts/gcloud.sh
 ```
 
 Cloudflare's and GitHub's are fetched from a commit of their own repositories;
-the Hub's lives at a URL that moves, so it is vendored. Neither replaces minting the token
+the Hub's lives at a URL that moves, so it is vendored. Google Cloud's are
+generated per API, from its Discovery documents and its protos, each pinned
+file by file. None of them replaces minting the token
 narrowly: the token's scope is the floor, and the rules only decide which of
-the things it can do need a person. See [docs/cloudflare.md](docs/cloudflare.md)
-and [docs/huggingface.md](docs/huggingface.md).
+the things it can do need a person. See [docs/cloudflare.md](docs/cloudflare.md),
+[docs/huggingface.md](docs/huggingface.md) and [docs/gcloud.md](docs/gcloud.md).
 
 ## Development
 

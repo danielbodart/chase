@@ -239,7 +239,32 @@ messages passed through the interceptor unchanged (measured).
 
 1. frisket: 1 to 6.
 2. chase: the generator and the pinned sources; read the exceptions before
-   anything uses them.
+   anything uses them. *Done:* `scripts/gcloud.sh`, pinned to
+   `discovery-artifact-manager` 3d84c9e and `googleapis` bf87786 (359 and
+   3,677 files, each hashed), writes `apps/gcloud/apis/<api>.json` for 394
+   APIs, 79 of them proto-only, and `apps/gcloud/index.json`, each API's
+   versions, hosts, gRPC services and streaming methods: 24,726 rules, 10,379
+   read, 10,735 write and 3,612 guarded, 7,599 of them gRPC, 9.7 MB.
+   - *Versions:* the preferred one and every stable one, since `iam`'s
+     preferred is v2 while service accounts are v1, and `compute` has none
+     preferred. A beta only where it is preferred, or named in
+     `source.json`'s `versions` with a reason.
+   - *Names:* Discovery's own ids, the same in every version. A gRPC method is
+     its full name, classed as the strictest Discovery method its http rule
+     names; one with no http rule by its name as AIP-131 to 135 give a verb
+     (Get and List read, Delete guarded). Mixins are their own, whatever API
+     carries them. A category is the API.
+   - *The table is one:* a method and template with two classes, or a literal
+     of one API more specific than a stricter operation's `*` in another,
+     fails the build. So container's `clusters.get`, a write, takes AlloyDB's,
+     Redis's, Managed Kafka's and three others' reads at that path with it;
+     `sql.instances.get` stays a read, or Spanner's would follow.
+   - Storage's object and folder names are one `%2F` segment
+     (`encodedSlashes`); an upload's resumable chunks are a `PUT` to its
+     upload path; Firebase's `securetoken` is undescribed, but its
+     `POST /v1/token` is `sts.token`'s, guarded.
+   - `nix flake check` runs the generator on a small API of each kind, and
+     every way it refuses.
 3. chase: the `gcloud` app — the route, a fake key per session and the
    environment that points at it, the credential shape (a JSON token file with
    an expiry), and the renewer.
