@@ -10,12 +10,12 @@
 #                  this launch's postStart, and prints its syscall
 #                  loosenings for flong
 #   postStart      before frisket's steps: decrypts the secrets the staged
-#                  result binds into /run/user/<uid>/chase/<machine>/; writes
-#                  the session's policy document there, and its environment
-#                  beside the checkout's
+#                  result binds into /run/user/<uid>/chase/<machine>/; runs
+#                  each bound app's `prepare`; writes the session's policy
+#                  document there, and its environment beside the checkout's
 #   frisket        steers the session under that document, or the tier's own
-#   postStop       removes /run/user/<uid>/chase/<machine>/ and anything
-#                  staged for it
+#   postStop       runs each app's `stop`; removes
+#                  /run/user/<uid>/chase/<machine>/ and anything staged for it
 #
 # All of it runs as the user who launched: a launcher has no privilege of its
 # own (PLAN.md, decision 2). The approval is split from the rest because a
@@ -33,6 +33,7 @@ let
   tiers = lib.filterAttrs (_: t: t.envelope) cfg.tiers;
 
   apps = pkgs.writeText "chase-project-apps.json" (builtins.toJSON cfg.internal.projectApps);
+  stops = lib.filter (s: s != null) (lib.mapAttrsToList (_: a: a.stop or null) cfg.internal.projectApps);
 
   # A flong hook is a command, never shell: one that needs a shell is a
   # script of its own, under the options flong's snippets once ran with. It
@@ -79,6 +80,7 @@ let
       state=$home/.local/state/chase
       apps=${apps}
       lists=${./lists.jq}
+      merge=${./merge.jq}
       approver=${lib.escapeShellArg approver}
 
       # A checkout's key: its path, hashed, so a path with anything in it is
@@ -246,12 +248,12 @@ let
           return
         fi
         # A project that loosens nothing has no seccomp section in what is
-        # approved, and names nothing in lists it does not use, so an envelope
-        # approved before there were any still is.
+        # approved, and says nothing of an app it does not bind, so an
+        # envelope approved before there were any still is.
         result=$(jq -c '
+          def pruned: if type == "object" then map_values(pruned) | with_entries(select(.value | IN(null, [], {}) | not)) else . end;
           if .seccomp == {allow: [], deny: []} then del(.seccomp) else . end
-          | .bindings |= (map_values(with_entries(select((.key | IN("ask", "refuse")) and .value == [] | not)))
-                          | with_entries(select(.value != {allow: []})))
+          | .bindings |= pruned
         ' <<< "$result")
         # One name in two of an app's lists says two things: refused before
         # anyone is asked to approve it.
@@ -321,19 +323,27 @@ let
           secret=$(jq -r --arg a "$app" '.bindings[$a].credential.secret // empty' <<< "$result")
           [ -n "$secret" ] || continue
           decrypt "$ws" "$file" "$secret" "$run/secrets/$app"
-          # The app's route, with the project's credential, in place of any
-          # route of the same name the tier had.
-          doc=$(jq --slurpfile apps "$apps" --arg a "$app" --arg tier "$tier" --arg cred "$run/secrets/$app" '
+          # The app's routes, in place of any of the same names the tier had:
+          # what its `prepare` made of the binding, or its own with the
+          # project's credential.
+          prepare=$(jq -r --arg a "$app" '.[$a].prepare // empty' "$apps")
+          patch=$run/$app.patch.json
+          if [ -n "$prepare" ]; then
+            jq -c --arg a "$app" '.bindings[$a]' <<< "$result" \
+              | "$prepare" "$tier" "$ws" "$run" "$(env_dir "$ws")" > "$patch" || die "$ws: $app could not be prepared"
+          else
+            jq -c --arg a "$app" --arg tier "$tier" --arg cred "$run/secrets/$app" '
+              .[$a] | {routes: [.routes[$tier] // empty | arrays // [.] | .[] | . + {credentialFile: $cred}], allow}
+            ' "$apps" > "$patch"
+          fi
+          doc=$(jq --slurpfile patch "$patch" -f "$merge" <<< "$doc")
+          exports+=$(jq -nr --slurpfile apps "$apps" --arg a "$app" --argjson r "$result" --slurpfile patch "$patch" '
             $apps[0][$a] as $p
-            | ($p.routes[$tier] + {credentialFile: $cred}) as $route
-            | .routes = ([.routes[]? | select(.name != $route.name)] + [$route])
-            | if (.allow | index("*")) then . else .allow = (.allow + $p.allow | unique) end
-          ' <<< "$doc")
-          exports+=$(jq -nr --slurpfile apps "$apps" --arg a "$app" --argjson r "$result" '
-            $apps[0][$a] as $p
-            | ($p.env + ($p.envFromBinding | map_values($r.bindings[$a][.]) | with_entries(select(.value != null))))
+            | (($p.env // {}) + ($patch[0].env // {})
+               + ($p.envFromBinding // {} | map_values($r.bindings[$a][.]) | with_entries(select(.value != null))))
             | to_entries[] | "export \(.key)=\(.value | @sh)"
           ')$'\n'
+          rm -f -- "$patch"
           echo "chase: $ws: $app from $secrets:$secret" >&2
         done
         [ -z "$file" ] || rm -rf -- "$(dirname -- "$file")"
@@ -403,9 +413,17 @@ in
       type = types.attrsOf types.anything;
       description = ''
         What an app becomes when a project binds it: its frisket `routes`, by
-        tier, as the policy document holds one but for `credentialFile`; the
-        names it adds to `allow`; the session's `env`; and `envFromBinding`,
-        variables taken from the binding's other fields.
+        tier, each a route or a list of them as the policy document holds
+        one but for `credentialFile`; the names it adds to `allow`; the
+        session's `env`; and `envFromBinding`, variables taken from the
+        binding's other fields.
+
+        Or, for an app whose routes are made at launch, `prepare`: a program
+        run in postStart once the secret is at RUN/secrets/<app>, as
+        `prepare TIER WORKSPACE RUN ENVDIR` with the approved binding on
+        stdin, printing `{routes, allow, env}`; and `stop`, run in postStop
+        as `stop MACHINE` before RUN is removed, to release what `prepare`
+        started.
       '';
     };
   };
@@ -422,6 +440,9 @@ in
         chase-envelope launch ${name} "$workspace" "$machine"
       '') ] ];
       postStop = [ [ (hookScript "agent-${name}-poststop" ''
+        ${lib.concatMapStrings (stop: ''
+          ${stop} "$machine" || true
+        '') stops}
         rm -rf -- "/run/user/${toString cfg.uid}/chase/$machine" \
           "/run/user/${toString cfg.uid}/chase/.envelope/$machine.json"
       '') ] ];
