@@ -27,7 +27,7 @@ let
   prepare = pkgs.writeShellApplication {
     name = "chase-gcloud-prepare";
     runtimeInputs = with pkgs; [ jq openssl coreutils util-linux config.systemd.package ]
-      ++ lib.optional (cfg.internal ? gcloudRenew) cfg.internal.gcloudRenew;
+      ++ [ cfg.internal.gcloudRenew ];
     text = ''
       tier=$1 ws=$2 run=$3 envdir=$4
       uid=${toString cfg.uid}

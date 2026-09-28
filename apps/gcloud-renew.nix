@@ -15,7 +15,7 @@ in
     '';
   };
 
-  config.home-manager.users.${cfg.user} = {
+  config.home-manager.users.${cfg.user} = lib.mkIf (lib.any (t: t.apps.gcloud.enable) (lib.attrValues cfg.tiers)) {
     # One per session, started by its launch and stopped before its run
     # directory is removed.
     systemd.user.services."chase-gcloud-renew@" = {
