@@ -1,0 +1,3 @@
+export SPIKE=/tmp/claude-1000/-home-dan-Projects-frisket/d148bf0d-8069-4d10-b051-b5be28488830/scratchpad/spikes/metadata
+export PATH=/nix/store/frlyjd2wya3rk8xmdc98yq3x0rhpkh9n-nodejs-24.21.0/bin:/nix/store/rnbz3h9499a0bq33kkbars2mczqbfm4p-openssl-3.6.4-bin/bin:/nix/store/yc6dfj5hzxrzczj8pfrynkighbkpq3yh-iproute2-7.0.0/bin:/nix/store/30h4aphk3m9gkx3lhd3czbww821xsrfw-terraform-1.15.3/bin:/nix/store/i6kib5fs8ndpk0s0zybdh5kdhy5vkmmv-go-1.26.7/bin:/nix/store/pfy9lf8v6y0387vd1n78cni3vxc50gw9-python3-3.13.15-env/bin:$PATH
+export GOPATH=$SPIKE/.gopath GOMODCACHE=$SPIKE/.gopath/mod GOCACHE=$SPIKE/.gocache GOFLAGS=-mod=mod

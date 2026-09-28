@@ -1,0 +1,2037 @@
+diff --git a/go.mod b/go.mod
+index 92573d5..9d9e0da 100644
+--- a/go.mod
++++ b/go.mod
+@@ -8,10 +8,18 @@ module github.com/danielbodart/frisket
+ go 1.26.0
+ 
+ require (
++	cloud.google.com/go/compute/metadata v0.10.0
+ 	github.com/vishvananda/netlink v1.3.1
+ 	golang.org/x/net v0.59.0
++	golang.org/x/oauth2 v0.37.0
+ 	golang.org/x/sys v0.48.0
++	google.golang.org/grpc v1.84.0
++	google.golang.org/protobuf v1.36.11
+ 	pgregory.net/rapid v1.3.0
+ )
+ 
+-require github.com/vishvananda/netns v0.0.5 // indirect
++require (
++	github.com/vishvananda/netns v0.0.5 // indirect
++	golang.org/x/text v0.42.0 // indirect
++	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
++)
+diff --git a/go.sum b/go.sum
+index f55761f..6c72161 100644
+--- a/go.sum
++++ b/go.sum
+@@ -1,12 +1,30 @@
++cloud.google.com/go/compute/metadata v0.10.0 h1:pyKMUQSwchgkIBBJGdILqQbs/BNJXqwSA7Ej6LAvvtY=
++cloud.google.com/go/compute/metadata v0.10.0/go.mod h1:rGFHRrIif570kSibjFTMbt6/4/tzgJWFGI/HVol4GIk=
++github.com/golang/protobuf v1.5.4 h1:i7eJL8qZTpSEXOPTxNKhASYpMn+8e5Q6AdndVa1dWek=
++github.com/golang/protobuf v1.5.4/go.mod h1:lnTiLA8Wa4RWRcIUkrtSVa5nRhsEGBg48fD6rSs7xps=
++github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
++github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
+ github.com/vishvananda/netlink v1.3.1 h1:3AEMt62VKqz90r0tmNhog0r/PpWKmrEShJU0wJW6bV0=
+ github.com/vishvananda/netlink v1.3.1/go.mod h1:ARtKouGSTGchR8aMwmkzC0qiNPrrWO5JS/XMVl45+b4=
+ github.com/vishvananda/netns v0.0.5 h1:DfiHV+j8bA32MFM7bfEunvT8IAqQ/NzSJHtcmW5zdEY=
+ github.com/vishvananda/netns v0.0.5/go.mod h1:SpkAiCQRtJ6TvvxPnOSyH3BMl6unz3xZlaprSwhNNJM=
+ golang.org/x/net v0.59.0 h1:5zfYln+w5XCxwrnMMJPufRgNoXEaGxl0wo5GqPXyues=
+ golang.org/x/net v0.59.0/go.mod h1:2DA/G1UfVbCpQPeWTmMPGY7Cs2PkBkwu743bVX5PIVg=
++golang.org/x/oauth2 v0.37.0 h1:JUlcxA8oAtauLfiH8FX2/FkAWHAdi0QtGCGc+hofE98=
++golang.org/x/oauth2 v0.37.0/go.mod h1:IxwZNxUULJmpBFf9K/9NTMSIfZZuvuTy1gGxhigP/58=
+ golang.org/x/sys v0.2.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.10.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.48.0 h1:bbX/i/6MgT9BVLM9RT1thmxL04yeTAhbEz4SyadbXoo=
+ golang.org/x/sys v0.48.0/go.mod h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=
++golang.org/x/text v0.42.0 h1:JbOZXgfeCPU9gacVtYliJqOhD+zhrEqK4LfdpmlUZqI=
++golang.org/x/text v0.42.0/go.mod h1:ojzP1Z+2QtioaF8DTtO8K5q7JWVVYwZKenzujK0Zd0E=
++gonum.org/v1/gonum v0.17.0 h1:VbpOemQlsSMrYmn7T2OUvQ4dqxQXU+ouZFQsZOx50z4=
++gonum.org/v1/gonum v0.17.0/go.mod h1:El3tOrEuMpv2UdMrbNlKEh9vd86bmQ6vqIcDwxEOc1E=
++google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 h1:qEHAMpSaUhtD0p3NbEEI83HwNGFxEwaSJ1G9PLnCBZE=
++google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800/go.mod h1:4Hqkh8ycfw05ld/3BWL7rJOSfebL2Q+DVDeRgYgxUU8=
++google.golang.org/grpc v1.84.0 h1:soMyaPJ8pAak5PIQ0DGBUir0XRo2fRoMqhNWMLlLxO0=
++google.golang.org/grpc v1.84.0/go.mod h1:ljCht0DrxQrXBDRTZp52Qxh3Ffk8CdYm2sj4O2QN2C0=
++google.golang.org/protobuf v1.36.11 h1:fV6ZwhNocDyBLK0dj+fg8ektcVegBBuEolpbTQyBNVE=
++google.golang.org/protobuf v1.36.11/go.mod h1:HTf+CrKn2C3g5S8VImy6tdcUvCska2kB7j23XfzDpco=
+ pgregory.net/rapid v1.3.0 h1:vBvO0VSqti75J1jjYqpgPNBLKMd1+gxa9fYo7vk/Exc=
+ pgregory.net/rapid v1.3.0/go.mod h1:dPlE4OBBxgXPqkP79flB6sJL1dx5azpI7HQ9MY9Z7uk=
+diff --git a/internal/intercept/ca.go b/internal/intercept/ca.go
+index b82e4ed..cbf0a2b 100644
+--- a/internal/intercept/ca.go
++++ b/internal/intercept/ca.go
+@@ -204,6 +204,16 @@ func constrainedNames(hosts []string) ([]string, error) {
+ 	names := make([]string, 0, len(hosts))
+ 	for _, h := range hosts {
+ 		n := strings.TrimSuffix(strings.ToLower(h), ".")
++		if strings.HasPrefix(n, "*.") {
++			// SPIKE: a wildcard route is a leading-dot constraint, which Go
++			// and OpenSSL both read as the names below it and not the name;
++			// or, with WildcardLeadingDot off, the bare suffix, which RFC
++			// 5280 reads as the name and every name below it.
++			n = n[1:]
++			if !WildcardLeadingDot {
++				n = n[1:]
++			}
++		}
+ 		if n == "" || strings.ContainsAny(n, "*:[]/ ") {
+ 			return nil, fmt.Errorf("intercept: %q is not a host name to constrain the CA to", h)
+ 		}
+@@ -252,7 +262,20 @@ func (ca *CA) Hosts() []string { return slices.Clone(ca.cert.PermittedDNSDomains
+ // Permits reports whether host is one of the names the CA was made for. A
+ // leaf for any other host is one every client rejects.
+ func (ca *CA) Permits(host string) bool {
+-	return slices.Contains(ca.cert.PermittedDNSDomains, normaliseHost(host))
++	h := normaliseHost(host)
++	if strings.HasPrefix(h, "*.") {
++		return slices.Contains(ca.cert.PermittedDNSDomains, h[1:]) || slices.Contains(ca.cert.PermittedDNSDomains, h[2:])
++	}
++	if slices.Contains(ca.cert.PermittedDNSDomains, h) {
++		return true
++	}
++	// SPIKE: a name below a wildcard route's ".suffix".
++	for _, c := range ca.cert.PermittedDNSDomains {
++		if strings.HasPrefix(c, ".") && strings.HasSuffix(h, c) || strings.HasSuffix(h, "."+c) {
++			return true
++		}
++	}
++	return false
+ }
+ 
+ // SetCacheSize changes the bound on minted leaves held.
+@@ -352,3 +375,6 @@ func serial() *big.Int {
+ 	}
+ 	return n.Add(n, big.NewInt(1))
+ }
++
++// WildcardLeadingDot is how a wildcard route is constrained. SPIKE.
++var WildcardLeadingDot = false
+diff --git a/internal/intercept/grpc_spike_test.go b/internal/intercept/grpc_spike_test.go
+new file mode 100644
+index 0000000..0e9d498
+--- /dev/null
++++ b/internal/intercept/grpc_spike_test.go
+@@ -0,0 +1,395 @@
++package intercept
++
++import (
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"errors"
++	"fmt"
++	"io"
++	"log/slog"
++	"net"
++	"net/http"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/danielbodart/frisket/internal/credential"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/credentials"
++	"google.golang.org/grpc/metadata"
++	"google.golang.org/grpc/status"
++	"google.golang.org/protobuf/types/known/wrapperspb"
++)
++
++// SPIKE: does a gRPC call survive the intercept path?
++
++const upstreamName = "upstream.test"
++
++type echoServer interface{}
++
++type seen struct {
++	mu   sync.Mutex
++	auth []string
++	te   []string
++}
++
++func (s *seen) add(auth, te string) {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	s.auth = append(s.auth, auth)
++	if te != "" {
++		s.te = append(s.te, te)
++	}
++}
++
++func authOf(ctx context.Context) string {
++	md, _ := metadata.FromIncomingContext(ctx)
++	return strings.Join(md.Get("authorization"), ",")
++}
++
++func echoDesc(s *seen) *grpc.ServiceDesc {
++	return &grpc.ServiceDesc{
++		ServiceName: "spike.Echo",
++		HandlerType: (*echoServer)(nil),
++		Methods: []grpc.MethodDesc{{
++			MethodName: "Say",
++			Handler: func(_ any, ctx context.Context, dec func(any) error, _ grpc.UnaryServerInterceptor) (any, error) {
++				in := new(wrapperspb.BytesValue)
++				if err := dec(in); err != nil {
++					return nil, err
++				}
++				s.add(authOf(ctx), "")
++				if string(in.Value) == "fail" {
++					// A trailers-only response: grpc-status in the one HEADERS frame.
++					return nil, status.Error(codes.PermissionDenied, "no, said upstream")
++				}
++				_ = grpc.SetTrailer(ctx, metadata.Pairs("x-upstream-trailer", "t1"))
++				return wrapperspb.Bytes(append([]byte("echo:"), in.Value...)), nil
++			},
++		}},
++		Streams: []grpc.StreamDesc{{
++			StreamName:    "Chat",
++			ServerStreams: true,
++			ClientStreams: true,
++			Handler: func(_ any, st grpc.ServerStream) error {
++				s.add(authOf(st.Context()), "")
++				n := 0
++				for {
++					in := new(wrapperspb.BytesValue)
++					err := st.RecvMsg(in)
++					if errors.Is(err, io.EOF) {
++						st.SetTrailer(metadata.Pairs("x-upstream-trailer", fmt.Sprint(n)))
++						return status.Error(codes.FailedPrecondition, fmt.Sprintf("done after %d", n))
++					}
++					if err != nil {
++						return err
++					}
++					n++
++					if strings.HasPrefix(string(in.Value), "sleep") {
++						time.Sleep(300 * time.Millisecond)
++					}
++					if err := st.SendMsg(wrapperspb.Bytes(in.Value)); err != nil {
++						return err
++					}
++				}
++			},
++		}},
++	}
++}
++
++// grpcUpstream is a real gRPC server on TLS as upstream.test, with a CA the
++// sandbox never sees. native: grpc-go's own HTTP/2 transport; otherwise
++// grpc.Server.ServeHTTP behind net/http, which lets the test see TE.
++func grpcUpstream(t *testing.T, native bool) (addr string, pool *x509.CertPool, s *seen) {
++	t.Helper()
++	ca, err := NewCA([]string{upstreamName})
++	if err != nil {
++		t.Fatal(err)
++	}
++	leaf, err := ca.Leaf(upstreamName)
++	if err != nil {
++		t.Fatal(err)
++	}
++	pool = x509.NewCertPool()
++	pool.AddCert(ca.Certificate())
++	s = &seen{}
++	gs := grpc.NewServer(grpc.MaxRecvMsgSize(64<<20), grpc.MaxSendMsgSize(64<<20))
++	gs.RegisterService(echoDesc(s), nil)
++	ln, err := net.Listen("tcp4", "127.0.0.1:0")
++	if err != nil {
++		t.Skip(err)
++	}
++	tc := &tls.Config{Certificates: []tls.Certificate{*leaf}, NextProtos: []string{"h2"}}
++	if native {
++		go func() { _ = gs.Serve(tls.NewListener(ln, tc)) }()
++		t.Cleanup(gs.Stop)
++	} else {
++		var p http.Protocols
++		p.SetHTTP2(true)
++		hs := &http.Server{Protocols: &p, TLSConfig: tc, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++			s.add("", r.Header.Get("Te"))
++			gs.ServeHTTP(w, r)
++		})}
++		go func() { _ = hs.ServeTLS(ln, "", "") }()
++		t.Cleanup(func() { _ = hs.Close() })
++	}
++	return ln.Addr().String(), pool, s
++}
++
++func grpcFixture(t *testing.T, native bool) (*grpc.ClientConn, *seen, *journal) {
++	t.Helper()
++	addr, pool, s := grpcUpstream(t, native)
++	_, port, _ := net.SplitHostPort(addr)
++	j := &journal{}
++	cred, _ := tokenFile(t, j, realToken+"\n")
++	rt := Route{
++		Name:        "gcp",
++		Host:        apiHost,
++		Upstream:    "https://" + upstreamName + ":" + port,
++		UpstreamCAs: pool,
++		Credential:  cred,
++		Inject:      Bearer(),
++		Placeholder: placeholder,
++		Scope:       Scope{Paths: []PathRule{{Methods: []string{"POST"}, Prefix: "/spike.Echo/"}}},
++	}
++	ca, err := NewCA([]string{apiHost})
++	if err != nil {
++		t.Fatal(err)
++	}
++	ic, err := New(Config{
++		Routes: []Route{rt},
++		Log:    slog.New(slog.NewJSONHandler(j, nil)),
++		Policy: "p",
++		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
++			return (&net.Dialer{}).DialContext(ctx, network, addr)
++		},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = ic.Close() })
++	faddr := listen(t, j, "sess", ic.For(ca, "/w"))
++	roots := x509.NewCertPool()
++	roots.AddCert(ca.Certificate())
++	cc, err := grpc.NewClient("passthrough:///"+apiHost+":443",
++		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{RootCAs: roots, ServerName: apiHost})),
++		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
++			return (&net.Dialer{}).DialContext(ctx, "tcp", faddr)
++		}),
++		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<20), grpc.MaxCallSendMsgSize(64<<20)),
++	)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = cc.Close() })
++	return cc, s, j
++}
++
++func withPlaceholder(ctx context.Context) context.Context {
++	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+placeholder)
++}
++
++func bothUpstreams(t *testing.T, fn func(t *testing.T, native bool)) {
++	t.Run("native", func(t *testing.T) { fn(t, true) })
++	t.Run("servehttp", func(t *testing.T) { fn(t, false) })
++}
++
++func TestSpikeGRPCUnary(t *testing.T) {
++	bothUpstreams(t, func(t *testing.T, native bool) {
++		cc, s, j := grpcFixture(t, native)
++		ctx, cancel := context.WithTimeout(withPlaceholder(context.Background()), 10*time.Second)
++		defer cancel()
++
++		out := new(wrapperspb.BytesValue)
++		var trailer, header metadata.MD
++		err := cc.Invoke(ctx, "/spike.Echo/Say", wrapperspb.Bytes([]byte("hi")), out, grpc.Trailer(&trailer), grpc.Header(&header))
++		if err != nil {
++			t.Fatalf("unary: %v", err)
++		}
++		if string(out.Value) != "echo:hi" {
++			t.Fatalf("got %q", out.Value)
++		}
++		if got := trailer.Get("x-upstream-trailer"); len(got) != 1 || got[0] != "t1" {
++			t.Fatalf("trailer lost: %v", trailer)
++		}
++
++		err = cc.Invoke(ctx, "/spike.Echo/Say", wrapperspb.Bytes([]byte("fail")), out)
++		if st, _ := status.FromError(err); st.Code() != codes.PermissionDenied || st.Message() != "no, said upstream" {
++			t.Fatalf("trailers-only status lost: %v", err)
++		}
++
++		// 8 MiB each way: far past HTTP/2's 64 KiB initial window on both hops.
++		big := make([]byte, 8<<20)
++		for i := range big {
++			big[i] = byte(i)
++		}
++		if err := cc.Invoke(ctx, "/spike.Echo/Say", wrapperspb.Bytes(big), out); err != nil {
++			t.Fatalf("8 MiB unary: %v", err)
++		}
++		if len(out.Value) != len(big)+5 {
++			t.Fatalf("8 MiB came back as %d", len(out.Value))
++		}
++
++		s.mu.Lock()
++		defer s.mu.Unlock()
++		for _, a := range s.auth {
++			if a != "" && a != "Bearer "+realToken {
++				t.Fatalf("upstream saw authorization %q", a)
++			}
++		}
++		if !native {
++			for _, te := range s.te {
++				if te != "trailers" {
++					t.Fatalf("upstream saw TE %q", te)
++				}
++			}
++			if len(s.te) == 0 {
++				t.Fatal("upstream saw no TE")
++			}
++		}
++		t.Logf("auth seen upstream: %q te: %q", s.auth, s.te)
++		lines := j.waitLines(t, "request", 3)
++		for _, l := range lines {
++			t.Logf("log: proto=%v status=%v credential=%v path=%v", l["proto"], l["status"], l["credential"], l["path"])
++		}
++	})
++}
++
++func TestSpikeGRPCBidiStream(t *testing.T) {
++	bothUpstreams(t, func(t *testing.T, native bool) {
++		old := idleTimeout
++		idleTimeout = 500 * time.Millisecond
++		t.Cleanup(func() { idleTimeout = old })
++
++		cc, s, _ := grpcFixture(t, native)
++		ctx, cancel := context.WithTimeout(withPlaceholder(context.Background()), 20*time.Second)
++		defer cancel()
++		st, err := cc.NewStream(ctx, &grpc.StreamDesc{ServerStreams: true, ClientStreams: true}, "/spike.Echo/Chat")
++		if err != nil {
++			t.Fatal(err)
++		}
++		// Ping-pong: each reply must arrive before the next message is sent,
++		// so nothing on the path may buffer a stream in either direction.
++		// The sleeps take the stream past the (shrunk) idle timeout.
++		for i := range 6 {
++			msg := fmt.Sprintf("m%d", i)
++			if i%2 == 1 {
++				msg = "sleep" + msg
++			}
++			if i == 3 {
++				// Idle on an open stream for three idle timeouts.
++				time.Sleep(1500 * time.Millisecond)
++			}
++			start := time.Now()
++			if err := st.SendMsg(wrapperspb.Bytes([]byte(msg))); err != nil {
++				t.Fatalf("send %d: %v", i, err)
++			}
++			in := new(wrapperspb.BytesValue)
++			if err := st.RecvMsg(in); err != nil {
++				t.Fatalf("recv %d: %v", i, err)
++			}
++			if string(in.Value) != msg {
++				t.Fatalf("recv %d: %q", i, in.Value)
++			}
++			t.Logf("round trip %d: %v", i, time.Since(start))
++		}
++		if err := st.CloseSend(); err != nil {
++			t.Fatal(err)
++		}
++		err = st.RecvMsg(new(wrapperspb.BytesValue))
++		sts, _ := status.FromError(err)
++		if sts.Code() != codes.FailedPrecondition || sts.Message() != "done after 6" {
++			t.Fatalf("stream status lost: %v", err)
++		}
++		if got := st.Trailer().Get("x-upstream-trailer"); len(got) != 1 || got[0] != "6" {
++			t.Fatalf("stream trailer lost: %v", st.Trailer())
++		}
++		s.mu.Lock()
++		defer s.mu.Unlock()
++		for _, a := range s.auth {
++			if a != "" && a != "Bearer "+realToken {
++				t.Fatalf("upstream saw authorization %q", a)
++			}
++		}
++		t.Logf("auth seen upstream: %q te: %q", s.auth, s.te)
++	})
++}
++
++// A client cancelling a stream mid-flight must reach the upstream as a cancel.
++func TestSpikeGRPCCancelReachesUpstream(t *testing.T) {
++	cc, _, _ := grpcFixture(t, true)
++	ctx, cancel := context.WithCancel(withPlaceholder(context.Background()))
++	st, err := cc.NewStream(ctx, &grpc.StreamDesc{ServerStreams: true, ClientStreams: true}, "/spike.Echo/Chat")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := st.SendMsg(wrapperspb.Bytes([]byte("a"))); err != nil {
++		t.Fatal(err)
++	}
++	if err := st.RecvMsg(new(wrapperspb.BytesValue)); err != nil {
++		t.Fatal(err)
++	}
++	cancel()
++	err = st.RecvMsg(new(wrapperspb.BytesValue))
++	if status.Code(err) != codes.Canceled {
++		t.Fatalf("got %v", err)
++	}
++}
++
++// What a gRPC client makes of frisket's own refusals: out of scope (403) and
++// a stale credential (503), neither carrying grpc-status.
++func TestSpikeGRPCRefusals(t *testing.T) {
++	cc, _, _ := grpcFixture(t, true)
++	ctx, cancel := context.WithTimeout(withPlaceholder(context.Background()), 10*time.Second)
++	defer cancel()
++	err := cc.Invoke(ctx, "/other.Svc/Do", wrapperspb.Bytes(nil), new(wrapperspb.BytesValue))
++	t.Logf("out of scope: code=%v err=%v", status.Code(err), err)
++	if status.Code(err) != codes.PermissionDenied {
++		t.Fatalf("got %v", err)
++	}
++}
++
++func TestSpikeGRPCStaleCredential(t *testing.T) {
++	addr, pool, _ := grpcUpstream(t, true)
++	_, port, _ := net.SplitHostPort(addr)
++	j := &journal{}
++	rt := Route{
++		Name: "gcp", Host: apiHost, Upstream: "https://" + upstreamName + ":" + port, UpstreamCAs: pool,
++		Credential: staleSource{}, Inject: Bearer(), Placeholder: placeholder,
++		Scope: Scope{Paths: []PathRule{{Methods: []string{"POST"}, Prefix: "/spike.Echo/"}}},
++	}
++	ca, _ := NewCA([]string{apiHost})
++	ic, err := New(Config{Routes: []Route{rt}, Log: slog.New(slog.NewJSONHandler(j, nil)), Policy: "p",
++		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
++			return (&net.Dialer{}).DialContext(ctx, network, addr)
++		}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = ic.Close() })
++	faddr := listen(t, j, "sess", ic.For(ca, "/w"))
++	roots := x509.NewCertPool()
++	roots.AddCert(ca.Certificate())
++	cc, _ := grpc.NewClient("passthrough:///"+apiHost+":443",
++		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{RootCAs: roots, ServerName: apiHost})),
++		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
++			return (&net.Dialer{}).DialContext(ctx, "tcp", faddr)
++		}))
++	t.Cleanup(func() { _ = cc.Close() })
++	ctx, cancel := context.WithTimeout(withPlaceholder(context.Background()), 10*time.Second)
++	defer cancel()
++	err = cc.Invoke(ctx, "/spike.Echo/Say", wrapperspb.Bytes(nil), new(wrapperspb.BytesValue))
++	t.Logf("stale: code=%v err=%v", status.Code(err), err)
++	if status.Code(err) != codes.Unavailable {
++		t.Fatalf("got %v", err)
++	}
++}
++
++type staleSource struct{}
++
++func (staleSource) Get() (credential.Secret, error) {
++	return credential.Secret{Value: "x", Expires: time.Unix(1, 0)}, nil
++}
+diff --git a/internal/intercept/intercept.go b/internal/intercept/intercept.go
+index a9e940d..42da5d1 100644
+--- a/internal/intercept/intercept.go
++++ b/internal/intercept/intercept.go
+@@ -67,6 +67,7 @@ const (
+ 	CredentialInjected = "injected" // the placeholder, replaced with the real credential
+ 	CredentialPassed   = "passed"   // the client's own, sent on untouched
+ 	CredentialNone     = "none"     // there was none
++	CredentialAnswered = "answered" // answered by frisket, never sent upstream
+ )
+ 
+ // Refusal reasons that are not the scope's.
+@@ -187,7 +188,10 @@ type Interceptor struct {
+ 
+ type route struct {
+ 	Route
+-	host     string
++	host string
++	// wild is a "*.suffix" route: host is ".suffix", every name below it is
++	// served, and the upstream is the name the client asked for.
++	wild     bool
+ 	upstream *url.URL
+ 	scope    *compiled
+ 	refusal  *refusalShape
+@@ -228,6 +232,10 @@ func New(cfg Config) (*Interceptor, error) {
+ 			return nil, fmt.Errorf("intercept: %w", err)
+ 		}
+ 		host := normaliseHost(r.Host)
++		wild := strings.HasPrefix(host, "*.")
++		if wild {
++			host = host[1:]
++		}
+ 		if _, dup := i.routes[host]; dup {
+ 			return nil, fmt.Errorf("intercept: two routes for %s", host)
+ 		}
+@@ -239,7 +247,7 @@ func New(cfg Config) (*Interceptor, error) {
+ 		if err != nil {
+ 			return nil, fmt.Errorf("intercept: route %s: %w", r.Name, err)
+ 		}
+-		rt := &route{Route: r, host: host, upstream: up, scope: sc, refusal: rf}
++		rt := &route{Route: r, host: host, wild: wild, upstream: up, scope: sc, refusal: rf}
+ 		rt.tr = upstreamTransport(r, up, dial)
+ 		rt.proxy = &httputil.ReverseProxy{
+ 			Rewrite:        rt.rewrite,
+@@ -301,7 +309,7 @@ func upstreamTransport(r Route, up *url.URL, dial func(context.Context, string,
+ 		DialContext: dial,
+ 		TLSClientConfig: &tls.Config{
+ 			RootCAs:    r.UpstreamCAs,
+-			ServerName: up.Hostname(),
++			ServerName: upstreamServerName(r, up),
+ 			MinVersion: tls.VersionTLS12,
+ 		},
+ 		TLSHandshakeTimeout: 15 * time.Second,
+@@ -320,6 +328,16 @@ func upstreamTransport(r Route, up *url.URL, dial func(context.Context, string,
+ 	}
+ }
+ 
++// upstreamServerName is the name the upstream is verified as: the route's
++// upstream, or for a wildcard route none, so that the Transport verifies
++// each request's own host.
++func upstreamServerName(r Route, up *url.URL) string {
++	if strings.HasPrefix(r.Host, "*.") {
++		return ""
++	}
++	return up.Hostname()
++}
++
+ // Close stops the server, closes every connection it holds and waits for its
+ // accept loop to end.
+ func (i *Interceptor) Close() error {
+@@ -338,7 +356,10 @@ func (i *Interceptor) Close() error {
+ // Hosts is the routes' hosts: what a session's CA is constrained to.
+ func (i *Interceptor) Hosts() []string {
+ 	out := make([]string, 0, len(i.routes))
+-	for h := range i.routes {
++	for h, r := range i.routes {
++		if r.wild {
++			h = "*" + h
++		}
+ 		out = append(out, h)
+ 	}
+ 	return out
+@@ -377,7 +398,8 @@ func (i *Interceptor) serveConn(ctx context.Context, c *steer.Conn, ca *CA, work
+ 	}
+ 	// The route is fixed by the handshake, for the life of the connection:
+ 	// getCertificate refused any name without one, so this cannot miss.
+-	ic.route = i.routes[normaliseHost(tc.ConnectionState().ServerName)]
++	ic.sni = normaliseHost(tc.ConnectionState().ServerName)
++	ic.route = i.lookup(ic.sni)
+ 	if ic.route == nil {
+ 		return
+ 	}
+@@ -394,8 +416,24 @@ func (i *Interceptor) serveConn(ctx context.Context, c *steer.Conn, ca *CA, work
+ 	// handshake and asked nothing would otherwise leave no line at all.
+ 	if ic.requests.Load() == 0 {
+ 		i.log.Info("tls", "session", ic.session, "conn", ic.id, "dst", ic.dst.String(),
+-			"sni", ic.route.host, "decision", DecisionAllowed, "requests", 0)
++			"sni", ic.sni, "decision", DecisionAllowed, "requests", 0)
++	}
++}
++
++// lookup is the route serving name: its own, or the nearest "*.suffix" above
++// it. SPIKE.
++func (i *Interceptor) lookup(name string) *route {
++	if r, ok := i.routes[name]; ok && !r.wild {
++		return r
++	}
++	for j := 0; j < len(name); j++ {
++		if name[j] == '.' {
++			if r, ok := i.routes[name[j:]]; ok && r.wild {
++				return r
++			}
++		}
+ 	}
++	return nil
+ }
+ 
+ // getCertificate mints for a route's name and refuses anything else.
+@@ -408,7 +446,7 @@ func (i *Interceptor) getCertificate(hello *tls.ClientHelloInfo) (*tls.Certifica
+ 	if name == "" {
+ 		return nil, &refusal{reason: ReasonNoSNI}
+ 	}
+-	if _, ok := i.routes[name]; !ok {
++	if i.lookup(name) == nil {
+ 		return nil, &refusal{name: name, reason: ReasonUnknownName}
+ 	}
+ 	// The connection the handshake is on is the session's, and so is the CA
+@@ -497,7 +535,7 @@ func (i *Interceptor) serveHTTP(w http.ResponseWriter, r *http.Request) {
+ 		}
+ 	}()
+ 
+-	if normaliseHost(r.Host) != rt.host {
++	if normaliseHost(r.Host) != ic.sni {
+ 		// One connection, one name: the handshake chose the route and its
+ 		// credential. A request for another name on it -- HTTP/2 connection
+ 		// reuse, or a deliberate mismatch -- is sent back to be asked again.
+@@ -548,6 +586,11 @@ func (i *Interceptor) serveHTTP(w http.ResponseWriter, r *http.Request) {
+ 		rec.rule = v.Reason
+ 	}
+ 
++	if rt.Answer != nil {
++		rec.credential = CredentialAnswered
++		rt.Answer.ServeHTTP(lw, r)
++		return
++	}
+ 	if !rt.carries(r.Header) {
+ 		// Not the placeholder, so not frisket's to touch: the client's own
+ 		// credential, or none, goes upstream as it was sent. Nor does it need
+@@ -601,7 +644,7 @@ func (i *Interceptor) ask(r *http.Request, ic *interceptedConn, v Verdict) strin
+ 		Policy:     i.policy,
+ 		Route:      ic.route.Name,
+ 		Method:     r.Method,
+-		Host:       ic.route.host,
++		Host:       ic.sni,
+ 		Path:       r.URL.EscapedPath(),
+ 		Query:      r.URL.RawQuery,
+ 		Operation:  v.Operation,
+@@ -650,6 +693,20 @@ func (i *Interceptor) ask(r *http.Request, ic *interceptedConn, v Verdict) strin
+ // rewrite is the only place a credential is put on a request.
+ func (rt *route) rewrite(pr *httputil.ProxyRequest) {
+ 	pr.SetURL(rt.upstream)
++	if rt.wild {
++		// SPIKE: the upstream is the name the client's handshake asked for,
++		// on the upstream's port. Only ever a name below the route's suffix.
++		ic, _ := pr.In.Context().Value(connKey{}).(*interceptedConn)
++		if ic == nil || !strings.HasSuffix(ic.sni, rt.host) {
++			pr.Out.URL = nil
++			return
++		}
++		host := ic.sni
++		if port := rt.upstream.Port(); port != "" {
++			host = net.JoinHostPort(host, port)
++		}
++		pr.Out.URL.Host = host
++	}
+ 	secret, inject := pr.In.Context().Value(secretKey{}).(string)
+ 	if !inject {
+ 		// No placeholder on the request: nothing of frisket's goes on it.
+@@ -720,7 +777,7 @@ func (i *Interceptor) logRequest(ic *interceptedConn, r *http.Request, rec *reco
+ 		"conn", ic.id,
+ 		"dst", ic.dst.String(),
+ 		"route", ic.route.Name,
+-		"host", ic.route.host,
++		"host", ic.sni,
+ 		"proto", r.Proto,
+ 		"method", r.Method,
+ 		"path", path,
+@@ -890,6 +947,7 @@ type interceptedConn struct {
+ 	id        uint64
+ 	dst       netip.AddrPort
+ 	ca        *CA
++	sni       string
+ 	route     *route
+ 	requests  atomic.Int64
+ 	done      chan struct{}
+diff --git a/internal/intercept/registry_spike_test.go b/internal/intercept/registry_spike_test.go
+new file mode 100644
+index 0000000..9ca9e8d
+--- /dev/null
++++ b/internal/intercept/registry_spike_test.go
+@@ -0,0 +1,116 @@
++package intercept
++
++import (
++	"context"
++	"crypto/tls"
++	"encoding/base64"
++	"encoding/json"
++	"io"
++	"log/slog"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync"
++	"testing"
++)
++
++// SPIKE: Artifact Registry's Docker flow on a basicUser route. docker (or
++// docker-credential-gcloud, user _dcgcloud_token) sends Basic with the
++// placeholder as the password to the realm; the registry hands back a
++// registry token, which the client then uses as Bearer.
++func TestSpikeArtifactRegistryBasic(t *testing.T) {
++	const sfx = "pkg.test"
++	uca, _ := NewCA([]string{"*." + sfx})
++	var mu sync.Mutex
++	var seen []string
++	up := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		a := r.Header.Get("Authorization")
++		if user, pass, ok := r.BasicAuth(); ok {
++			a = "Basic " + user + ":" + pass
++		}
++		mu.Lock()
++		seen = append(seen, r.URL.Path+" "+a)
++		mu.Unlock()
++		switch {
++		case r.URL.Path == "/v2/token":
++			if a != "Basic oauth2accesstoken:"+realToken {
++				w.WriteHeader(401)
++				return
++			}
++			_ = json.NewEncoder(w).Encode(map[string]any{"token": "registry-issued-token", "expires_in": 3600})
++		case a == "Bearer registry-issued-token":
++			_, _ = io.WriteString(w, `{"schemaVersion":2}`)
++		default:
++			w.Header().Set("WWW-Authenticate", `Bearer realm="https://`+r.Host+`/v2/token",service="`+r.Host+`",scope="repository:p/r/i:pull"`)
++			w.WriteHeader(401)
++		}
++	}))
++	up.TLS = &tls.Config{GetCertificate: func(h *tls.ClientHelloInfo) (*tls.Certificate, error) { return uca.Leaf(h.ServerName) }}
++	up.StartTLS()
++	t.Cleanup(up.Close)
++	pool := up.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
++	pool.AddCert(uca.Certificate())
++	_, port, _ := net.SplitHostPort(up.Listener.Addr().String())
++
++	j := &journal{}
++	cred, _ := tokenFile(t, j, realToken+"\n")
++	rt := Route{Name: "artifact-registry", Host: "*." + sfx, Upstream: "https://*." + sfx + ":" + port, UpstreamCAs: pool,
++		Credential: cred, Inject: BasicUser("oauth2accesstoken"), Placeholder: placeholder,
++		Scope: Scope{Paths: []PathRule{{Methods: []string{"GET", "HEAD"}, Prefix: "/v2/"}}}}
++	ic, err := New(Config{Routes: []Route{rt}, Log: slog.New(slog.NewJSONHandler(j, nil)), Policy: "p",
++		DialContext: func(ctx context.Context, n, _ string) (net.Conn, error) {
++			return (&net.Dialer{}).DialContext(ctx, n, up.Listener.Addr().String())
++		}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = ic.Close() })
++	ca, _ := NewCA(ic.Hosts())
++	f := &fixture{ca: ca, journal: j, ic: ic}
++	f.addr = listen(t, j, "sess", ic.For(ca, "/w"))
++	c := f.client(t, true)
++	host := "us-docker." + sfx
++
++	req, _ := http.NewRequest("GET", "https://"+host+"/v2/p/r/i/manifests/latest", nil)
++	res, _ := get(t, c, req)
++	chal := res.Header.Get("WWW-Authenticate")
++	t.Logf("anonymous: %d %s", res.StatusCode, chal)
++
++	for _, user := range []string{"oauth2accesstoken", "_dcgcloud_token"} {
++		req, _ = http.NewRequest("GET", "https://"+host+"/v2/token?scope=repository:p/r/i:pull&service="+host, nil)
++		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(user+":"+placeholder)))
++		res, body := get(t, c, req)
++		t.Logf("token as %s: %d %s", user, res.StatusCode, strings.TrimSpace(body))
++		if res.StatusCode != 200 {
++			t.Fatalf("token: %d", res.StatusCode)
++		}
++		var tr struct{ Token string }
++		_ = json.Unmarshal([]byte(body), &tr)
++		req, _ = http.NewRequest("GET", "https://"+host+"/v2/p/r/i/manifests/latest", nil)
++		req.Header.Set("Authorization", "Bearer "+tr.Token)
++		res, body = get(t, c, req)
++		t.Logf("manifest with registry token: %d %s", res.StatusCode, body)
++		if res.StatusCode != 200 {
++			t.Fatal(res.StatusCode)
++		}
++	}
++	// Basic on every request, the placeholder as password (what some clients,
++	// crane/ko with a static keychain, do): replaced each time.
++	req = newRequest(t, "GET", "https://"+host+"/v2/p/r/i/manifests/latest", nil)
++	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("oauth2accesstoken:"+placeholder)))
++	res, _ = get(t, c, req)
++	t.Logf("direct Basic: %d", res.StatusCode)
++
++	mu.Lock()
++	defer mu.Unlock()
++	for _, s := range seen {
++		t.Logf("upstream saw: %s", s)
++		if strings.Contains(s, placeholder) {
++			t.Fatalf("placeholder reached upstream: %s", s)
++		}
++	}
++	for _, l := range j.lines(t, "request") {
++		t.Logf("log: path=%v credential=%v status=%v", l["path"], l["credential"], l["status"])
++	}
++}
+diff --git a/internal/intercept/route.go b/internal/intercept/route.go
+index 341628d..f702499 100644
+--- a/internal/intercept/route.go
++++ b/internal/intercept/route.go
+@@ -46,6 +46,9 @@ type Route struct {
+ 	Scope Scope
+ 	// Refusal is the shape of a refusal on this route. Nil is plain text.
+ 	Refusal *Refusal
++	// Answer, if set, answers every request the scope admits, here: nothing
++	// is sent upstream and no credential is looked at. SPIKE.
++	Answer http.Handler
+ }
+ 
+ // Injector puts a credential on an outgoing request.
+@@ -118,6 +121,19 @@ func (r *Route) validate() (*url.URL, error) {
+ 		return nil, errors.New("route has no name")
+ 	}
+ 	host := normaliseHost(r.Host)
++	if strings.HasPrefix(host, "*.") {
++		// SPIKE: "*.suffix", every name below suffix. Its upstream names
++		// the same suffix, with any label in place of the "*": the request
++		// goes to the name the client asked for, never anywhere else.
++		if strings.Count(host, "*") != 1 || len(host) < 4 {
++			return nil, fmt.Errorf("route %s: host %q: a wildcard is \"*.\" and a name", r.Name, r.Host)
++		}
++		u, err := url.Parse(strings.Replace(r.Upstream, "*.", "x.", 1))
++		if err != nil || u.Scheme != "https" || !strings.HasSuffix(u.Hostname(), host[1:]) || u.Path != "" && u.Path != "/" {
++			return nil, fmt.Errorf("route %s: a wildcard route's upstream is https://%s[:port]", r.Name, host)
++		}
++		return r.validateCredential(u)
++	}
+ 	if host == "" || host != strings.ToLower(strings.TrimSuffix(r.Host, ".")) {
+ 		return nil, fmt.Errorf("route %s: host %q is not a bare name", r.Name, r.Host)
+ 	}
+@@ -128,6 +144,10 @@ func (r *Route) validate() (*url.URL, error) {
+ 	if u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+ 		return nil, fmt.Errorf("route %s: upstream %q must be https://host[:port][/path]", r.Name, r.Upstream)
+ 	}
++	return r.validateCredential(u)
++}
++
++func (r *Route) validateCredential(u *url.URL) (*url.URL, error) {
+ 	if r.Credential == nil {
+ 		// A placeholder here would go upstream as it came: a configuration
+ 		// that says something frisket would not do.
+diff --git a/internal/intercept/wildcard_spike_test.go b/internal/intercept/wildcard_spike_test.go
+new file mode 100644
+index 0000000..5353b49
+--- /dev/null
++++ b/internal/intercept/wildcard_spike_test.go
+@@ -0,0 +1,270 @@
++package intercept
++
++import (
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"encoding/pem"
++	"io"
++	"log/slog"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++)
++
++// SPIKE: one route for every name below a suffix.
++
++const gSuffix = "googleapis.test"
++
++// wildUpstream serves every name below gSuffix, minting per SNI from a CA of
++// its own, and records which host and credential each request arrived with.
++func wildUpstream(t *testing.T) (addr string, pool *x509.CertPool, got func() []string) {
++	t.Helper()
++	uca, err := NewCA([]string{"*." + gSuffix})
++	if err != nil {
++		t.Fatal(err)
++	}
++	var mu sync.Mutex
++	var seen []string
++	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		mu.Lock()
++		seen = append(seen, r.TLS.ServerName+" "+r.Host+" "+r.Header.Get("Authorization"))
++		mu.Unlock()
++		_, _ = io.WriteString(w, "hello from "+r.Host)
++	}))
++	srv.EnableHTTP2 = true
++	srv.TLS = &tls.Config{GetCertificate: func(h *tls.ClientHelloInfo) (*tls.Certificate, error) {
++		return uca.Leaf(h.ServerName)
++	}}
++	srv.StartTLS()
++	t.Cleanup(srv.Close)
++	pool = x509.NewCertPool()
++	pool.AddCert(uca.Certificate())
++	return srv.Listener.Addr().String(), pool, func() []string {
++		mu.Lock()
++		defer mu.Unlock()
++		return append([]string(nil), seen...)
++	}
++}
++
++func TestSpikeWildcardRoute(t *testing.T) {
++	protos(t, func(t *testing.T, h2 bool) {
++		addr, pool, seen := wildUpstream(t)
++		_, port, _ := net.SplitHostPort(addr)
++		j := &journal{}
++		cred, _ := tokenFile(t, j, realToken+"\n")
++		rt := Route{
++			Name:        "google",
++			Host:        "*." + gSuffix,
++			Upstream:    "https://*." + gSuffix + ":" + port,
++			UpstreamCAs: pool,
++			Credential:  cred,
++			Inject:      Bearer(),
++			Placeholder: placeholder,
++			Scope:       Scope{Paths: []PathRule{{Methods: []string{"GET"}, Prefix: "/"}}},
++		}
++		ca, err := NewCA([]string{rt.Host})
++		if err != nil {
++			t.Fatal(err)
++		}
++		t.Logf("CA constraint: %q", ca.Certificate().PermittedDNSDomains)
++		var dialled []string
++		var dmu sync.Mutex
++		ic, err := New(Config{
++			Routes: []Route{rt},
++			Log:    slog.New(slog.NewJSONHandler(j, nil)),
++			Policy: "p",
++			DialContext: func(ctx context.Context, network, a string) (net.Conn, error) {
++				dmu.Lock()
++				dialled = append(dialled, a)
++				dmu.Unlock()
++				return (&net.Dialer{}).DialContext(ctx, network, addr)
++			},
++		})
++		if err != nil {
++			t.Fatal(err)
++		}
++		t.Cleanup(func() { _ = ic.Close() })
++		f := &fixture{ca: ca, journal: j, ic: ic}
++		f.addr = listen(t, j, "sess", ic.For(ca, "/w"))
++		c := f.client(t, h2)
++
++		for _, host := range []string{"storage." + gSuffix, "us-central1-aiplatform." + gSuffix, "a.b." + gSuffix} {
++			res, body := get(t, c, newRequest(t, "GET", "https://"+host+"/v1/x", nil))
++			if res.StatusCode != 200 || body != "hello from "+host+":"+port {
++				t.Fatalf("%s: %d %q", host, res.StatusCode, body)
++			}
++			if res.TLS.PeerCertificates[0].Subject.CommonName != host {
++				t.Fatalf("%s: leaf for %q", host, res.TLS.PeerCertificates[0].Subject.CommonName)
++			}
++		}
++		for _, s := range seen() {
++			parts := strings.SplitN(s, " ", 3)
++			if parts[0]+":"+port != parts[1] || parts[2] != "Bearer "+realToken {
++				t.Fatalf("upstream saw %q", s)
++			}
++		}
++		t.Logf("upstream saw (sni host auth): %q", seen())
++		t.Logf("frisket dialled: %q", dialled)
++
++		// The suffix itself, a look-alike, and another name are refused at the
++		// handshake -- nothing minted, nothing dialled.
++		for _, host := range []string{gSuffix, "evil" + gSuffix, "example.test"} {
++			_, err := c.Do(newRequest(t, "GET", "https://"+host+"/", nil))
++			if err == nil {
++				t.Fatalf("%s: admitted", host)
++			}
++		}
++		for _, l := range j.lines(t, "tls") {
++			t.Logf("tls line: sni=%v reason=%v", l["sni"], l["reason"])
++		}
++	})
++}
++
++// With h2 the client pools connections by host, so each name got its own
++// connection above. A request for another name on a connection -- h2
++// coalescing, which Go does not do and browsers do -- is 421.
++func TestSpikeWildcardCrossHostOnOneConnIsMisdirected(t *testing.T) {
++	addr, pool, _ := wildUpstream(t)
++	_, port, _ := net.SplitHostPort(addr)
++	j := &journal{}
++	cred, _ := tokenFile(t, j, realToken+"\n")
++	rt := Route{Name: "google", Host: "*." + gSuffix, Upstream: "https://*." + gSuffix + ":" + port, UpstreamCAs: pool,
++		Credential: cred, Inject: Bearer(), Placeholder: placeholder,
++		Scope: Scope{Paths: []PathRule{{Methods: []string{"GET"}, Prefix: "/"}}}}
++	ca, _ := NewCA([]string{rt.Host})
++	ic, err := New(Config{Routes: []Route{rt}, Log: slog.New(slog.NewJSONHandler(j, nil)), Policy: "p",
++		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
++			return (&net.Dialer{}).DialContext(ctx, network, addr)
++		}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = ic.Close() })
++	faddr := listen(t, j, "sess", ic.For(ca, "/w"))
++	roots := x509.NewCertPool()
++	roots.AddCert(ca.Certificate())
++	tc, err := tls.Dial("tcp", faddr, &tls.Config{RootCAs: roots, ServerName: "a." + gSuffix, NextProtos: []string{"http/1.1"}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer tc.Close()
++	_, _ = io.WriteString(tc, "GET / HTTP/1.1\r\nHost: b."+gSuffix+"\r\nAuthorization: Bearer "+placeholder+"\r\n\r\n")
++	buf := make([]byte, 64)
++	n, _ := tc.Read(buf)
++	if !strings.HasPrefix(string(buf[:n]), "HTTP/1.1 421") {
++		t.Fatalf("got %q", buf[:n])
++	}
++}
++
++// The constraint, as Go's verifier reads it; and PEMs for other verifiers.
++func TestSpikeWildcardConstraintGo(t *testing.T) {
++	if os.Getenv("SPIKE_DOT") != "" {
++		WildcardLeadingDot = true
++		t.Cleanup(func() { WildcardLeadingDot = false })
++	}
++	ca, err := NewCA([]string{"*." + gSuffix, "api.example.test"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Logf("permitted: %q", ca.Certificate().PermittedDNSDomains)
++	roots := x509.NewCertPool()
++	roots.AddCert(ca.Certificate())
++	out := os.Getenv("SPIKE_PEM_DIR")
++	if out != "" {
++		_ = os.WriteFile(filepath.Join(out, "ca.pem"), ca.CertPEM(), 0o644)
++	}
++	cases := map[string]bool{
++		"storage." + gSuffix:                true,
++		"us-central1-aiplatform." + gSuffix: true,
++		"a.b." + gSuffix:                    true,
++		"*." + gSuffix:                      true, // a wildcard leaf
++		gSuffix:                             os.Getenv("SPIKE_DOT") == "",
++		"evil" + gSuffix:                    false,
++		"example.test":                      false,
++		"api.example.test":                  true,
++	}
++	for name, want := range cases {
++		// Mint directly: Leaf mints for whatever it is given.
++		cert, _, err := ca.mint(name, time.Now())
++		if err != nil {
++			t.Fatal(err)
++		}
++		leaf := cert.Leaf
++		_, verr := leaf.Verify(x509.VerifyOptions{Roots: roots})
++		if (verr == nil) != want {
++			t.Errorf("%s: Go verify err=%v, want ok=%v", name, verr, want)
++		}
++		// Hostname check separately, for the wildcard leaf.
++		if name == "*."+gSuffix {
++			if err := leaf.VerifyHostname("storage." + gSuffix); err != nil {
++				t.Errorf("wildcard leaf does not cover storage: %v", err)
++			}
++			if err := leaf.VerifyHostname("a.b." + gSuffix); err == nil {
++				t.Errorf("wildcard leaf covers two labels")
++			}
++		}
++		t.Logf("Go: %-40s verify ok=%v", name, verr == nil)
++		if out != "" {
++			fn := strings.ReplaceAll(name, "*", "STAR") + ".pem"
++			_ = os.WriteFile(filepath.Join(out, fn), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}), 0o644)
++		}
++	}
++}
++
++// Minting per SNI is the cost of a wildcard: names are the workload's to
++// invent. How much is one?
++func BenchmarkSpikeMint(b *testing.B) {
++	ca, err := NewCA([]string{"*." + gSuffix})
++	if err != nil {
++		b.Fatal(err)
++	}
++	now := time.Now()
++	for b.Loop() {
++		if _, _, err := ca.mint("x."+gSuffix, now); err != nil {
++			b.Fatal(err)
++		}
++	}
++}
++
++// A token-minting API under the suffix (iamcredentials generateAccessToken
++// returns a real token in its body) is shadowed by an exact route that holds
++// no credential and admits nothing: the exact name wins over the wildcard.
++func TestSpikeWildcardShadowedByExactRoute(t *testing.T) {
++	addr, pool, seen := wildUpstream(t)
++	_, port, _ := net.SplitHostPort(addr)
++	j := &journal{}
++	cred, _ := tokenFile(t, j, realToken+"\n")
++	routes := []Route{
++		{Name: "google", Host: "*." + gSuffix, Upstream: "https://*." + gSuffix + ":" + port, UpstreamCAs: pool,
++			Credential: cred, Inject: Bearer(), Placeholder: placeholder,
++			Scope: Scope{Paths: []PathRule{{Methods: []string{"GET", "POST"}, Prefix: "/"}}}},
++		{Name: "iamcredentials", Host: "iamcredentials." + gSuffix, Upstream: "https://iamcredentials." + gSuffix + ":" + port, UpstreamCAs: pool,
++			Scope: Scope{Paths: []PathRule{{Methods: []string{"GET", "POST"}, Prefix: "/", Refuse: true}}}},
++	}
++	ic, err := New(Config{Routes: routes, Log: slog.New(slog.NewJSONHandler(j, nil)), Policy: "p",
++		DialContext: func(ctx context.Context, n, _ string) (net.Conn, error) {
++			return (&net.Dialer{}).DialContext(ctx, n, addr)
++		}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = ic.Close() })
++	ca, _ := NewCA(ic.Hosts())
++	f := &fixture{ca: ca, journal: j, ic: ic}
++	f.addr = listen(t, j, "sess", ic.For(ca, "/w"))
++	c := f.client(t, true)
++	res, body := get(t, c, newRequest(t, "POST", "https://iamcredentials."+gSuffix+"/v1/projects/-/serviceAccounts/sa@p.iam.gserviceaccount.com:generateAccessToken", nil))
++	t.Logf("generateAccessToken: %d %q", res.StatusCode, body)
++	res2, _ := get(t, c, newRequest(t, "GET", "https://storage."+gSuffix+"/b", nil))
++	t.Logf("storage: %d; upstream saw %q", res2.StatusCode, seen())
++	if res.StatusCode != 403 || res2.StatusCode != 200 || len(seen()) != 1 {
++		t.Fatal("shadowing failed")
++	}
++}
+diff --git a/internal/metadata/metadata.go b/internal/metadata/metadata.go
+new file mode 100644
+index 0000000..80a1cbe
+--- /dev/null
++++ b/internal/metadata/metadata.go
+@@ -0,0 +1,248 @@
++// Package metadata is a GCE metadata server on frisket's service address,
++// port 80: what the Google client libraries and gcloud probe for credentials.
++// SPIKE.
++//
++// It hands out the route's placeholder as the access token. The real token
++// never leaves the daemon: the Google API route replaces the placeholder on
++// the wire, as it does for any other route.
++package metadata
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"log/slog"
++	"net"
++	"net/http"
++	"strings"
++	"sync"
++	"time"
++
++	"github.com/danielbodart/frisket/internal/credential"
++	"github.com/danielbodart/frisket/internal/steer"
++)
++
++// Port is where clients look: GCE_METADATA_HOST without a port is port 80.
++const Port = 80
++
++// Config is what the server says about the "instance".
++type Config struct {
++	ProjectID        string
++	NumericProjectID string
++	Email            string
++	UniverseDomain   string // "" is googleapis.com
++	Scopes           []string
++	// Placeholder is the access token handed out, which the route replaces.
++	Placeholder string
++	// Credential is the route's, read only for its expiry, so the token's
++	// expires_in tracks the real one's. Nil: a fixed hour.
++	Credential credential.Source
++	Log        *slog.Logger
++	Now        func() time.Time
++}
++
++// Server serves Config over plain HTTP, one steered connection at a time.
++type Server struct {
++	cfg  Config
++	srv  *http.Server
++	ln   *chanListener
++	once sync.Once
++}
++
++func New(cfg Config) *Server {
++	if cfg.UniverseDomain == "" {
++		cfg.UniverseDomain = "googleapis.com"
++	}
++	if cfg.Now == nil {
++		cfg.Now = time.Now
++	}
++	if len(cfg.Scopes) == 0 {
++		cfg.Scopes = []string{"https://www.googleapis.com/auth/cloud-platform"}
++	}
++	s := &Server{cfg: cfg, ln: &chanListener{ch: make(chan net.Conn), closed: make(chan struct{})}}
++	s.srv = &http.Server{Handler: s, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Minute}
++	go func() { _ = s.srv.Serve(s.ln) }()
++	return s
++}
++
++func (s *Server) Close() error {
++	s.once.Do(func() { close(s.ln.closed) })
++	return s.srv.Close()
++}
++
++var _ steer.Handler = (*Server)(nil)
++
++// ServeConn serves one steered connection until it closes.
++func (s *Server) ServeConn(ctx context.Context, c *steer.Conn) {
++	dc := &doneConn{Conn: c, done: make(chan struct{})}
++	select {
++	case s.ln.ch <- dc:
++	case <-s.ln.closed:
++		_ = c.Close()
++		return
++	case <-ctx.Done():
++		_ = c.Close()
++		return
++	}
++	select {
++	case <-dc.done:
++	case <-ctx.Done():
++		_ = dc.Close()
++	}
++}
++
++const prefix = "/computeMetadata/v1/"
++
++func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
++	w.Header().Set("Metadata-Flavor", "Google")
++	w.Header().Set("Server", "Metadata Server for VM")
++	status := s.serve(w, r)
++	if s.cfg.Log != nil {
++		s.cfg.Log.Info("metadata", "method", r.Method, "path", r.URL.Path, "status", status)
++	}
++}
++
++func (s *Server) serve(w http.ResponseWriter, r *http.Request) int {
++	// What GCE does: a request that came through a proxy is refused, which
++	// stops a server-side request forgery reading the token.
++	if r.Header.Get("X-Forwarded-For") != "" {
++		http.Error(w, "forbidden", http.StatusForbidden)
++		return http.StatusForbidden
++	}
++	if r.Method != http.MethodGet {
++		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
++		return http.StatusMethodNotAllowed
++	}
++	if r.URL.Path == "/" {
++		// The detection ping: python's google-auth checks only the response's
++		// Metadata-Flavor.
++		_, _ = w.Write([]byte("computeMetadata/\n"))
++		return http.StatusOK
++	}
++	if r.Header.Get("Metadata-Flavor") != "Google" {
++		http.Error(w, "Missing Metadata-Flavor:Google header.", http.StatusForbidden)
++		return http.StatusForbidden
++	}
++	p, ok := strings.CutPrefix(r.URL.Path, prefix)
++	if !ok {
++		http.NotFound(w, r)
++		return http.StatusNotFound
++	}
++	recursive := r.URL.Query().Get("recursive") == "true"
++	text := func(v string) int {
++		w.Header().Set("Content-Type", "application/text")
++		_, _ = w.Write([]byte(v))
++		return http.StatusOK
++	}
++	js := func(v any) int {
++		w.Header().Set("Content-Type", "application/json")
++		_ = json.NewEncoder(w).Encode(v)
++		return http.StatusOK
++	}
++	account := func(name string) (string, bool) {
++		switch name {
++		case "default", s.cfg.Email:
++			return s.cfg.Email, true
++		}
++		return "", false
++	}
++	switch {
++	case p == "project/project-id":
++		return text(s.cfg.ProjectID)
++	case p == "project/numeric-project-id":
++		return text(s.cfg.NumericProjectID)
++	case p == "universe/universe-domain":
++		return text(s.cfg.UniverseDomain)
++	case p == "instance/service-accounts" || p == "instance/service-accounts/":
++		if recursive {
++			sa := s.account()
++			return js(map[string]any{"default": sa, s.cfg.Email: sa})
++		}
++		return text("default/\n" + s.cfg.Email + "/\n")
++	case strings.HasPrefix(p, "instance/service-accounts/"):
++		rest := strings.TrimPrefix(p, "instance/service-accounts/")
++		name, leaf, _ := strings.Cut(rest, "/")
++		if _, ok := account(name); !ok {
++			http.NotFound(w, r)
++			return http.StatusNotFound
++		}
++		switch leaf {
++		case "":
++			if recursive {
++				return js(s.account())
++			}
++			return text("aliases\nemail\nidentity\nscopes\ntoken\n")
++		case "email":
++			return text(s.cfg.Email)
++		case "aliases":
++			return text("default\n")
++		case "scopes":
++			return text(strings.Join(s.cfg.Scopes, "\n") + "\n")
++		case "token":
++			// ?scopes= is accepted and ignored: the real token's scopes are
++			// the host's, and the route's rules are what bound its use.
++			return js(map[string]any{
++				"access_token": s.cfg.Placeholder,
++				"expires_in":   s.expiresIn(),
++				"token_type":   "Bearer",
++			})
++		case "identity":
++			// An ID token is a signed JWT for an audience: no placeholder can
++			// stand in for one without a route on the audience's host.
++			http.Error(w, "identity tokens are not served", http.StatusNotFound)
++			return http.StatusNotFound
++		}
++	}
++	http.NotFound(w, r)
++	return http.StatusNotFound
++}
++
++func (s *Server) account() map[string]any {
++	return map[string]any{"aliases": []string{"default"}, "email": s.cfg.Email, "scopes": s.cfg.Scopes}
++}
++
++// expiresIn follows the real token's expiry where the source knows it, so a
++// client asks again when the host's token turns over; the placeholder itself
++// never changes.
++func (s *Server) expiresIn() int {
++	const hour = 3599
++	if s.cfg.Credential == nil {
++		return hour
++	}
++	sec, err := s.cfg.Credential.Get()
++	if err != nil || sec.Expires.IsZero() {
++		return hour
++	}
++	n := int(sec.Expires.Sub(s.cfg.Now()).Seconds())
++	return max(0, min(n, hour))
++}
++
++func (c Config) String() string { return fmt.Sprintf("metadata{%s %s}", c.ProjectID, c.Email) }
++
++type doneConn struct {
++	net.Conn
++	done chan struct{}
++	once sync.Once
++}
++
++func (c *doneConn) Close() error {
++	var err error
++	c.once.Do(func() { err = c.Conn.Close(); close(c.done) })
++	return err
++}
++
++type chanListener struct {
++	ch     chan net.Conn
++	closed chan struct{}
++}
++
++func (l *chanListener) Accept() (net.Conn, error) {
++	select {
++	case c := <-l.ch:
++		return c, nil
++	case <-l.closed:
++		return nil, net.ErrClosed
++	}
++}
++func (l *chanListener) Close() error   { return nil }
++func (l *chanListener) Addr() net.Addr { return &net.TCPAddr{} }
+diff --git a/internal/metadata/metadata_test.go b/internal/metadata/metadata_test.go
+new file mode 100644
+index 0000000..69de533
+--- /dev/null
++++ b/internal/metadata/metadata_test.go
+@@ -0,0 +1,219 @@
++package metadata
++
++import (
++	"bytes"
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"encoding/json"
++	"io"
++	"log/slog"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"net/netip"
++	"os"
++	"path/filepath"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	gce "cloud.google.com/go/compute/metadata"
++
++	"github.com/danielbodart/frisket/internal/credential"
++	"github.com/danielbodart/frisket/internal/intercept"
++	"github.com/danielbodart/frisket/internal/serve"
++	"github.com/danielbodart/frisket/internal/steer"
++)
++
++const (
++	placeholder = "proxy-injected"
++	realToken   = "ya29.real-token"
++	suffix      = "googleapis.test"
++)
++
++var service = netip.MustParseAddr("192.0.2.2")
++
++type buf struct {
++	mu sync.Mutex
++	b  bytes.Buffer
++}
++
++func (b *buf) Write(p []byte) (int, error) { b.mu.Lock(); defer b.mu.Unlock(); return b.b.Write(p) }
++func (b *buf) String() string              { b.mu.Lock(); defer b.mu.Unlock(); return b.b.String() }
++
++// listenAs serves h on loopback as if every connection had been steered from
++// dst: what the kernel's TPROXY would say.
++func listenAs(t *testing.T, log io.Writer, dst netip.AddrPort, h steer.Handler) string {
++	t.Helper()
++	ln, err := net.Listen("tcp4", "127.0.0.1:0")
++	if err != nil {
++		t.Skip(err)
++	}
++	s := steer.New("sess", log)
++	s.Dst = func(*net.TCPConn) netip.AddrPort { return dst }
++	ctx, cancel := context.WithCancel(context.Background())
++	done := make(chan struct{})
++	t.Cleanup(func() { cancel(); <-done })
++	go func() { defer close(done); _ = s.Serve(ctx, ln, h) }()
++	return ln.Addr().String()
++}
++
++// The whole loop: a Google client finds the metadata server by
++// GCE_METADATA_HOST, is handed the placeholder, sends it to a Google API host,
++// and the upstream sees the real token -- which the sandbox never did.
++func TestSpikeMetadataThenAPI(t *testing.T) {
++	log := &buf{}
++	logger := slog.New(slog.NewJSONHandler(log, nil))
++
++	var mu sync.Mutex
++	var seen []string
++	uca, _ := intercept.NewCA([]string{"*." + suffix})
++	up := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		mu.Lock()
++		seen = append(seen, r.Host+" "+r.Header.Get("Authorization"))
++		mu.Unlock()
++		_, _ = io.WriteString(w, `{"items":[]}`)
++	}))
++	up.EnableHTTP2 = true
++	up.TLS = &tls.Config{GetCertificate: func(h *tls.ClientHelloInfo) (*tls.Certificate, error) { return uca.Leaf(h.ServerName) }}
++	up.StartTLS()
++	t.Cleanup(up.Close)
++	upPool := x509.NewCertPool()
++	upPool.AddCert(uca.Certificate())
++	_, upPort, _ := net.SplitHostPort(up.Listener.Addr().String())
++
++	dir := t.TempDir()
++	tokPath := filepath.Join(dir, "gcp.json")
++	exp := time.Now().Add(40 * time.Minute)
++	b, _ := json.Marshal(map[string]any{"access_token": realToken, "expires_ms": exp.UnixMilli()})
++	if err := os.WriteFile(tokPath, b, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	cred, err := credential.WatchFile(tokPath, credential.JSON{Token: "access_token", ExpiresMillis: "expires_ms"}.Extract, logger)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = cred.Close() })
++
++	ic, err := intercept.New(intercept.Config{
++		Routes: []intercept.Route{{
++			Name: "google", Host: "*." + suffix, Upstream: "https://*." + suffix + ":" + upPort,
++			UpstreamCAs: upPool, Credential: cred, Inject: intercept.Bearer(), Placeholder: placeholder,
++			Scope: intercept.Scope{Paths: []intercept.PathRule{{Methods: []string{"GET"}, Prefix: "/"}}},
++		}},
++		Log: logger, Policy: "p",
++		DialContext: func(ctx context.Context, n, _ string) (net.Conn, error) {
++			return (&net.Dialer{}).DialContext(ctx, n, up.Listener.Addr().String())
++		},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = ic.Close() })
++	ca, _ := intercept.NewCA(ic.Hosts())
++
++	md := New(Config{ProjectID: "my-project", NumericProjectID: "1234", Email: "agent@my-project.iam.gserviceaccount.com",
++		Placeholder: placeholder, Credential: cred, Log: logger})
++	t.Cleanup(func() { _ = md.Close() })
++
++	d := serve.Dispatch{Service: []netip.Addr{service}, Handlers: serve.Handlers{
++		Intercept: ic.For(ca, "/w"),
++		Metadata:  md,
++		Egress:    steer.HandlerFunc(func(_ context.Context, c *steer.Conn) { _ = c.Close(); t.Error("egress") }),
++	}}
++	addr80 := listenAs(t, log, netip.AddrPortFrom(service, 80), d)
++	addr443 := listenAs(t, log, netip.AddrPortFrom(service, 443), d)
++
++	// The sandbox's client: GCE_METADATA_HOST names the service address.
++	t.Setenv("GCE_METADATA_HOST", service.String())
++	mdc := gce.NewClient(&http.Client{Transport: &http.Transport{
++		DialContext: func(ctx context.Context, _, a string) (net.Conn, error) {
++			if a != service.String()+":80" {
++				t.Errorf("metadata client dialled %s", a)
++			}
++			return (&net.Dialer{}).DialContext(ctx, "tcp", addr80)
++		},
++	}})
++	ctx := context.Background()
++	if !mdc.OnGCEWithContext(ctx) {
++		t.Fatal("not on GCE")
++	}
++	pid, err := mdc.ProjectIDWithContext(ctx)
++	if err != nil || pid != "my-project" {
++		t.Fatalf("project: %q %v", pid, err)
++	}
++	email, err := mdc.EmailWithContext(ctx, "default")
++	if err != nil || email != "agent@my-project.iam.gserviceaccount.com" {
++		t.Fatalf("email: %q %v", email, err)
++	}
++	ud, err := mdc.GetWithContext(ctx, "universe/universe-domain")
++	if err != nil || ud != "googleapis.com" {
++		t.Fatalf("universe: %q %v", ud, err)
++	}
++	raw, err := mdc.GetWithContext(ctx, "instance/service-accounts/default/token?scopes=https://www.googleapis.com/auth/cloud-platform")
++	if err != nil {
++		t.Fatal(err)
++	}
++	var tok struct {
++		AccessToken string `json:"access_token"`
++		ExpiresIn   int    `json:"expires_in"`
++		TokenType   string `json:"token_type"`
++	}
++	if err := json.Unmarshal([]byte(raw), &tok); err != nil {
++		t.Fatal(err)
++	}
++	t.Logf("token response: %s", strings.TrimSpace(raw))
++	if tok.AccessToken != placeholder || tok.ExpiresIn < 2390 || tok.ExpiresIn > 2400 {
++		t.Fatalf("token: %+v", tok)
++	}
++
++	// Without the header, GCE's answer.
++	req, _ := http.NewRequest("GET", "http://"+service.String()+"/computeMetadata/v1/project/project-id", nil)
++	res, err := (&http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
++		return (&net.Dialer{}).DialContext(ctx, "tcp", addr80)
++	}}}).Do(req)
++	if err != nil {
++		t.Fatal(err)
++	}
++	res.Body.Close()
++	if res.StatusCode != 403 {
++		t.Fatalf("no flavor: %d", res.StatusCode)
++	}
++
++	// The API call, with what the metadata server handed out.
++	roots := x509.NewCertPool()
++	roots.AddCert(ca.Certificate())
++	api := &http.Client{Transport: &http.Transport{
++		TLSClientConfig: &tls.Config{RootCAs: roots},
++		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
++			return (&net.Dialer{}).DialContext(ctx, "tcp", addr443)
++		},
++		ForceAttemptHTTP2: true,
++	}}
++	for _, h := range []string{"storage." + suffix, "bigquery." + suffix} {
++		req, _ = http.NewRequest("GET", "https://"+h+"/v1/projects/my-project", nil)
++		req.Header.Set("Authorization", tok.TokenType+" "+tok.AccessToken)
++		res, err = api.Do(req)
++		if err != nil {
++			t.Fatal(err)
++		}
++		body, _ := io.ReadAll(res.Body)
++		res.Body.Close()
++		if res.StatusCode != 200 {
++			t.Fatalf("%s: %d %s", h, res.StatusCode, body)
++		}
++	}
++	mu.Lock()
++	defer mu.Unlock()
++	for _, s := range seen {
++		if !strings.HasSuffix(s, " Bearer "+realToken) {
++			t.Fatalf("upstream saw %q", s)
++		}
++	}
++	t.Logf("upstream saw: %q", seen)
++	if strings.Contains(log.String(), realToken) {
++		t.Fatal("the real token is in the log")
++	}
++}
+diff --git a/internal/metadata/token.go b/internal/metadata/token.go
+new file mode 100644
+index 0000000..8e18c5b
+--- /dev/null
++++ b/internal/metadata/token.go
+@@ -0,0 +1,34 @@
++package metadata
++
++import (
++	"encoding/json"
++	"net/http"
++)
++
++// TokenEndpoint answers oauth2.googleapis.com/token for a placeholder
++// authorized_user credential: a refresh-token grant carrying the placeholder
++// gets the placeholder back as the access token. Anything else is
++// invalid_grant, and nothing is ever sent to Google. SPIKE.
++func TokenEndpoint(placeholder string, expiresIn int) http.Handler {
++	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("Content-Type", "application/json; charset=utf-8")
++		w.Header().Set("Cache-Control", "no-store")
++		if r.Method != http.MethodPost || r.URL.Path != "/token" {
++			w.WriteHeader(http.StatusNotFound)
++			_ = json.NewEncoder(w).Encode(map[string]string{"error": "not_found"})
++			return
++		}
++		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
++		if err := r.ParseForm(); err != nil || r.PostForm.Get("grant_type") != "refresh_token" || r.PostForm.Get("refresh_token") != placeholder {
++			w.WriteHeader(http.StatusBadRequest)
++			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant", "error_description": "frisket answers only its placeholder"})
++			return
++		}
++		_ = json.NewEncoder(w).Encode(map[string]any{
++			"access_token": placeholder,
++			"expires_in":   expiresIn,
++			"token_type":   "Bearer",
++			"scope":        "https://www.googleapis.com/auth/cloud-platform",
++		})
++	})
++}
+diff --git a/internal/metadata/token_test.go b/internal/metadata/token_test.go
+new file mode 100644
+index 0000000..a557087
+--- /dev/null
++++ b/internal/metadata/token_test.go
+@@ -0,0 +1,180 @@
++package metadata
++
++import (
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"io"
++	"log/slog"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"net/netip"
++	"os"
++	"path/filepath"
++	"strings"
++	"sync"
++	"testing"
++
++	"golang.org/x/oauth2"
++	"golang.org/x/oauth2/google"
++
++	"github.com/danielbodart/frisket/internal/credential"
++	"github.com/danielbodart/frisket/internal/intercept"
++	"github.com/danielbodart/frisket/internal/steer"
++)
++
++// Design (b): the sandbox holds a placeholder authorized_user file. x/oauth2
++// POSTs the placeholder refresh token to the real oauth2.googleapis.com/token;
++// frisket answers it without dialling anything, and the API call's
++// placeholder becomes the real token on *.googleapis.com.
++func TestSpikeTokenEndpointThenAPI(t *testing.T) {
++	log := &buf{}
++	logger := slog.New(slog.NewJSONHandler(log, nil))
++
++	var mu sync.Mutex
++	var seen []string
++	uca, _ := intercept.NewCA([]string{"*.googleapis.com"})
++	up := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		mu.Lock()
++		seen = append(seen, r.Host+" "+r.URL.Path+" "+r.Header.Get("Authorization"))
++		mu.Unlock()
++		_, _ = io.WriteString(w, `{"items":[]}`)
++	}))
++	up.EnableHTTP2 = true
++	up.TLS = &tls.Config{GetCertificate: func(h *tls.ClientHelloInfo) (*tls.Certificate, error) { return uca.Leaf(h.ServerName) }}
++	up.StartTLS()
++	t.Cleanup(up.Close)
++	upPool := x509.NewCertPool()
++	upPool.AddCert(uca.Certificate())
++	_, upPort, _ := net.SplitHostPort(up.Listener.Addr().String())
++
++	tokPath := filepath.Join(t.TempDir(), "gcp-token")
++	if err := os.WriteFile(tokPath, []byte(realToken+"\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	cred, err := credential.WatchFile(tokPath, credential.Trimmed(), logger)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = cred.Close() })
++
++	var dmu sync.Mutex
++	var dialled []string
++	ic, err := intercept.New(intercept.Config{
++		Routes: []intercept.Route{
++			{
++				Name: "google-token", Host: "oauth2.googleapis.com", Upstream: "https://oauth2.googleapis.com",
++				Scope:  intercept.Scope{Paths: []intercept.PathRule{{Methods: []string{"POST"}, Prefix: "/token"}}},
++				Answer: TokenEndpoint(placeholder, 3599),
++			},
++			{
++				Name: "google", Host: "*.googleapis.com", Upstream: "https://*.googleapis.com:" + upPort,
++				UpstreamCAs: upPool, Credential: cred, Inject: intercept.Bearer(), Placeholder: placeholder,
++				Scope: intercept.Scope{Paths: []intercept.PathRule{{Methods: []string{"GET"}, Prefix: "/"}}},
++			},
++		},
++		Log: logger, Policy: "p",
++		DialContext: func(ctx context.Context, n, a string) (net.Conn, error) {
++			dmu.Lock()
++			dialled = append(dialled, a)
++			dmu.Unlock()
++			return (&net.Dialer{}).DialContext(ctx, n, up.Listener.Addr().String())
++		},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = ic.Close() })
++	ca, err := intercept.NewCA(ic.Hosts())
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Logf("CA constrained to %q", ca.Hosts())
++	addr := listenAs(t, log, netip.AddrPortFrom(service, 443), ic.For(ca, "/w"))
++
++	roots := x509.NewCertPool()
++	roots.AddCert(ca.Certificate())
++	hc := &http.Client{Transport: &http.Transport{
++		TLSClientConfig:   &tls.Config{RootCAs: roots},
++		ForceAttemptHTTP2: true,
++		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
++			return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
++		},
++	}}
++	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, hc)
++
++	// What `gcloud auth application-default login` writes, with placeholders.
++	adc := `{"type":"authorized_user","client_id":"proxy-injected.apps.googleusercontent.com","client_secret":"proxy-injected","refresh_token":"proxy-injected","quota_project_id":"my-project"}`
++	creds, err := google.CredentialsFromJSON(ctx, []byte(adc), "https://www.googleapis.com/auth/cloud-platform")
++	if err != nil {
++		t.Fatal(err)
++	}
++	tok, err := creds.TokenSource.Token()
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Logf("x/oauth2 got access_token=%q type=%q expiry in %v", tok.AccessToken, tok.TokenType, tok.Expiry.Sub(tok.Expiry.Add(0)))
++	if tok.AccessToken != placeholder {
++		t.Fatalf("token %q", tok.AccessToken)
++	}
++
++	api := oauth2.NewClient(ctx, creds.TokenSource)
++	for _, u := range []string{"https://storage.googleapis.com/storage/v1/b?project=my-project", "https://bigquery.googleapis.com/bigquery/v2/projects/my-project/datasets"} {
++		res, err := api.Get(u)
++		if err != nil {
++			t.Fatal(err)
++		}
++		body, _ := io.ReadAll(res.Body)
++		res.Body.Close()
++		if res.StatusCode != 200 {
++			t.Fatalf("%s: %d %s", u, res.StatusCode, body)
++		}
++	}
++
++	// A refresh token that is not the placeholder is answered, never forwarded.
++	res, err := hc.PostForm("https://oauth2.googleapis.com/token", map[string][]string{"grant_type": {"refresh_token"}, "refresh_token": {"1//real-looking"}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	body, _ := io.ReadAll(res.Body)
++	res.Body.Close()
++	t.Logf("other refresh token: %d %s", res.StatusCode, strings.TrimSpace(string(body)))
++	if res.StatusCode != 400 {
++		t.Fatalf("got %d", res.StatusCode)
++	}
++	// Out of the token route's scope: refused before the handler.
++	res, err = hc.Get("https://oauth2.googleapis.com/tokeninfo?access_token=x")
++	if err != nil {
++		t.Fatal(err)
++	}
++	res.Body.Close()
++	t.Logf("GET /tokeninfo: %d", res.StatusCode)
++
++	mu.Lock()
++	defer mu.Unlock()
++	dmu.Lock()
++	defer dmu.Unlock()
++	t.Logf("upstream saw: %q", seen)
++	t.Logf("frisket dialled: %q", dialled)
++	for _, s := range seen {
++		if !strings.HasSuffix(s, " Bearer "+realToken) || strings.HasPrefix(s, "oauth2.") {
++			t.Fatalf("upstream saw %q", s)
++		}
++	}
++	for _, d := range dialled {
++		if strings.HasPrefix(d, "oauth2.") {
++			t.Fatalf("dialled %s", d)
++		}
++	}
++	for _, l := range strings.Split(log.String(), "\n") {
++		if strings.Contains(l, `"msg":"request"`) {
++			t.Logf("log: %s", l)
++		}
++	}
++	if strings.Contains(log.String(), realToken) {
++		t.Fatal("the real token is in the log")
++	}
++}
++
++var _ steer.Handler = (*Server)(nil)
+diff --git a/internal/metadata/tokenfile_test.go b/internal/metadata/tokenfile_test.go
+new file mode 100644
+index 0000000..a2b8cae
+--- /dev/null
++++ b/internal/metadata/tokenfile_test.go
+@@ -0,0 +1,42 @@
++package metadata
++
++import (
++	"testing"
++	"time"
++
++	"github.com/danielbodart/frisket/internal/credential"
++)
++
++// SPIKE: which shapes of a host refresher's token file the existing
++// extractors read, with an expiry.
++func TestSpikeTokenFileShapes(t *testing.T) {
++	exp := time.Now().Add(50 * time.Minute).Truncate(time.Second)
++	cases := []struct {
++		name string
++		ex   credential.Extractor
++		file string
++	}{
++		{"bare token (gcloud auth print-access-token)", credential.Trimmed(), "ya29.a0AfB\n"},
++		{"millis", credential.JSON{Token: "access_token", ExpiresMillis: "expiry_ms"}.Extract,
++			`{"access_token":"ya29.a0AfB","expiry_ms":` + itoa(exp.UnixMilli()) + `}`},
++		{"RFC 3339 (x/oauth2 Token, google-auth to_json, gcloud --format=json)", credential.JSON{Token: "access_token", ExpiresMillis: "expiry"}.Extract,
++			`{"access_token":"ya29.a0AfB","expiry":"` + exp.UTC().Format(time.RFC3339) + `"}`},
++		{"expires_in seconds (token endpoint response)", credential.JSON{Token: "access_token", ExpiresMillis: "expires_in"}.Extract,
++			`{"access_token":"ya29.a0AfB","expires_in":3599}`},
++		{"opaque token as JWT", credential.JSON{Token: "access_token", ExpiresJWT: "access_token"}.Extract,
++			`{"access_token":"ya29.a0AfB"}`},
++	}
++	for _, c := range cases {
++		s, err := c.ex([]byte(c.file))
++		t.Logf("%-70s err=%v expires=%v expired-now=%v", c.name, err, s.Expires, err == nil && s.Expired(time.Now()))
++	}
++}
++
++func itoa(n int64) string {
++	b := []byte{}
++	for n > 0 {
++		b = append([]byte{byte('0' + n%10)}, b...)
++		n /= 10
++	}
++	return string(b)
++}
+diff --git a/internal/policy/policy.go b/internal/policy/policy.go
+index d80980a..737bee4 100644
+--- a/internal/policy/policy.go
++++ b/internal/policy/policy.go
+@@ -230,14 +230,30 @@ func interceptHosts(p Policy) ([]string, error) {
+ 		// One name per route, so a wildcard could never be served: every name
+ 		// it matched would resolve to the service address and fail at the
+ 		// handshake.
+-		if pat.Any || pat.Wildcard {
+-			return nil, fmt.Errorf("route %s: %s is a wildcard, and a route is for one host", r.Name, pat)
++		if pat.Any {
++			return nil, fmt.Errorf("route %s: %s is every name, and a route is for a suffix at most", r.Name, pat)
+ 		}
+-		hosts = append(hosts, pat.Name)
++		// SPIKE: "*.suffix" is a route for every name below suffix.
++		hosts = append(hosts, pat.String())
+ 	}
+ 	return hosts, nil
+ }
+ 
++// allowCovers is whether every name h stands for is allowed. SPIKE: a
++// wildcard is covered by "*" or by a wildcard at or above its suffix, which a
++// name one label below the suffix tests; an exact name cannot cover one.
++func allowCovers(allow *dns.Matcher, h string) bool {
++	if suffix, ok := strings.CutPrefix(h, "*."); ok {
++		for _, p := range allow.Patterns() {
++			if p.Any || p.Wildcard && (p.Name == suffix || strings.HasSuffix(suffix, "."+p.Name)) {
++				return true
++			}
++		}
++		return false
++	}
++	return allow.Match(h)
++}
++
+ // Deps is what every policy shares: the one classifier and dialer every
+ // upstream connection goes through.
+ type Deps struct {
+@@ -469,7 +485,7 @@ func build(name string, p Policy, d Deps, up dns.Exchanger) (_ serve.Policy, clo
+ 		return nil, closers, fmt.Errorf("intercept: %w", err)
+ 	}
+ 	for _, h := range hosts {
+-		if !allow.Match(h) {
++		if !allowCovers(allow, h) {
+ 			return nil, closers, fmt.Errorf("route for %s: not on the allowlist; interception is how an allowed host gets its credential, not a way round the allowlist", h)
+ 		}
+ 	}
+diff --git a/internal/policy/wildcard_spike_test.go b/internal/policy/wildcard_spike_test.go
+new file mode 100644
+index 0000000..cee7c87
+--- /dev/null
++++ b/internal/policy/wildcard_spike_test.go
+@@ -0,0 +1,50 @@
++package policy
++
++import (
++	"log/slog"
++	"net/netip"
++	"testing"
++
++	"github.com/danielbodart/frisket/internal/control"
++	"golang.org/x/net/dns/dnsmessage"
++)
++
++// SPIKE: a policy with a "*.googleapis.com" route builds, its DNS answers any
++// name below the suffix with the service address, and the session's CA is
++// constrained to the suffix.
++func TestSpikeAWildcardRouteBuilds(t *testing.T) {
++	p := valid(t)
++	p.Allow = []string{"*.googleapis.com", "api.test", "googleapis.com"}
++	p.Routes = append(p.Routes, Route{
++		Name: "google", Host: "*.googleapis.com", Upstream: "https://*.googleapis.com",
++		CredentialFile: p.Routes[0].CredentialFile, Placeholder: "proxy-injected",
++		Paths: []PathRule{{Methods: []string{"GET", "POST"}, Prefix: "/"}},
++	})
++	up := &counting{}
++	pol := open(t, up, "p", p)
++	svc := []netip.Addr{netip.MustParseAddr("192.0.2.2")}
++	h, err := pol.Handlers(control.Session{Name: "s", Policy: "/p.json", Service: svc}, nil, slog.New(slog.NewJSONHandler(&journal{}, nil)))
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, n := range []string{"storage.googleapis.com.", "us-central1-aiplatform.googleapis.com.", "a.b.googleapis.com."} {
++		m := ask(t, h, n)
++		if len(m.Answers) != 1 || m.Answers[0].Body.(*dnsmessage.AResource).A != [4]byte{192, 0, 2, 2} {
++			t.Errorf("%s answered %+v, want the service address", n, m.Answers)
++		}
++	}
++	// The suffix itself is allowed, not intercepted: resolved upstream.
++	_ = ask(t, h, "googleapis.com.")
++	up.mu.Lock()
++	t.Logf("asked upstream: %q", up.asked)
++	up.mu.Unlock()
++
++	// A wildcard route with an allowlist that does not cover every name below
++	// it is refused.
++	p.Allow = []string{"storage.googleapis.com", "api.test"}
++	if err := check(t, "p2", p); err == nil {
++		t.Fatal("a wildcard route under an exact allow was accepted")
++	} else {
++		t.Logf("refused: %v", err)
++	}
++}
+diff --git a/internal/serve/dispatch.go b/internal/serve/dispatch.go
+index 4256812..bf2d27f 100644
+--- a/internal/serve/dispatch.go
++++ b/internal/serve/dispatch.go
+@@ -23,6 +23,9 @@ type Handlers struct {
+ 	// frisket's own services, and the hosts frisket's DNS resolved to it
+ 	// because it adds their credentials.
+ 	Intercept steer.Handler
++	// Metadata, if set, gets plain HTTP to the service address's port 80:
++	// the GCE metadata server. SPIKE.
++	Metadata steer.Handler
+ 	// DNS gets every steered datagram, and every TCP connection to port 53.
+ 	DNS DNSHandler
+ 	// Authority is the session's CA as the policy serialises it: kept in the
+@@ -103,6 +106,8 @@ func (d Dispatch) ServeConn(ctx context.Context, c *steer.Conn) {
+ 	switch {
+ 	case c.Orig.Port() == DNSPort:
+ 		d.DNS.ServeConn(ctx, c)
++	case d.Metadata != nil && c.Orig.Port() == MetadataPort && d.IsService(c.Orig.Addr()):
++		d.Metadata.ServeConn(ctx, c)
+ 	case d.IsService(c.Orig.Addr()):
+ 		d.Intercept.ServeConn(ctx, c)
+ 	default:
+@@ -113,6 +118,9 @@ func (d Dispatch) ServeConn(ctx context.Context, c *steer.Conn) {
+ // DNSPort is the port every set steers to frisket's DNS.
+ const DNSPort = 53
+ 
++// MetadataPort is the metadata server's, on the service address. SPIKE.
++const MetadataPort = 80
++
+ // ServePacket hands one steered datagram to the DNS handler.
+ func (d Dispatch) ServePacket(ctx context.Context, dg *steer.Datagram) {
+ 	d.DNS.ServePacket(ctx, dg)

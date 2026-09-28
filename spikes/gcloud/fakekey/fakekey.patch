@@ -1,0 +1,515 @@
+--- a/internal/intercept/route.go
++++ b/internal/intercept/route.go
+@@ -49,6 +49,12 @@
+ 	// Answer, if set, answers every request the scope admits, here: nothing
+ 	// is sent upstream and no credential is looked at. SPIKE.
+ 	Answer http.Handler
++	// AnswerFor, if set, answers the admitted requests to a host and path
++	// it returns a handler for, as Answer does. SPIKE.
++	AnswerFor func(host, path string) http.Handler
++	// PlaceholderJWT, if set, is whether a bearer sent to a host is also
++	// the placeholder: a JWT a fake key signed. SPIKE.
++	PlaceholderJWT func(token, host string) bool
+ }
+ 
+ // Injector puts a credential on an outgoing request.
+@@ -178,7 +184,7 @@
+ // whole of the credential header or after its scheme: `Bearer <placeholder>`,
+ // gh's `token <placeholder>`, or git's Basic auth with it as the password. One value only -- two is not a request
+ // frisket can put one credential on.
+-func (r *Route) carries(h http.Header) bool {
++func (r *Route) carries(h http.Header, host string) bool {
+ 	if r.Credential == nil {
+ 		return false
+ 	}
+@@ -200,5 +206,8 @@
+ 			return ok && pass == r.Placeholder
+ 		}
+ 	}
+-	return tok == r.Placeholder
++	if tok == r.Placeholder {
++		return true
++	}
++	return r.PlaceholderJWT != nil && strings.EqualFold(scheme, "Bearer") && r.PlaceholderJWT(tok, host)
+ }
+--- a/internal/intercept/intercept.go
++++ b/internal/intercept/intercept.go
+@@ -586,12 +586,16 @@
+ 		rec.rule = v.Reason
+ 	}
+ 
+-	if rt.Answer != nil {
++	answer := rt.Answer
++	if rt.AnswerFor != nil && answer == nil {
++		answer = rt.AnswerFor(ic.sni, r.URL.Path)
++	}
++	if answer != nil {
+ 		rec.credential = CredentialAnswered
+-		rt.Answer.ServeHTTP(lw, r)
++		answer.ServeHTTP(lw, r)
+ 		return
+ 	}
+-	if !rt.carries(r.Header) {
++	if !rt.carries(r.Header, ic.sni) {
+ 		// Not the placeholder, so not frisket's to touch: the client's own
+ 		// credential, or none, goes upstream as it was sent. Nor does it need
+ 		// frisket's -- a stale or missing one is no reason to refuse it.
+--- a/internal/policy/policy.go
++++ b/internal/policy/policy.go
+@@ -29,6 +29,7 @@
+ 	"github.com/danielbodart/frisket/internal/credential"
+ 	"github.com/danielbodart/frisket/internal/dns"
+ 	"github.com/danielbodart/frisket/internal/egress"
++	"github.com/danielbodart/frisket/internal/fakekey"
+ 	"github.com/danielbodart/frisket/internal/intercept"
+ 	"github.com/danielbodart/frisket/internal/metadata"
+ 	"github.com/danielbodart/frisket/internal/serve"
+@@ -70,6 +71,18 @@
+ 	// Metadata, SPIKE: a GCE metadata server on the service address's port
+ 	// 80, handing out Route's placeholder.
+ 	Metadata *Metadata `json:"metadata,omitempty"`
++	// ServiceAccountKey, SPIKE: the sandbox's service account key is fake.
++	// TokenRoute answers its assertions; Route takes its self-signed JWTs
++	// as the placeholder.
++	ServiceAccountKey *ServiceAccountKey `json:"serviceAccountKey,omitempty"`
++}
++
++type ServiceAccountKey struct {
++	PublicKey  string `json:"publicKey"`
++	Email      string `json:"email"`
++	TokenURI   string `json:"tokenURI"`
++	TokenRoute string `json:"tokenRoute"`
++	Route      string `json:"route"`
+ }
+ 
+ type Metadata struct {
+@@ -512,6 +525,29 @@
+ 		routes = append(routes, ir)
+ 	}
+ 
++	if sa := p.ServiceAccountKey; sa != nil {
++		k, err := fakekey.Load(sa.PublicKey, sa.Email, sa.TokenURI, d.Log)
++		if err != nil {
++			return nil, closers, fmt.Errorf("serviceAccountKey: %w", err)
++		}
++		var tr, br *intercept.Route
++		for i := range routes {
++			switch routes[i].Name {
++			case sa.TokenRoute:
++				tr = &routes[i]
++			case sa.Route:
++				br = &routes[i]
++			}
++		}
++		if tr == nil || tr.Credential != nil || br == nil || br.Placeholder == "" {
++			return nil, closers, errors.New("serviceAccountKey: tokenRoute with no credential, route with a placeholder")
++		}
++		k.Placeholder = br.Placeholder
++		tr.Answer = k.TokenEndpoint()
++		br.AnswerFor = k.LegacyTokenEndpoint
++		br.PlaceholderJWT = k.Bearer
++	}
++
+ 	var md *metadata.Server
+ 	if m := p.Metadata; m != nil {
+ 		var mr *intercept.Route
+--- a/internal/fakekey/fakekey.go
++++ b/internal/fakekey/fakekey.go
+@@ -0,0 +1,264 @@
++// Package fakekey lets a sandbox hold a Google service account key file whose
++// private key is fake: generated per session, its public half given to
++// frisket. SPIKE.
++//
++// The key signs two things. An assertion to the token endpoint, which frisket
++// answers itself with the route's placeholder. And a self-signed JWT used
++// directly as a bearer, which the route treats as its placeholder.
++package fakekey
++
++import (
++	"crypto"
++	"crypto/rsa"
++	"crypto/sha256"
++	"crypto/x509"
++	"encoding/base64"
++	"encoding/hex"
++	"encoding/json"
++	"encoding/pem"
++	"errors"
++	"fmt"
++	"log/slog"
++	"net/http"
++	"os"
++	"strings"
++	"sync"
++	"time"
++)
++
++const (
++	jwtBearer = "urn:ietf:params:oauth:grant-type:jwt-bearer"
++	skew      = 5 * time.Minute
++	// A self-signed JWT lives an hour; anything longer is not one.
++	maxLife = time.Hour + skew
++)
++
++type Key struct {
++	Email       string
++	TokenURI    string
++	Placeholder string
++	Log         *slog.Logger
++	Now         func() time.Time
++
++	pub  *rsa.PublicKey
++	mu   sync.Mutex
++	seen map[string]time.Time
++}
++
++func Load(path, email, tokenURI string, log *slog.Logger) (*Key, error) {
++	b, err := os.ReadFile(path)
++	if err != nil {
++		return nil, err
++	}
++	blk, _ := pem.Decode(b)
++	if blk == nil {
++		return nil, fmt.Errorf("%s: no PEM", path)
++	}
++	var pub any
++	switch blk.Type {
++	case "PUBLIC KEY":
++		pub, err = x509.ParsePKIXPublicKey(blk.Bytes)
++	case "CERTIFICATE":
++		var c *x509.Certificate
++		if c, err = x509.ParseCertificate(blk.Bytes); err == nil {
++			pub = c.PublicKey
++		}
++	default:
++		err = fmt.Errorf("PEM %q: a PUBLIC KEY or CERTIFICATE", blk.Type)
++	}
++	if err != nil {
++		return nil, fmt.Errorf("%s: %w", path, err)
++	}
++	rk, ok := pub.(*rsa.PublicKey)
++	if !ok {
++		return nil, fmt.Errorf("%s: not an RSA key", path)
++	}
++	return &Key{Email: email, TokenURI: tokenURI, Log: log, Now: time.Now, pub: rk, seen: map[string]time.Time{}}, nil
++}
++
++type claims struct {
++	Iss            string          `json:"iss"`
++	Sub            string          `json:"sub"`
++	Aud            json.RawMessage `json:"aud"`
++	Scope          string          `json:"scope"`
++	TargetAudience string          `json:"target_audience"`
++	Iat            int64           `json:"iat"`
++	Exp            int64           `json:"exp"`
++}
++
++type header struct {
++	Alg string `json:"alg"`
++	Kid string `json:"kid"`
++}
++
++func (c claims) aud() string {
++	var s string
++	if json.Unmarshal(c.Aud, &s) == nil {
++		return s
++	}
++	var ss []string
++	if json.Unmarshal(c.Aud, &ss) == nil && len(ss) == 1 {
++		return ss[0]
++	}
++	return ""
++}
++
++// verify checks tok's RS256 signature against the key, then that it is the
++// service account's and in date.
++func (k *Key) verify(tok string) (header, claims, error) {
++	var h header
++	var c claims
++	parts := strings.Split(tok, ".")
++	if len(parts) != 3 {
++		return h, c, errors.New("not a JWT")
++	}
++	hb, err := base64.RawURLEncoding.DecodeString(parts[0])
++	if err != nil || json.Unmarshal(hb, &h) != nil || h.Alg != "RS256" {
++		return h, c, errors.New("header: not RS256")
++	}
++	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
++	if err != nil {
++		return h, c, errors.New("signature: not base64url")
++	}
++	sum := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
++	if rsa.VerifyPKCS1v15(k.pub, crypto.SHA256, sum[:], sig) != nil {
++		return h, c, errors.New("signature does not verify")
++	}
++	cb, err := base64.RawURLEncoding.DecodeString(parts[1])
++	if err != nil || json.Unmarshal(cb, &c) != nil {
++		return h, c, errors.New("claims: not JSON")
++	}
++	now := k.Now()
++	exp, iat := time.Unix(c.Exp, 0), time.Unix(c.Iat, 0)
++	switch {
++	case c.Iss != k.Email:
++		return h, c, fmt.Errorf("iss %q", c.Iss)
++	case c.Sub != "" && c.Sub != k.Email:
++		return h, c, fmt.Errorf("sub %q", c.Sub)
++	case !now.Before(exp):
++		return h, c, errors.New("expired")
++	case iat.After(now.Add(skew)) || exp.Sub(iat) > maxLife:
++		return h, c, errors.New("iat/exp out of range")
++	}
++	return h, c, nil
++}
++
++func short(tok string) string {
++	s := sha256.Sum256([]byte(tok))
++	return hex.EncodeToString(s[:4])
++}
++
++// Bearer is whether tok, a bearer sent to host, is a self-signed JWT of the
++// fake key's: the route's placeholder. Verified once per JWT.
++func (k *Key) Bearer(tok, host string) bool {
++	if strings.Count(tok, ".") != 2 || !strings.HasPrefix(tok, "eyJ") {
++		return false
++	}
++	now := k.Now()
++	k.mu.Lock()
++	exp, ok := k.seen[tok]
++	k.mu.Unlock()
++	if ok && now.Before(exp) {
++		k.Log.Debug("service account jwt", "jwt", short(tok), "host", host, "cached", true)
++		return true
++	}
++	h, c, err := k.verify(tok)
++	if err == nil {
++		aud := c.aud()
++		switch {
++		case aud == "https://"+host+"/":
++		case aud == "" && c.Scope != "":
++		default:
++			err = fmt.Errorf("aud %q for host %s", aud, host)
++		}
++	}
++	if err != nil {
++		k.Log.Info("service account jwt refused", "jwt", short(tok), "host", host, "error", err.Error())
++		return false
++	}
++	k.Log.Info("service account jwt", "jwt", short(tok), "host", host, "cached", false,
++		"kid", h.Kid, "aud", c.aud(), "scope", c.Scope, "iat", c.Iat, "exp", c.Exp, "life", c.Exp-c.Iat)
++	k.mu.Lock()
++	if len(k.seen) > 4096 {
++		for t, e := range k.seen {
++			if !now.Before(e) {
++				delete(k.seen, t)
++			}
++		}
++	}
++	k.seen[tok] = time.Unix(c.Exp, 0)
++	k.mu.Unlock()
++	return true
++}
++
++// TokenEndpoint answers the jwt-bearer grant for an assertion the fake key
++// signed: the placeholder as the access token, or a JWT-shaped placeholder
++// as the ID token. Anything else is invalid_grant; nothing goes to Google.
++func (k *Key) TokenEndpoint() http.Handler {
++	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("Content-Type", "application/json; charset=utf-8")
++		w.Header().Set("Cache-Control", "no-store")
++		fail := func(why string) {
++			k.Log.Info("token endpoint refused", "path", r.URL.Path, "error", why)
++			w.WriteHeader(http.StatusBadRequest)
++			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant", "error_description": "frisket: " + why})
++		}
++		if r.Method != http.MethodPost {
++			fail("not POST")
++			return
++		}
++		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
++		if err := r.ParseForm(); err != nil {
++			fail("form")
++			return
++		}
++		if g := r.PostForm.Get("grant_type"); g != jwtBearer {
++			fail("grant_type " + g)
++			return
++		}
++		h, c, err := k.verify(r.PostForm.Get("assertion"))
++		if err == nil && c.aud() != k.TokenURI && c.aud() != legacyTokenURI {
++			err = fmt.Errorf("aud %q", c.aud())
++		}
++		if err != nil {
++			fail(err.Error())
++			return
++		}
++		k.Log.Info("token endpoint", "kid", h.Kid, "scope", c.Scope, "target_audience", c.TargetAudience,
++			"life", c.Exp-c.Iat)
++		if c.TargetAudience != "" {
++			_ = json.NewEncoder(w).Encode(map[string]string{"id_token": k.idToken(c.TargetAudience)})
++			return
++		}
++		_ = json.NewEncoder(w).Encode(map[string]any{
++			"access_token": k.Placeholder,
++			"expires_in":   3599,
++			"token_type":   "Bearer",
++		})
++	})
++}
++
++const legacyTokenURI = "https://www.googleapis.com/oauth2/v4/token"
++
++// LegacyTokenEndpoint is TokenEndpoint at www.googleapis.com/oauth2/v4/token,
++// where gtoken sends its assertion whatever the key file's token_uri says.
++func (k *Key) LegacyTokenEndpoint(host, path string) http.Handler {
++	if "https://"+host+path != legacyTokenURI {
++		return nil
++	}
++	return k.TokenEndpoint()
++}
++
++// idToken is shaped like Google's, so a client can read its expiry, and
++// signed by nobody.
++func (k *Key) idToken(aud string) string {
++	now := k.Now().Unix()
++	enc := func(v any) string {
++		b, _ := json.Marshal(v)
++		return base64.RawURLEncoding.EncodeToString(b)
++	}
++	return enc(map[string]string{"alg": "RS256", "typ": "JWT", "kid": "frisket-placeholder"}) + "." +
++		enc(map[string]any{"iss": "https://accounts.google.com", "aud": aud, "azp": k.Email, "sub": k.Email,
++			"email": k.Email, "email_verified": true, "iat": now, "exp": now + 3600}) + "." +
++		base64.RawURLEncoding.EncodeToString([]byte(k.Placeholder))
++}
+--- a/internal/fakekey/fakekey_test.go
++++ b/internal/fakekey/fakekey_test.go
+@@ -0,0 +1,130 @@
++package fakekey
++
++import (
++	"crypto"
++	"crypto/rand"
++	"crypto/rsa"
++	"crypto/sha256"
++	"crypto/x509"
++	"encoding/base64"
++	"encoding/json"
++	"encoding/pem"
++	"io"
++	"log/slog"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++)
++
++const email = "sa@p.iam.gserviceaccount.com"
++const tokenURI = "https://oauth2.googleapis.com/token"
++
++func setup(t testing.TB) (*Key, *rsa.PrivateKey) {
++	priv, _ := rsa.GenerateKey(rand.Reader, 2048)
++	der, _ := x509.MarshalPKIXPublicKey(&priv.PublicKey)
++	p := filepath.Join(t.TempDir(), "pub.pem")
++	os.WriteFile(p, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}), 0o600)
++	k, err := Load(p, email, tokenURI, slog.New(slog.NewTextHandler(io.Discard, nil)))
++	if err != nil {
++		t.Fatal(err)
++	}
++	k.Placeholder = "proxy-injected"
++	return k, priv
++}
++
++func sign(priv *rsa.PrivateKey, c map[string]any) string {
++	enc := func(v any) string { b, _ := json.Marshal(v); return base64.RawURLEncoding.EncodeToString(b) }
++	in := enc(map[string]string{"alg": "RS256", "typ": "JWT", "kid": "k1"}) + "." + enc(c)
++	sum := sha256.Sum256([]byte(in))
++	sig, _ := rsa.SignPKCS1v15(rand.Reader, priv, crypto.SHA256, sum[:])
++	return in + "." + base64.RawURLEncoding.EncodeToString(sig)
++}
++
++func TestBearer(t *testing.T) {
++	k, priv := setup(t)
++	other, _ := rsa.GenerateKey(rand.Reader, 2048)
++	now := time.Now().Unix()
++	ok := map[string]any{"iss": email, "sub": email, "aud": "https://storage.googleapis.com/", "iat": now, "exp": now + 3600}
++	scoped := map[string]any{"iss": email, "sub": email, "scope": "https://www.googleapis.com/auth/cloud-platform", "iat": now, "exp": now + 3600}
++	for _, c := range []struct {
++		name string
++		tok  string
++		want bool
++	}{
++		{"aud host", sign(priv, ok), true},
++		{"scope", sign(priv, scoped), true},
++		{"other key", sign(other, ok), false},
++		{"other host", sign(priv, map[string]any{"iss": email, "aud": "https://pubsub.googleapis.com/", "iat": now, "exp": now + 3600}), false},
++		{"other iss", sign(priv, map[string]any{"iss": "x@y", "aud": "https://storage.googleapis.com/", "iat": now, "exp": now + 3600}), false},
++		{"expired", sign(priv, map[string]any{"iss": email, "aud": "https://storage.googleapis.com/", "iat": now - 7200, "exp": now - 3600}), false},
++		{"long", sign(priv, map[string]any{"iss": email, "aud": "https://storage.googleapis.com/", "iat": now, "exp": now + 86400}), false},
++		{"token aud", sign(priv, map[string]any{"iss": email, "aud": tokenURI, "iat": now, "exp": now + 3600}), false},
++		{"placeholder", "proxy-injected", false},
++	} {
++		if got := k.Bearer(c.tok, "storage.googleapis.com"); got != c.want {
++			t.Errorf("%s: %v", c.name, got)
++		}
++	}
++}
++
++func TestTokenEndpoint(t *testing.T) {
++	k, priv := setup(t)
++	now := time.Now().Unix()
++	post := func(form url.Values) (int, map[string]any) {
++		w := httptest.NewRecorder()
++		r := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(form.Encode()))
++		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
++		k.TokenEndpoint().ServeHTTP(w, r)
++		var m map[string]any
++		json.Unmarshal(w.Body.Bytes(), &m)
++		return w.Code, m
++	}
++	code, m := post(url.Values{"grant_type": {jwtBearer}, "assertion": {sign(priv, map[string]any{"iss": email, "aud": tokenURI, "scope": "s", "iat": now, "exp": now + 3600})}})
++	if code != 200 || m["access_token"] != "proxy-injected" {
++		t.Fatal(code, m)
++	}
++	code, m = post(url.Values{"grant_type": {jwtBearer}, "assertion": {sign(priv, map[string]any{"iss": email, "aud": tokenURI, "target_audience": "https://x", "iat": now, "exp": now + 3600})}})
++	if code != 200 || strings.Count(m["id_token"].(string), ".") != 2 {
++		t.Fatal(code, m)
++	}
++	other, _ := rsa.GenerateKey(rand.Reader, 2048)
++	for _, f := range []url.Values{
++		{"grant_type": {jwtBearer}, "assertion": {sign(other, map[string]any{"iss": email, "aud": tokenURI, "iat": now, "exp": now + 3600})}},
++		{"grant_type": {jwtBearer}, "assertion": {sign(priv, map[string]any{"iss": email, "aud": "https://storage.googleapis.com/", "iat": now, "exp": now + 3600})}},
++		{"grant_type": {"refresh_token"}, "refresh_token": {"proxy-injected"}},
++	} {
++		if code, _ := post(f); code != 400 {
++			t.Error(f.Get("grant_type"), code)
++		}
++	}
++}
++
++func BenchmarkVerifyUncached(b *testing.B) {
++	k, priv := setup(b)
++	now := time.Now().Unix()
++	tok := sign(priv, map[string]any{"iss": email, "aud": "https://storage.googleapis.com/", "iat": now, "exp": now + 3600})
++	b.ResetTimer()
++	for b.Loop() {
++		if _, _, err := k.verify(tok); err != nil {
++			b.Fatal(err)
++		}
++	}
++}
++
++func BenchmarkBearerCached(b *testing.B) {
++	k, priv := setup(b)
++	now := time.Now().Unix()
++	tok := sign(priv, map[string]any{"iss": email, "aud": "https://storage.googleapis.com/", "iat": now, "exp": now + 3600})
++	k.Bearer(tok, "storage.googleapis.com")
++	b.ResetTimer()
++	for b.Loop() {
++		if !k.Bearer(tok, "storage.googleapis.com") {
++			b.Fatal()
++		}
++	}
++}

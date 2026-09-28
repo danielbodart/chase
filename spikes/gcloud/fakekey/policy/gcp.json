@@ -1,0 +1,93 @@
+{
+ "name": "gcpfk",
+ "allow": [
+  "*.googleapis.com"
+ ],
+ "routes": [
+  {
+   "name": "iamcredentials",
+   "host": "iamcredentials.googleapis.com",
+   "upstream": "https://iamcredentials.googleapis.com",
+   "paths": [
+    {
+     "methods": [
+      "GET",
+      "HEAD",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS"
+     ],
+     "prefix": "/",
+     "refuse": true
+    }
+   ]
+  },
+  {
+   "name": "sts",
+   "host": "sts.googleapis.com",
+   "upstream": "https://sts.googleapis.com",
+   "paths": [
+    {
+     "methods": [
+      "GET",
+      "HEAD",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS"
+     ],
+     "prefix": "/",
+     "refuse": true
+    }
+   ]
+  },
+  {
+   "name": "oauth2",
+   "host": "oauth2.googleapis.com",
+   "upstream": "https://oauth2.googleapis.com",
+   "paths": [
+    {
+     "methods": [
+      "POST"
+     ],
+     "path": "/token"
+    }
+   ]
+  },
+  {
+   "name": "google",
+   "host": "*.googleapis.com",
+   "upstream": "https://*.googleapis.com",
+   "credentialFile": "/tmp/claude-1000/-home-dan-Projects-frisket/d148bf0d-8069-4d10-b051-b5be28488830/scratchpad/spikes/fakekey/host/gcp-token.json",
+   "credentialJSON": {
+    "token": "access_token",
+    "expiresMillis": "expiry_ms"
+   },
+   "placeholder": "proxy-injected",
+   "paths": [
+    {
+     "methods": [
+      "GET",
+      "HEAD",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS"
+     ],
+     "prefix": "/"
+    }
+   ]
+  }
+ ],
+ "serviceAccountKey": {
+  "publicKey": "/tmp/claude-1000/-home-dan-Projects-frisket/d148bf0d-8069-4d10-b051-b5be28488830/scratchpad/spikes/fakekey/host/fake-pub.pem",
+  "email": "frisket-spike@danbodart-sandbox-test.iam.gserviceaccount.com",
+  "tokenURI": "https://oauth2.googleapis.com/token",
+  "tokenRoute": "oauth2",
+  "route": "google"
+ }
+}

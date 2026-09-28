@@ -1,0 +1,167 @@
+{
+  "hosts": {
+    "iamcredentials.googleapis.com": "Every operation that matters here mints a credential for a service account: an access token, an ID token, a signed JWT or a signed blob. The three GETs (allowed locations) are not worth a hole.",
+    "sts.googleapis.com": "Security Token Service: exchanges one credential for a Google access token. Its whole purpose is to return a token.",
+    "oauth2.googleapis.com": "The OAuth token endpoint. frisket answers /token itself for the placeholder; nothing else here should reach Google with the real token behind it.",
+    "securetoken.googleapis.com": "Firebase's token service: exchanges a refresh token for an ID token."
+  },
+  "patterns": {
+    "setIamPolicy": {
+      "class": "guarded",
+      "reason": "Replaces who may do what on the resource: it can widen access, including to allUsers."
+    },
+    "getIamPolicy": {
+      "class": "read",
+      "reason": "Reads the policy; a POST on many APIs, and changes nothing."
+    },
+    "testIamPermissions": {
+      "class": "read",
+      "reason": "Asks which of the named permissions the caller holds; a POST, and changes nothing."
+    }
+  },
+  "forbidden": {
+    "iam.projects.serviceAccounts.keys.create": "Returns the new key's privateKeyData: a service account private key, usable anywhere, for up to its expiry (by default never).",
+    "iam.projects.serviceAccounts.signBlob": "Deprecated IAM v1 signing: returns a blob signed with the service account's system-managed key (a signed URL is one of these).",
+    "iam.projects.serviceAccounts.signJwt": "Deprecated IAM v1 signing: returns a JWT signed as the service account, exchangeable for an access token.",
+    "iam.projects.locations.oauthClients.credentials.create": "Returns the new OAuth client's clientSecret (Output only, system-generated).",
+    "iam.projects.locations.oauthClients.credentials.get": "Returns the OAuth client credential with its clientSecret: the description says the secret is output, not that it is withheld on reads.",
+    "iam.projects.locations.oauthClients.credentials.list": "Lists OAuth client credentials with their clientSecrets.",
+    "iam.projects.locations.oauthClients.credentials.patch": "Returns the updated OAuth client credential, clientSecret included.",
+    "secretmanager.projects.secrets.versions.access": "A GET that returns the secret's payload: the value itself, not metadata about it.",
+    "secretmanager.projects.locations.secrets.versions.access": "A GET that returns the secret's payload: the value itself, not metadata about it.",
+    "storage.projects.hmacKeys.create": "Returns the new HMAC key's secret: an S3-style credential for the service account, which signs its own requests and so can never be carried by frisket."
+  },
+  "guarded": {
+    "iam.projects.serviceAccounts.keys.upload": "Adds a public key the caller holds the private half of: a new standing credential for the service account.",
+    "iam.projects.serviceAccounts.enable": "Brings a disabled service account back into use, with every key it has.",
+    "iam.projects.serviceAccounts.keys.enable": "Brings a disabled key back into use.",
+    "iam.projects.serviceAccounts.undelete": "Restores a deleted service account and its bindings.",
+    "secretmanager.projects.secrets.versions.destroy": "Destroys the version's payload irrecoverably.",
+    "secretmanager.projects.locations.secrets.versions.destroy": "Destroys the version's payload irrecoverably.",
+    "storage.bucketAccessControls.insert": "Grants an entity (a user, a group, allUsers) access to the bucket.",
+    "storage.bucketAccessControls.patch": "Changes an entity's access to the bucket.",
+    "storage.bucketAccessControls.update": "Changes an entity's access to the bucket.",
+    "storage.defaultObjectAccessControls.insert": "Grants an entity access to every new object in the bucket.",
+    "storage.defaultObjectAccessControls.patch": "Changes an entity's access to every new object in the bucket.",
+    "storage.defaultObjectAccessControls.update": "Changes an entity's access to every new object in the bucket.",
+    "storage.objectAccessControls.insert": "Grants an entity (allUsers included) access to the object.",
+    "storage.objectAccessControls.patch": "Changes an entity's access to the object.",
+    "storage.objectAccessControls.update": "Changes an entity's access to the object.",
+    "storage.buckets.lockRetentionPolicy": "Locks the retention policy permanently: it cannot be removed or shortened again.",
+    "storage.folders.deleteRecursive": "Deletes a folder and everything under it.",
+    "compute.instances.setMetadata": "Instance metadata carries ssh-keys and startup scripts: this can add a login or run code as root on the instance.",
+    "compute.projects.setCommonInstanceMetadata": "Project metadata carries ssh-keys for every instance in the project.",
+    "compute.instances.setServiceAccount": "Attaches a service account, and its access, to the instance."
+  },
+  "write": {},
+  "read": {
+    "pubsub.projects.schemas.validate": "Validates a schema definition; a POST, and creates nothing.",
+    "pubsub.projects.schemas.validateMessage": "Validates a message against a schema; a POST, and publishes nothing."
+  },
+  "grpc": {
+    "google.pubsub.v1.Subscriber.StreamingPull": {
+      "class": "write",
+      "streaming": true,
+      "reason": "Pull by stream: leases and acknowledges messages, as Pull does. Bidirectional, so its body never ends and it cannot be asked: allow or refuse only."
+    },
+    "google.storage.v2.Storage.GetBucket": {
+      "class": "read",
+      "reason": "No google.api.http rule: gRPC only."
+    },
+    "google.storage.v2.Storage.ListBuckets": {
+      "class": "read",
+      "reason": "No google.api.http rule: gRPC only."
+    },
+    "google.storage.v2.Storage.GetObject": {
+      "class": "read",
+      "reason": "No google.api.http rule: gRPC only."
+    },
+    "google.storage.v2.Storage.ReadObject": {
+      "class": "read",
+      "reason": "No google.api.http rule: gRPC only. Server-streaming; the request is one message."
+    },
+    "google.storage.v2.Storage.BidiReadObject": {
+      "class": "read",
+      "streaming": true,
+      "reason": "No google.api.http rule: gRPC only. Bidirectional reads of one object."
+    },
+    "google.storage.v2.Storage.ListObjects": {
+      "class": "read",
+      "reason": "No google.api.http rule: gRPC only."
+    },
+    "google.storage.v2.Storage.QueryWriteStatus": {
+      "class": "read",
+      "reason": "No google.api.http rule: gRPC only. Says how much of a resumable write has arrived."
+    },
+    "google.storage.v2.Storage.GetIamPolicy": {
+      "class": "read",
+      "reason": "No google.api.http rule: gRPC only."
+    },
+    "google.storage.v2.Storage.TestIamPermissions": {
+      "class": "read",
+      "reason": "No google.api.http rule: gRPC only."
+    },
+    "google.storage.v2.Storage.SetIamPolicy": {
+      "class": "guarded",
+      "reason": "Replaces who may do what on the bucket or object."
+    },
+    "google.storage.v2.Storage.DeleteBucket": {
+      "class": "guarded",
+      "reason": "Deletes a bucket."
+    },
+    "google.storage.v2.Storage.DeleteObject": {
+      "class": "guarded",
+      "reason": "Deletes an object."
+    },
+    "google.storage.v2.Storage.LockBucketRetentionPolicy": {
+      "class": "guarded",
+      "reason": "Locks the retention policy permanently."
+    },
+    "google.storage.v2.Storage.CreateBucket": {
+      "class": "write",
+      "reason": "No google.api.http rule: gRPC only."
+    },
+    "google.storage.v2.Storage.UpdateBucket": {
+      "class": "write",
+      "reason": "No google.api.http rule: gRPC only. Can change the bucket's ACLs."
+    },
+    "google.storage.v2.Storage.ComposeObject": {
+      "class": "write",
+      "reason": "No google.api.http rule: gRPC only."
+    },
+    "google.storage.v2.Storage.RestoreObject": {
+      "class": "write",
+      "reason": "No google.api.http rule: gRPC only."
+    },
+    "google.storage.v2.Storage.CancelResumableWrite": {
+      "class": "write",
+      "reason": "No google.api.http rule: gRPC only."
+    },
+    "google.storage.v2.Storage.UpdateObject": {
+      "class": "write",
+      "reason": "No google.api.http rule: gRPC only. Can change the object's ACL."
+    },
+    "google.storage.v2.Storage.WriteObject": {
+      "class": "write",
+      "streaming": true,
+      "reason": "Client-streaming upload: the body ends, but may exceed what frisket reads to ask."
+    },
+    "google.storage.v2.Storage.BidiWriteObject": {
+      "class": "write",
+      "streaming": true,
+      "reason": "Bidirectional upload: its body never ends while it waits, so it cannot be asked."
+    },
+    "google.storage.v2.Storage.RewriteObject": {
+      "class": "write",
+      "reason": "No google.api.http rule: gRPC only."
+    },
+    "google.storage.v2.Storage.StartResumableWrite": {
+      "class": "write",
+      "reason": "No google.api.http rule: gRPC only."
+    },
+    "google.storage.v2.Storage.MoveObject": {
+      "class": "write",
+      "reason": "No google.api.http rule: gRPC only."
+    }
+  }
+}

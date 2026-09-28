@@ -1,0 +1,4 @@
+gcloud auth activate-service-account --key-file=/tmp/claude-1000/-home-dan-Projects-frisket/d148bf0d-8069-4d10-b051-b5be28488830/scratchpad/spikes/fakekey/sbx/home/fake-key.json >/dev/null 2>&1
+U=$(gcloud storage sign-url gs://danbodart-sandbox-test-frisket-spike/hello.txt --duration=5m --region=europe-west2 --private-key-file=/tmp/claude-1000/-home-dan-Projects-frisket/d148bf0d-8069-4d10-b051-b5be28488830/scratchpad/spikes/fakekey/sbx/home/fake-key.json --format='value(signed_url)' 2>&1); echo "sign-url (key file) rc=$? host: ${U%%\?*}"
+curl -s -o /dev/null -w 'fetch: %{http_code}\n' "$U"
+U=$(gcloud storage sign-url gs://danbodart-sandbox-test-frisket-spike/hello.txt --duration=5m --region=europe-west2 --format='value(signed_url)' 2>&1); echo "sign-url (no key file) rc=$?: $(echo "$U" | head -c 200)"
