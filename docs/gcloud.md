@@ -332,10 +332,15 @@ messages passed through the interceptor unchanged (measured).
    have both.
 4. `danbodart-sandbox-test`, the test project: a key for its service account
    `frisket-spike`, which reads one bucket, in a project's sops, bound from
-   there.
+   there. *Done:* the `gcloud-sandbox` checkout, sorted into trusted.
 5. In a trusted session: `gcloud storage cat`, a Python, Go and Node read, a
    gRPC call, and a write that asks. Read frisket's log: every Google request
-   matched a named operation, or was asked about.
+   matched a named operation, or was asked about. *Done with gcloud, against
+   real Google:* the grant answered by frisket; `storage cat` and a Pub/Sub
+   topic read with the real token injected; an upload asked about, then
+   refused by Google while the account could only read and written once it
+   could create; a key creation refused with no question. The Python, Go,
+   Node and gRPC reads are the VM test's (`checks.gcloud-session`).
 
 ## Open
 
