@@ -37,7 +37,7 @@ anywhere until it dies, and nothing logs or gates what is done with it.
 
 **2. The session holds a service-account key, and the key is fake.** A key
 file of the ordinary `service_account` shape, naming the project's service
-account, whose private key chase made for the session and Google has never
+account, whose private key chase made for the checkout and Google has never
 seen. Every Google client finds it through `GOOGLE_APPLICATION_CREDENTIALS`,
 and does one of two things with it (measured):
 
@@ -72,8 +72,13 @@ sign.
 answers; chase's `gcloud` app says where. With the app enabled for a session
 it:
 
-- writes the fake key file, from a key made for the session, and hands frisket
-  its public half in the policy;
+- writes the fake key file, once for the checkout, beside its environment in
+  `~/.local/state/chase/env/<checkout>/`, which the session has read-only: an
+  RSA-2048 key of its own, a random `private_key_id`, and `client_email` and
+  `project_id` from the real key, which must name the binding's
+  `serviceAccount`. Its public half goes in the session's policy, inline, with
+  the service account as issuer. Made again only when the account changes;
+
 - sets `GOOGLE_APPLICATION_CREDENTIALS` to it, and
   `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` too, since gcloud reads only that.
   (`gcloud auth activate-service-account --key-file` at start instead makes
@@ -82,7 +87,9 @@ it:
 - sets the CA for the Google runtimes: `CLOUDSDK_CORE_CUSTOM_CA_CERTS_FILE`
   for gcloud's bundled Python, `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` for gRPC,
   beside the ones the tier already sets;
-- gives gcloud a `CLOUDSDK_CONFIG` of the session's own.
+- gives gcloud a `CLOUDSDK_CONFIG` of the session's own,
+  `/run/user/<uid>/gcloud`, which in a session is its own tmpfs (measured),
+  and turns off its update check.
 
 No project variable is needed: the key file names it.
 
@@ -129,8 +136,15 @@ is STS then `iamcredentials…:generateAccessToken`, about 225 ms, fifteen lines
 of openssl, curl and jq (`spikes/gcloud/wif/renew.sh`).
 
 **5. The renewer is chase's, beside claude-refresh and codex-refresh.**
-frisket never refreshes (frisket decision 10). A user service per project
-binding:
+frisket never refreshes (frisket decision 10). A user unit per session,
+`chase-gcloud-renew@<machine>`, reading the key from
+`/run/user/<uid>/chase/<machine>/secrets/gcloud` and writing
+`gcloud-token.json` beside it. The launch mints the first token itself, in
+postStart, and starts the unit after it; postStop stops it before the
+directory goes. A refusal from Google, or a key for another account, ends the
+launch; Google out of reach only warns, and the unit keeps trying. Both
+hooks reach the user's manager with `systemctl --user` once `XDG_RUNTIME_DIR`
+is set, which postStop's environment does not have (measured). Each round:
 
 1. signs a JWT as the service account with its key: `iss` the service
    account's email, `scope` `https://www.googleapis.com/auth/cloud-platform`,
@@ -215,6 +229,23 @@ project adds or removes. A project is never forced to declare anything to get
 the tier's default; what it must bring is its credential (decision 4 of
 PLAN.md: declared but unbound refuses).
 
+```nix
+chase.tiers.trusted.apps.gcloud = { enable = true; apis = [ "bigquery" "storage" ]; };
+
+chaseModules.default.chase.bindings.gcloud = {
+  credential.secret = "gcloud-key";
+  serviceAccount = "agent@my-project.iam.gserviceaccount.com";
+  apis.add = [ "secretmanager" ];
+  allow = [ "category:bigquery" ];
+};
+```
+
+Resolved at launch: the named APIs' rules, one rule per method and template,
+answered as the tier's switches say and then as the project's lists; a
+category is the API. A name with no API is an error, and a request to an API
+not carried is unmatched. Only a tier that takes envelopes can enable it, and
+nothing of Google's is in a tier's own policy.
+
 ## What frisket needs
 
 Each is a capability, knowing nothing of Google but a host name in a policy;
@@ -277,9 +308,12 @@ messages passed through the interceptor unchanged (measured).
    - `nix flake check` runs the generator on a small API of each kind, and
      every way it refuses, and reads the committed table for what returns a
      credential.
-3. chase: the `gcloud` app — the route, a fake key per session and the
+3. chase: the `gcloud` app — the route, a fake key per checkout and the
    environment that points at it, the credential shape (a JSON token file with
-   an expiry), and the renewer.
+   an expiry), and the renewer. *Done:* `apps/gcloud.nix`, whose routes are
+   made at launch by an app's `prepare`, a program the launch runs once the
+   secret is decrypted, and whose unit is stopped by its `stop`; any app can
+   have both.
 4. `danbodart-sandbox-test`, the test project: a key for its service account
    `frisket-spike`, which reads one bucket, in a project's sops, bound from
    there.

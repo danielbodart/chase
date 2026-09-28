@@ -210,6 +210,29 @@
               && lib.any (p: p.refuse or false && p.path or "" == "/api/models/*/*/xet-write-token/*") route.paths
               && ! lib.any (p: p.ask or false) route.paths)
               || throw "assertions: an anonymous huggingface did not hold together";
+            # Google Cloud is only ever a project's (PLAN.md, decision 9): a
+            # tier that takes no envelope cannot enable it, an API it names
+            # must exist, and a tier that has it gets gcloud and nothing in
+            # its own document.
+            assert refused "gcloud in a tier that takes no envelope"
+              { chase.tiers.strict.apps.gcloud.enable = true; } "takes no envelope";
+            assert refused "an unknown Google API"
+              { chase.tiers.trusted.apps.gcloud = { enable = true; apis = [ "bigquery" "nope" ]; }; } "names no Google API: nope";
+            assert
+              (let
+                config = configWith { chase.tiers.trusted.apps.gcloud = { enable = true; apis = [ "bigquery" ]; }; };
+                env = config.containers.agent-trusted.config.environment;
+                policy = config.services.frisket.policies.trusted;
+              in
+              lib.all (a: a.assertion) config.assertions
+              && lib.any (p: lib.getName p == lib.getName pkgs.google-cloud-sdk) env.systemPackages
+              && env.variables.CLOUDSDK_CONFIG == "/run/user/1000/gcloud"
+              && env.variables.CLOUDSDK_CORE_CUSTOM_CA_CERTS_FILE == "/etc/frisket/ca-bundle.crt"
+              && env.variables.GRPC_DEFAULT_SSL_ROOTS_FILE_PATH == "/etc/frisket/ca-bundle.crt"
+              && ! lib.any (lib.hasPrefix "gcloud") (lib.attrNames policy.routes)
+              && ! lib.elem "*.googleapis.com" policy.allow
+              && ! config.containers.agent-strict.config.environment.variables ? CLOUDSDK_CONFIG)
+              || throw "assertions: gcloud in trusted did not hold together";
             # A CLASS IS ANSWERED AS THE TIER AND THE APP SAY (PLAN.md,
             # decision 18). By default a read is allowed, a write asks and a
             # guarded operation is refused; the tier's settings are every
@@ -408,6 +431,151 @@
               || fail "a path an operation describes was allowed without naming it"
             touch $out
           '';
+
+          # GOOGLE CLOUD AT LAUNCH (docs/gcloud.md, decisions 2, 3, 5 and 9):
+          # the tier's APIs and the project's changes to them, answered as
+          # the tier says and then as the project's lists say; the session's
+          # key, made once and never the real one; the first token and the
+          # renewer; and a document frisket accepts. The renewer and
+          # systemctl are stand-ins that say what they were asked.
+          gcloud-launch =
+            let
+              lib = nixpkgs.lib;
+              config = (lib.nixosSystem {
+                inherit system;
+                modules = [
+                  self.nixosModules.default
+                  home-manager.nixosModules.home-manager
+                  ./examples/tiers.nix
+                  {
+                    boot.isContainer = true;
+                    system.stateVersion = "26.05";
+                    users.users.alice = { isNormalUser = true; uid = 1000; group = "users"; };
+                    home-manager.users.alice.home.stateVersion = "26.05";
+                    chase = {
+                      user = "alice";
+                      uid = 1000;
+                      gid = 100;
+                      bindings = {
+                        claude.package = pkgs.hello;
+                        codex.package = pkgs.hello;
+                        github.credentialFile = "/run/secrets/gh_token";
+                      };
+                      tiers.trusted.apps.gcloud = { enable = true; apis = [ "bigquery" "storage" ]; };
+                      tiers.loose = {
+                        egress = "direct";
+                        envelope = true;
+                        unmatched = "allow";
+                        apps.gcloud = { enable = true; apis = [ "bigquery" ]; };
+                      };
+                    };
+                  }
+                ];
+              }).config;
+              frisket = self.inputs.frisket.packages.${system}.default;
+            in
+            pkgs.runCommand "gcloud-launch" { nativeBuildInputs = [ pkgs.jq pkgs.openssl frisket ]; } ''
+              fail() { echo "gcloud-launch: $*" >&2; exit 1; }
+              mkdir bin run run/secrets env
+              cat > bin/chase-gcloud-renew <<'EOF'
+              #!${pkgs.runtimeShell}
+              echo "$CHASE_GCLOUD_SA $*" >> "$TMPDIR/renew.log"
+              printf '{"access_token": "t", "expiry": 1}' > "$2/gcloud-token.json"
+              exit "''${RENEW_RC:-0}"
+              EOF
+              cat > bin/systemctl <<'EOF'
+              #!${pkgs.runtimeShell}
+              echo "$XDG_RUNTIME_DIR $*" >> "$TMPDIR/systemctl.log"
+              EOF
+              chmod +x bin/*
+              sed "s|^export PATH=\"|export PATH=\"$PWD/bin:|" ${config.chase.internal.projectApps.gcloud.prepare} > prepare
+              run=$PWD/run/agent-trusted-1-2
+              mkdir -p "$run/secrets"
+              sa=agent@p.iam.gserviceaccount.com
+              openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null \
+                | jq -Rs --arg e "$sa" '{type: "service_account", project_id: "p", private_key_id: "real", private_key: ., client_email: $e, client_id: "1"}' > real.json
+              cp real.json "$run/secrets/gcloud"
+              prepare() { # TIER BINDING
+                jq -c . <<< "$2" | bash ./prepare "$1" /ws "$run" "$PWD/env"
+              }
+              binding() { jq -nc --arg sa "$sa" --argjson apis "$1" '{serviceAccount: $sa, credential: {secret: "gcloud-key"}, apis: $apis}'; }
+              answer() { jq -r --arg id "$1" '[.routes[] | select(.name == "gcloud") | .paths[] | select(.operation.id? == $id)] | if . == [] then "absent" else .[0] | if .refuse then "refuse" elif .ask then "ask" else "allow" end end'; }
+
+              patch=$(prepare trusted "$(binding '{"add": ["pubsub"], "remove": ["storage"]}')") || fail "a binding was not prepared"
+              route=$(jq -c '.routes[] | select(.name == "gcloud")' <<< "$patch")
+              [ "$(jq -c '[.paths[].operation.category] | unique' <<< "$route")" = '["bigquery","google.iam.v1.IAMPolicy","pubsub"]' ] \
+                || fail "the APIs are not the tier's with the project's changes: $(jq -c '[.paths[].operation.category] | unique' <<< "$route")"
+              jq -e '.paths | group_by([.methods, .path, .prefix]) | all(length == 1)' <<< "$route" >/dev/null || fail "a rule is there twice"
+              jq -e '.unmatched == "ask" and .credentialFile == "'"$run"'/gcloud-token.json" and .credentialJSON == {token: "access_token", expiresMillis: "expiry"}
+                and .host == "*.googleapis.com" and .upstream == "https://*.googleapis.com" and .placeholder == "proxy-injected"
+                and .sessionKey.issuer == "'"$sa"'" and .sessionKey.grants == ["oauth2.googleapis.com/token", "www.googleapis.com/oauth2/v4/token"]' <<< "$route" >/dev/null \
+                || fail "the route is not Google's: $(jq -c 'del(.paths)' <<< "$route")"
+              jq -e '.routes[] | select(.name == "gcloud-mtls") | .host == "*.mtls.googleapis.com" and .paths[0].refuse and .paths[0].prefix == "/" and (has("credentialFile") | not)' <<< "$patch" >/dev/null \
+                || fail "the mtls hosts are not refused whole"
+              [ "$(answer bigquery.datasets.get <<< "$patch")" = allow ] || fail "a read is not allowed"
+              [ "$(answer bigquery.datasets.insert <<< "$patch")" = ask ] || fail "a write does not ask"
+              [ "$(answer pubsub.projects.topics.delete <<< "$patch")" = refuse ] || fail "a guarded operation is not refused"
+
+              # The session's key: the service account and its project, a key
+              # of its own, and its public half in the route.
+              key=env/gcloud-key.json
+              [ "$(jq -r '.env.GOOGLE_APPLICATION_CREDENTIALS, .env.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE' <<< "$patch" | sort -u)" = "$PWD/$key" ] \
+                || fail "the environment does not name the key"
+              jq -e --arg e "$sa" '.type == "service_account" and .client_email == $e and .project_id == "p" and .private_key_id != "real" and (has("client_id") | not)' "$key" >/dev/null \
+                || fail "the session's key is not the service account's shape"
+              [ "$(jq -r .sessionKey.publicKey <<< "$route")" = "$(jq -r .private_key "$key" | openssl pkey -pubout)" ] || fail "the route does not hold the session key's public half"
+              [ "$(jq -r .sessionKey.publicKey <<< "$route")" != "$(jq -r .private_key real.json | openssl pkey -pubout)" ] || fail "the session holds the real key"
+              id=$(jq -r .private_key_id "$key")
+              prepare trusted "$(binding '{}')" > /dev/null
+              [ "$(jq -r .private_key_id "$key")" = "$id" ] || fail "the checkout's key was made again"
+              grep -qx "$sa mint $run" renew.log || fail "no first token was minted: $(cat renew.log)"
+              grep -qx "/run/user/1000 --user start chase-gcloud-renew@agent-trusted-1-2.service" systemctl.log || fail "the renewer was not started: $(cat systemctl.log)"
+
+              # Merged into the tier's document, with a project's lists.
+              doc=$(jq -c --slurpfile patch <(printf '%s' "$patch") -f ${./project/merge.jq} <<< '{"name": "trusted", "allow": ["github.com"], "routes": [{"name": "gcloud", "host": "x"}]}')
+              jq -e '.allow == ["*.googleapis.com", "github.com"] and ([.routes[].name] == ["gcloud", "gcloud-mtls"])' <<< "$doc" >/dev/null \
+                || fail "the routes were not merged: $(jq -c '{allow, names: [.routes[].name]}' <<< "$doc")"
+              listed=$(jq -c --arg app gcloud --argjson lists '{"allow": ["category:bigquery"], "ask": ["pubsub.projects.topics.delete"], "refuse": []}' -f ${./project/lists.jq} <<< "$doc")
+              [ "$(answer bigquery.datasets.insert <<< "$listed")" = allow ] || fail "category:bigquery did not decide"
+              [ "$(answer pubsub.projects.topics.delete <<< "$listed")" = ask ] || fail "a name did not decide"
+              ! jq -c --arg app gcloud --argjson lists '{"allow": ["category:storage"], "ask": [], "refuse": []}' -f ${./project/lists.jq} <<< "$doc" 2>/dev/null \
+                || fail "a category of an API the session does not carry was applied"
+              printf '%s' '{"access_token": "t", "expiry": 1}' > "$run/gcloud-token.json"
+              printf '%s\n' "$listed" > policy.json
+              frisket check policy.json || fail "frisket refused the document"
+
+              # What is unmatched is allowed where the tier says so.
+              jq -e '.routes[0].paths[-1] == {methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"], prefix: "/"} and .routes[0].unmatched == "refuse"' \
+                <<< "$(prepare loose "$(binding '{}')")" >/dev/null || fail "an unmatched allow has no catch-all"
+
+              # Refused: an API with no name, a key for someone else, and
+              # Google refusing the key. Google out of reach only warns.
+              refused() { # WHAT NEEDLE TIER BINDING
+                if said=$(prepare "$3" "$4" 2>&1 >/dev/null); then fail "$1 was not refused"; fi
+                case $said in *"$2"*) ;; *) fail "$1: expected '$2' in: $said" ;; esac
+              }
+              refused "an unknown API" "no Google API named nope" trusted "$(binding '{"add": ["nope"]}')"
+              refused "no service account" "no serviceAccount" trusted '{"credential": {"secret": "gcloud-key"}}'
+              refused "a key for another account" "the key is for 'agent@p.iam.gserviceaccount.com', not other@p" trusted \
+                "$(jq -c '.serviceAccount = "other@p"' <<< "$(binding '{}')")"
+              RENEW_RC=2 refused "a key Google refuses" "Google refused" trusted "$(binding '{}')"
+              RENEW_RC=3 refused "a key the renewer finds is not the account's" "is not $sa's" trusted "$(binding '{}')"
+              said=$(RENEW_RC=1 prepare trusted "$(binding '{}')" 2>&1 >/dev/null) || fail "Google out of reach ended the launch"
+              case $said in *"renewer keeps trying"*) ;; *) fail "Google out of reach was not said: $said" ;; esac
+
+              # The session's end stops the renewer, before its directory goes.
+              poststop=$(cat ${lib.head (lib.findFirst (c: lib.hasInfix "chase-agent-trusted-poststop" (lib.head c)) [ "/nonexistent" ] config.flong.agent-trusted.postStop)})
+              stop=$(grep -n chase-gcloud-stop <<< "$poststop" | cut -d: -f1 || true)
+              rm=$(grep -n 'rm -rf' <<< "$poststop" | cut -d: -f1 || true)
+              [ -n "$stop" ] && [ "$stop" -lt "$rm" ] || fail "postStop does not stop the renewer first: $poststop"
+              grep -q 'stop "chase-gcloud-renew@$1.service"' ${config.chase.internal.projectApps.gcloud.stop} || fail "the stop names another unit"
+              : ${toString (lib.filter (p: lib.getName p == "chase-envelope") config.flong.agent-trusted.path)}
+
+              # A tier without gcloud says so, and keeps no secret.
+              [ "$(prepare strict "$(binding '{}')" 2>/dev/null)" = '{}' ] && [ ! -e "$run/secrets/gcloud" ] \
+                || fail "a tier without gcloud prepared it"
+              touch $out
+            '';
 
           # GOOGLE CLOUD'S GENERATOR (docs/gcloud.md, decision 8), run on a
           # small API of each kind: Discovery and protos, a proto-only API, a

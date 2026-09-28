@@ -19,6 +19,7 @@
 let
   inherit (lib) mkOption types;
   secretKey = types.nullOr (types.strMatching "[A-Za-z0-9_.-]+");
+  apiName = types.strMatching "[A-Za-z0-9_-]+";
 
   # A syscall's name or a systemd group's, as flong takes them. flong refuses
   # a name systemd does not list, at launch.
@@ -127,6 +128,43 @@ in
           Not a secret -- it names the account, it does not open it -- so it
           is written here, where it is approved, rather than in `secrets`.
         '';
+      };
+    };
+
+    bindings.gcloud = lists "Google Cloud" // {
+      credential.secret = mkOption {
+        type = secretKey;
+        default = null;
+        example = "gcloud-key";
+        description = ''
+          The key in `secrets` holding the project's service-account key, the
+          JSON Google issues, as one string. Decrypted at launch outside the
+          session, where only the renewer reads it; the session holds a key of
+          the same shape that Google has never seen.
+        '';
+      };
+      serviceAccount = mkOption {
+        type = types.nullOr (types.strMatching "[^@[:space:]]+@[^@[:space:]]+");
+        default = null;
+        example = "agent@my-project.iam.gserviceaccount.com";
+        description = ''
+          The service account the key must be for. A key naming another is
+          refused at launch.
+        '';
+      };
+      apis = {
+        add = mkOption {
+          type = types.listOf apiName;
+          default = [ ];
+          example = [ "secretmanager" ];
+          description = "Google APIs, by Discovery name, carried beside the tier's.";
+        };
+        remove = mkOption {
+          type = types.listOf apiName;
+          default = [ ];
+          example = [ "pubsub" ];
+          description = "The tier's Google APIs this project's sessions do without.";
+        };
       };
     };
   };

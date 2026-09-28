@@ -284,6 +284,7 @@ in
     ./apps/codex.nix
     ./apps/cloudflare.nix
     ./apps/huggingface.nix
+    ./apps/gcloud.nix
     ./project
   ] ++ map
     (name: lib.mkRemovedOptionModule [ "chase" name ] ''

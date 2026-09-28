@@ -198,6 +198,15 @@ its own cannot upload either. See [docs/huggingface.md](docs/huggingface.md). `s
 model is downloaded once — not in a tier that runs other people's code, since
 the host loads what is in it.
 
+**Google Cloud.** gcloud and Google's client libraries, as a project's own
+service account: the project binds its key in its envelope, and the session
+gets a key file of the same shape whose key Google has never seen. frisket
+answers what it signs with the placeholder and puts the real token, which
+chase renews, on every `*.googleapis.com` request. A tier names the APIs it
+carries (`apps.gcloud.apis`), a project adds or removes, and each request is
+answered by an allowlist generated from Google's own descriptions. Only in a
+tier that takes envelopes. See [docs/gcloud.md](docs/gcloud.md).
+
 Anything else is yours. An app is an ordinary NixOS module written against
 the options above — it reads `config.chase`, extends `chase.tiers.<tier>.apps`
 with its own switch, and adds whatever binds or container configuration it
