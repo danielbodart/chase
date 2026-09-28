@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"pollen.batch","summary":"A batch of Pollen API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"pollen"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"pollen.batch","summary":"A batch of Pollen API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"pollen"}},
 {"methods":["GET","HEAD"],"path":"/v1/forecast:lookup","operation":{"id":"pollen.forecast.lookup","summary":"Returns up to 5 days of daily pollen information in more than 65 countries, up to 1km resolution.","class":"read","category":"pollen"}},
 {"methods":["GET","HEAD"],"path":"/v1/mapTypes/*/heatmapTiles/*/*/*","operation":{"id":"pollen.mapTypes.heatmapTiles.lookupHeatmapTile","summary":"Returns a byte array containing the data of the tile PNG image.","class":"read","category":"pollen"}}
 ]

@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"cloudcommerceprocurement.batch","summary":"A batch of Cloud Commerce Partner Procurement API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"cloudcommerceprocurement"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"cloudcommerceprocurement.batch","summary":"A batch of Cloud Commerce Partner Procurement API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"cloudcommerceprocurement"}},
 {"methods":["GET","HEAD"],"path":"/v1/providers/*/accounts","operation":{"id":"cloudcommerceprocurement.providers.accounts.list","summary":"Lists Accounts that the provider has access to.","class":"read","category":"cloudcommerceprocurement"}},
 {"methods":["GET","HEAD"],"path":"/v1/providers/*/accounts/*","operation":{"id":"cloudcommerceprocurement.providers.accounts.get","summary":"Gets a requested Account resource.","class":"read","category":"cloudcommerceprocurement"}},
 {"methods":["POST"],"path":"/v1/providers/*/accounts/*:approve","operation":{"id":"cloudcommerceprocurement.providers.accounts.approve","summary":"Grants an approval on an Account.","class":"write","category":"cloudcommerceprocurement"}},

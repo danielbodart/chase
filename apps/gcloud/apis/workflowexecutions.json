@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"workflowexecutions.batch","summary":"A batch of Workflow Executions API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"workflowexecutions"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"workflowexecutions.batch","summary":"A batch of Workflow Executions API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"workflowexecutions"}},
 {"methods":["POST"],"path":"/google.cloud.workflows.executions.v1.Executions/CancelExecution","operation":{"id":"google.cloud.workflows.executions.v1.Executions.CancelExecution","summary":"Cancels an execution of the given name.","class":"write","category":"workflowexecutions"}},
 {"methods":["POST"],"path":"/google.cloud.workflows.executions.v1.Executions/CreateExecution","operation":{"id":"google.cloud.workflows.executions.v1.Executions.CreateExecution","summary":"Creates a new execution using the latest revision of the given workflow.","class":"write","category":"workflowexecutions"}},
 {"methods":["POST"],"path":"/google.cloud.workflows.executions.v1.Executions/GetExecution","operation":{"id":"google.cloud.workflows.executions.v1.Executions.GetExecution","summary":"Returns an execution of the given name.","class":"read","category":"workflowexecutions"}},

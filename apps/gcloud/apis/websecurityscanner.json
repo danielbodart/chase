@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"websecurityscanner.batch","summary":"A batch of Web Security Scanner API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"websecurityscanner"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"websecurityscanner.batch","summary":"A batch of Web Security Scanner API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"websecurityscanner"}},
 {"methods":["POST"],"path":"/google.cloud.websecurityscanner.v1.WebSecurityScanner/CreateScanConfig","operation":{"id":"google.cloud.websecurityscanner.v1.WebSecurityScanner.CreateScanConfig","summary":"Creates a new ScanConfig.","class":"write","category":"websecurityscanner"}},
 {"methods":["POST"],"path":"/google.cloud.websecurityscanner.v1.WebSecurityScanner/DeleteScanConfig","operation":{"id":"google.cloud.websecurityscanner.v1.WebSecurityScanner.DeleteScanConfig","summary":"Deletes an existing ScanConfig and its child resources.","class":"guarded","category":"websecurityscanner"}},
 {"methods":["POST"],"path":"/google.cloud.websecurityscanner.v1.WebSecurityScanner/GetFinding","operation":{"id":"google.cloud.websecurityscanner.v1.WebSecurityScanner.GetFinding","summary":"Gets a Finding.","class":"read","category":"websecurityscanner"}},

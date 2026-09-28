@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"script.batch","summary":"A batch of Apps Script API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"script"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"script.batch","summary":"A batch of Apps Script API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"script"}},
 {"methods":["GET","HEAD"],"path":"/v1/processes","operation":{"id":"script.processes.list","summary":"List information about processes made by or on behalf of a user, such as process type and current status.","class":"read","category":"script"}},
 {"methods":["GET","HEAD"],"path":"/v1/processes:listScriptProcesses","operation":{"id":"script.processes.listScriptProcesses","summary":"List information about a script's executed processes, such as process type and current status.","class":"read","category":"script"}},
 {"methods":["POST"],"path":"/v1/projects","operation":{"id":"script.projects.create","summary":"Creates a new, empty script project with no script files and a base manifest file.","class":"write","category":"script"}},

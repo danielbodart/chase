@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"playdeveloperreporting.batch","summary":"A batch of Google Play Developer Reporting API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"playdeveloperreporting"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"playdeveloperreporting.batch","summary":"A batch of Google Play Developer Reporting API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"playdeveloperreporting"}},
 {"methods":["GET","HEAD"],"path":"/v1beta1/apps/*/anomalies","operation":{"id":"playdeveloperreporting.anomalies.list","summary":"Lists anomalies in any of the datasets.","class":"read","category":"playdeveloperreporting"}},
 {"methods":["GET","HEAD"],"path":"/v1beta1/apps/*/anonRssAndSwapMemoryUsageMetricSet","operation":{"id":"playdeveloperreporting.vitals.anonrssandswapmemoryusage.get","summary":"Describes the properties of the metric set.","class":"read","category":"playdeveloperreporting"}},
 {"methods":["POST"],"path":"/v1beta1/apps/*/anonRssAndSwapMemoryUsageMetricSet:query","operation":{"id":"playdeveloperreporting.vitals.anonrssandswapmemoryusage.query","summary":"Queries the metrics in the metric set.","class":"write","category":"playdeveloperreporting"}},

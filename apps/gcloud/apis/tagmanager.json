@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"tagmanager.batch","summary":"A batch of Tag Manager API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"tagmanager"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"tagmanager.batch","summary":"A batch of Tag Manager API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"tagmanager"}},
 {"methods":["GET","HEAD"],"path":"/tagmanager/v1/accounts","operation":{"id":"tagmanager.accounts.list","summary":"Lists all GTM Accounts that a user has access to.","class":"read","category":"tagmanager"}},
 {"methods":["GET","HEAD"],"path":"/tagmanager/v1/accounts/*","operation":{"id":"tagmanager.accounts.get","summary":"Gets a GTM Account.","class":"read","category":"tagmanager"}},
 {"methods":["PUT"],"path":"/tagmanager/v1/accounts/*","operation":{"id":"tagmanager.accounts.update","summary":"Updates a GTM Account.","class":"write","category":"tagmanager"}},

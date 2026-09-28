@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"youtubeAnalytics.batch","summary":"A batch of YouTube Analytics API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"youtubeAnalytics"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"youtubeAnalytics.batch","summary":"A batch of YouTube Analytics API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"youtubeAnalytics"}},
 {"methods":["DELETE"],"path":"/v2/groupItems","operation":{"id":"youtubeAnalytics.groupItems.delete","summary":"Removes an item from a group.","class":"guarded","category":"youtubeAnalytics"}},
 {"methods":["GET","HEAD"],"path":"/v2/groupItems","operation":{"id":"youtubeAnalytics.groupItems.list","summary":"Returns a collection of group items that match the API request parameters.","class":"read","category":"youtubeAnalytics"}},
 {"methods":["POST"],"path":"/v2/groupItems","operation":{"id":"youtubeAnalytics.groupItems.insert","summary":"Creates a group item.","class":"write","category":"youtubeAnalytics"}},

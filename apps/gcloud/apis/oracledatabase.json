@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"oracledatabase.batch","summary":"A batch of Oracle Database@Google Cloud API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"oracledatabase"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"oracledatabase.batch","summary":"A batch of Oracle Database@Google Cloud API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"oracledatabase"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/GetLocation","operation":{"id":"google.cloud.location.Locations.GetLocation","summary":"Gets information about a location.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/ListLocations","operation":{"id":"google.cloud.location.Locations.ListLocations","summary":"Lists information about the supported locations for this service.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.oracledatabase.v1.OracleDatabase/ConfigureExascaleCloudExadataInfrastructure","operation":{"id":"google.cloud.oracledatabase.v1.OracleDatabase.ConfigureExascaleCloudExadataInfrastructure","summary":"Configures Exascale for a single Exadata Infrastructure.","class":"write","category":"oracledatabase"}},

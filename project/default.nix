@@ -81,6 +81,7 @@ let
       apps=${apps}
       lists=${./lists.jq}
       merge=${./merge.jq}
+      normal=${./normal.jq}
       approver=${lib.escapeShellArg approver}
 
       # A checkout's key: its path, hashed, so a path with anything in it is
@@ -186,7 +187,7 @@ let
       approve_envelope() {
         local ws=$1 result=$2 dir=$3 previous=null diff
         if [ -f "$dir/envelope.json" ]; then
-          previous=$(jq -c . "$dir/envelope.json")
+          previous=$(jq -c -f "$normal" "$dir/envelope.json")
           [ "$(jq -cS . <<< "$previous")" != "$(jq -cS . <<< "$result")" ] || return 0
         fi
         diff=$(diff -u --label approved --label proposed \
@@ -247,14 +248,7 @@ let
           printf 'null\n' > "$stage.$$" && mv "$stage.$$" "$stage"
           return
         fi
-        # A project that loosens nothing has no seccomp section in what is
-        # approved, and says nothing of an app it does not bind, so an
-        # envelope approved before there were any still is.
-        result=$(jq -c '
-          def pruned: if type == "object" then map_values(pruned) | with_entries(select(.value | IN(null, [], {}) | not)) else . end;
-          if .seccomp == {allow: [], deny: []} then del(.seccomp) else . end
-          | .bindings |= pruned
-        ' <<< "$result")
+        result=$(jq -c -f "$normal" <<< "$result")
         # One name in two of an app's lists says two things: refused before
         # anyone is asked to approve it.
         twice=$(jq -r '.bindings | to_entries[] | .key as $app
@@ -360,7 +354,7 @@ let
           doc=$(jq --arg app "$app" --argjson lists "$(jq -c --arg a "$app" '.bindings[$a] | {allow, ask, refuse} | map_values(. // [])' <<< "$result")" \
             -f "$lists" <<< "$doc") || die "$ws: its $app lists do not apply"
         done
-        printf '%s\n' "$doc" > "$run/policy.json"
+        jq 'del(.routes[]?.paths[]?.fixed)' <<< "$doc" > "$run/policy.json"
         mkdir -p "$(dirname "$envfile")"
         printf '%s' "$exports" > "$envfile.new"
         chmod 0644 "$envfile.new"
@@ -423,7 +417,8 @@ in
         `prepare TIER WORKSPACE RUN ENVDIR` with the approved binding on
         stdin, printing `{routes, allow, env}`; and `stop`, run in postStop
         as `stop MACHINE` before RUN is removed, to release what `prepare`
-        started.
+        started. A path rule it makes `fixed` is no project list's, and the
+        mark is taken off before frisket reads the document.
       '';
     };
   };

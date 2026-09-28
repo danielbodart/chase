@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"texttospeech.batch","summary":"A batch of Cloud Text-to-Speech API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"texttospeech"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"texttospeech.batch","summary":"A batch of Cloud Text-to-Speech API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"texttospeech"}},
 {"methods":["POST"],"path":"/google.cloud.texttospeech.v1.TextToSpeech/ListVoices","operation":{"id":"google.cloud.texttospeech.v1.TextToSpeech.ListVoices","summary":"Returns a list of Voice supported for synthesis.","class":"read","category":"texttospeech"}},
 {"methods":["POST"],"path":"/google.cloud.texttospeech.v1.TextToSpeech/StreamingSynthesize","operation":{"id":"google.cloud.texttospeech.v1.TextToSpeech.StreamingSynthesize","summary":"Performs bidirectional streaming speech synthesis: receives audio while sending text.","class":"write","category":"texttospeech"}},
 {"methods":["POST"],"path":"/google.cloud.texttospeech.v1.TextToSpeech/SynthesizeSpeech","operation":{"id":"google.cloud.texttospeech.v1.TextToSpeech.SynthesizeSpeech","summary":"Synthesizes speech synchronously: receive results after all text input has been processed.","class":"write","category":"texttospeech"}},

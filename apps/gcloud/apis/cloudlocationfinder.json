@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"cloudlocationfinder.batch","summary":"A batch of Cloud Location Finder API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"cloudlocationfinder"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"cloudlocationfinder.batch","summary":"A batch of Cloud Location Finder API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"cloudlocationfinder"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/GetLocation","operation":{"id":"google.cloud.location.Locations.GetLocation","summary":"Gets information about a location.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/ListLocations","operation":{"id":"google.cloud.location.Locations.ListLocations","summary":"Lists information about the supported locations for this service.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.locationfinder.v1.CloudLocationFinder/GetCloudLocation","operation":{"id":"google.cloud.locationfinder.v1.CloudLocationFinder.GetCloudLocation","summary":"Retrieves a resource containing information about a cloud location.","class":"read","category":"cloudlocationfinder"}},

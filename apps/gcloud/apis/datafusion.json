@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"datafusion.batch","summary":"A batch of Cloud Data Fusion API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"datafusion"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"datafusion.batch","summary":"A batch of Cloud Data Fusion API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"datafusion"}},
 {"methods":["POST"],"path":"/google.cloud.datafusion.v1.DataFusion/CreateInstance","operation":{"id":"google.cloud.datafusion.v1.DataFusion.CreateInstance","summary":"Creates a new Data Fusion instance in the specified project and location.","class":"write","category":"datafusion"}},
 {"methods":["POST"],"path":"/google.cloud.datafusion.v1.DataFusion/DeleteInstance","operation":{"id":"google.cloud.datafusion.v1.DataFusion.DeleteInstance","summary":"Deletes a single Date Fusion instance.","class":"guarded","category":"datafusion"}},
 {"methods":["POST"],"path":"/google.cloud.datafusion.v1.DataFusion/GetInstance","operation":{"id":"google.cloud.datafusion.v1.DataFusion.GetInstance","summary":"Gets details of a single Data Fusion instance.","class":"read","category":"datafusion"}},

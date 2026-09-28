@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"adsenseplatform.batch","summary":"A batch of AdSense Platform API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"adsenseplatform"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"adsenseplatform.batch","summary":"A batch of AdSense Platform API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"adsenseplatform"}},
 {"methods":["GET","HEAD"],"path":"/v1/platforms/*/accounts","operation":{"id":"adsenseplatform.platforms.accounts.list","summary":"Lists a partial view of sub-accounts for a specific parent account.","class":"read","category":"adsenseplatform"}},
 {"methods":["POST"],"path":"/v1/platforms/*/accounts","operation":{"id":"adsenseplatform.platforms.accounts.create","summary":"Creates a sub-account.","class":"write","category":"adsenseplatform"}},
 {"methods":["GET","HEAD"],"path":"/v1/platforms/*/accounts/*","operation":{"id":"adsenseplatform.platforms.accounts.get","summary":"Gets information about the selected sub-account.","class":"read","category":"adsenseplatform"}},

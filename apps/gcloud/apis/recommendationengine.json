@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"recommendationengine.batch","summary":"A batch of Recommendations AI (Beta) requests in one, each a whole request frisket cannot see.","class":"guarded","category":"recommendationengine"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"recommendationengine.batch","summary":"A batch of Recommendations AI (Beta) requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"recommendationengine"}},
 {"methods":["POST"],"path":"/google.cloud.recommendationengine.v1beta1.CatalogService/CreateCatalogItem","operation":{"id":"google.cloud.recommendationengine.v1beta1.CatalogService.CreateCatalogItem","summary":"Creates a catalog item.","class":"write","category":"recommendationengine"}},
 {"methods":["POST"],"path":"/google.cloud.recommendationengine.v1beta1.CatalogService/DeleteCatalogItem","operation":{"id":"google.cloud.recommendationengine.v1beta1.CatalogService.DeleteCatalogItem","summary":"Deletes a catalog item.","class":"guarded","category":"recommendationengine"}},
 {"methods":["POST"],"path":"/google.cloud.recommendationengine.v1beta1.CatalogService/GetCatalogItem","operation":{"id":"google.cloud.recommendationengine.v1beta1.CatalogService.GetCatalogItem","summary":"Gets a specific catalog item.","class":"read","category":"recommendationengine"}},

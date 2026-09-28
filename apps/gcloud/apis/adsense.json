@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"adsense.batch","summary":"A batch of AdSense Management API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"adsense"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"adsense.batch","summary":"A batch of AdSense Management API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"adsense"}},
 {"methods":["GET","HEAD"],"path":"/v2/accounts","operation":{"id":"adsense.accounts.list","summary":"Lists all accounts available to this user.","class":"read","category":"adsense"}},
 {"methods":["GET","HEAD"],"path":"/v2/accounts/*","operation":{"id":"adsense.accounts.get","summary":"Gets information about the selected AdSense account.","class":"read","category":"adsense"}},
 {"methods":["GET","HEAD"],"path":"/v2/accounts/*/adBlockingRecoveryTag","operation":{"id":"adsense.accounts.getAdBlockingRecoveryTag","summary":"Gets the ad blocking recovery tag of an account.","class":"read","category":"adsense"}},

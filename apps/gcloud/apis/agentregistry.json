@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"agentregistry.batch","summary":"A batch of Agent Registry API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"agentregistry"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"agentregistry.batch","summary":"A batch of Agent Registry API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"agentregistry"}},
 {"methods":["POST"],"path":"/google.cloud.agentregistry.v1.AgentRegistry/CreateBinding","operation":{"id":"google.cloud.agentregistry.v1.AgentRegistry.CreateBinding","summary":"Creates a new Binding in a given project and location.","class":"write","category":"agentregistry"}},
 {"methods":["POST"],"path":"/google.cloud.agentregistry.v1.AgentRegistry/CreateService","operation":{"id":"google.cloud.agentregistry.v1.AgentRegistry.CreateService","summary":"Creates a new Service in a given project and location.","class":"write","category":"agentregistry"}},
 {"methods":["POST"],"path":"/google.cloud.agentregistry.v1.AgentRegistry/DeleteBinding","operation":{"id":"google.cloud.agentregistry.v1.AgentRegistry.DeleteBinding","summary":"Deletes a single Binding.","class":"guarded","category":"agentregistry"}},

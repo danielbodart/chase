@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"factchecktools.batch","summary":"A batch of Fact Check Tools API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"factchecktools"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"factchecktools.batch","summary":"A batch of Fact Check Tools API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"factchecktools"}},
 {"methods":["GET","HEAD"],"path":"/v1alpha1/claims:imageSearch","operation":{"id":"factchecktools.claims.imageSearch","summary":"Search through fact-checked claims using an image as the query.","class":"read","category":"factchecktools"}},
 {"methods":["GET","HEAD"],"path":"/v1alpha1/claims:search","operation":{"id":"factchecktools.claims.search","summary":"Search through fact-checked claims.","class":"read","category":"factchecktools"}},
 {"methods":["GET","HEAD"],"path":"/v1alpha1/pages","operation":{"id":"factchecktools.pages.list","summary":"List the `ClaimReview` markup pages for a specific URL or for an organization.","class":"read","category":"factchecktools"}},

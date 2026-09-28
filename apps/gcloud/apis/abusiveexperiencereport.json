@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"abusiveexperiencereport.batch","summary":"A batch of Abusive Experience Report API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"abusiveexperiencereport"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"abusiveexperiencereport.batch","summary":"A batch of Abusive Experience Report API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"abusiveexperiencereport"}},
 {"methods":["GET","HEAD"],"path":"/v1/sites/*","operation":{"id":"abusiveexperiencereport.sites.get","summary":"Gets a site's Abusive Experience Report summary.","class":"read","category":"abusiveexperiencereport"}},
 {"methods":["GET","HEAD"],"path":"/v1/violatingSites","operation":{"id":"abusiveexperiencereport.violatingSites.list","summary":"Lists sites that are failing in the Abusive Experience Report.","class":"read","category":"abusiveexperiencereport"}}
 ]

@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"cloudidentity.batch","summary":"A batch of Cloud Identity API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"cloudidentity"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"cloudidentity.batch","summary":"A batch of Cloud Identity API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"cloudidentity"}},
 {"methods":["GET","HEAD"],"path":"/v1/allowlistedDomains","operation":{"id":"cloudidentity.allowlistedDomains.list","summary":"Lists the domains in the allowlist.","class":"read","category":"cloudidentity"}},
 {"methods":["POST"],"path":"/v1/allowlistedDomains","operation":{"id":"cloudidentity.allowlistedDomains.create","summary":"Adds a domain to the allowlist.","class":"write","category":"cloudidentity"}},
 {"methods":["DELETE"],"path":"/v1/allowlistedDomains/*","operation":{"id":"cloudidentity.allowlistedDomains.delete","summary":"Removes a domain from the allowlist.","class":"guarded","category":"cloudidentity"}},

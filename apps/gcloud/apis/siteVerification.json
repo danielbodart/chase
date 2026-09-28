@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch/siteVerification/v1","operation":{"id":"siteVerification.batch","summary":"A batch of Google Site Verification API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"siteVerification"}},
+{"methods":["POST"],"path":"/batch/siteVerification/v1","operation":{"id":"siteVerification.batch","summary":"A batch of Google Site Verification API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"siteVerification"}},
 {"methods":["POST"],"path":"/siteVerification/v1/token","operation":{"id":"siteVerification.webResource.getToken","summary":"Get a verification token for placing on a website or domain.","class":"write","category":"siteVerification"}},
 {"methods":["GET","HEAD"],"path":"/siteVerification/v1/webResource","operation":{"id":"siteVerification.webResource.list","summary":"Get the list of your verified websites and domains.","class":"read","category":"siteVerification"}},
 {"methods":["POST"],"path":"/siteVerification/v1/webResource","operation":{"id":"siteVerification.webResource.insert","summary":"Attempt verification of a website or domain.","class":"write","category":"siteVerification"}},

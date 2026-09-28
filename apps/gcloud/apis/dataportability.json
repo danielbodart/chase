@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"dataportability.batch","summary":"A batch of Data Portability API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"dataportability"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"dataportability.batch","summary":"A batch of Data Portability API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"dataportability"}},
 {"methods":["POST"],"path":"/v1/accessType:check","operation":{"id":"dataportability.accessType.check","summary":"Gets the access type of the token.","class":"write","category":"dataportability"}},
 {"methods":["GET","HEAD"],"path":"/v1/archiveJobs/*/portabilityArchiveState","operation":{"id":"dataportability.archiveJobs.getPortabilityArchiveState","summary":"Retrieves the state of an Archive job for the Portability API.","class":"read","category":"dataportability"}},
 {"methods":["POST"],"path":"/v1/archiveJobs/*:cancel","operation":{"id":"dataportability.archiveJobs.cancel","summary":"Cancels a Portability Archive job.","class":"write","category":"dataportability"}},

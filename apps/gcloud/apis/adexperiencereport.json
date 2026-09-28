@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"adexperiencereport.batch","summary":"A batch of Ad Experience Report API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"adexperiencereport"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"adexperiencereport.batch","summary":"A batch of Ad Experience Report API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"adexperiencereport"}},
 {"methods":["GET","HEAD"],"path":"/v1/sites/*","operation":{"id":"adexperiencereport.sites.get","summary":"Gets a site's Ad Experience Report summary.","class":"read","category":"adexperiencereport"}},
 {"methods":["GET","HEAD"],"path":"/v1/violatingSites","operation":{"id":"adexperiencereport.violatingSites.list","summary":"Lists sites that are failing in the Ad Experience Report on at least one platform.","class":"read","category":"adexperiencereport"}}
 ]

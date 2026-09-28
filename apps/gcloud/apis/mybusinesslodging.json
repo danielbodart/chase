@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"mybusinesslodging.batch","summary":"A batch of My Business Lodging API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"mybusinesslodging"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"mybusinesslodging.batch","summary":"A batch of My Business Lodging API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"mybusinesslodging"}},
 {"methods":["GET","HEAD"],"path":"/v1/locations/*/lodging","operation":{"id":"mybusinesslodging.locations.getLodging","summary":"Returns the Lodging of a specific location.","class":"read","category":"mybusinesslodging"}},
 {"methods":["PATCH"],"path":"/v1/locations/*/lodging","operation":{"id":"mybusinesslodging.locations.updateLodging","summary":"Updates the Lodging of a specific location.","class":"write","category":"mybusinesslodging"}},
 {"methods":["GET","HEAD"],"path":"/v1/locations/*/lodging:getGoogleUpdated","operation":{"id":"mybusinesslodging.locations.lodging.getGoogleUpdated","summary":"Returns the Google updated Lodging of a specific location.","class":"read","category":"mybusinesslodging"}}

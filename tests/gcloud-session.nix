@@ -251,6 +251,11 @@ let
     upload deny-me no.txt > "$out/write-no" 2>&1
     curl -sS -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer proxy-injected' \
       https://storage.mtls.googleapis.com/storage/v1/b/chase-test/o/hello.txt > "$out/mtls" 2>&1
+    curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Authorization: Bearer proxy-injected' \
+      -H 'Content-Type: application/json' -d '{"scope": ["https://www.googleapis.com/auth/cloud-platform"], "x": "approve-me"}' \
+      "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${sa}:generateAccessToken" > "$out/mint" 2>&1
+    curl -sS -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer proxy-injected' \
+      "https://secretmanager.googleapis.com/v1/projects/chase-test/secrets/s/versions/latest:access?x=approve-me" > "$out/secret" 2>&1
     touch "$out/done"
     while [ ! -e release ]; do sleep 0.2; done
   '';
@@ -478,8 +483,9 @@ in
           machine.succeed(f"test \"$(stat -c %a {run}/secrets/gcloud)\" = 600")
           policy = json.loads(machine.succeed(f"cat {run}/policy.json"))
           routes = {r["name"]: r for r in policy["routes"]}
-          categories = {p["operation"]["category"] for p in routes["gcloud"]["paths"] if "operation" in p}
-          assert {"storage", "pubsub"} <= categories and "bigquery" not in categories, categories
+          ids = {p["operation"]["id"] for p in routes["gcloud"]["paths"] if "operation" in p}
+          assert {"storage.objects.get", "pubsub.projects.topics.get"} <= ids and "bigquery.datasets.get" not in ids, sorted(ids)[:40]
+          assert not [p for p in routes["gcloud"]["paths"] if "fixed" in p or "credential" in p.get("operation", {})]
           assert routes["gcloud"]["sessionKey"]["issuer"] == "${sa}"
           assert "*.googleapis.com" in policy["allow"] or "*" in policy["allow"], policy["allow"]
 
@@ -488,7 +494,7 @@ in
       with subtest("the session holds a fake key for the service account, and its environment points at it"):
           env = dict(l.split("=", 1) for l in machine.succeed(f"cat {out}/env").splitlines() if "=" in l)
           key_path = env["GOOGLE_APPLICATION_CREDENTIALS"]
-          assert key_path.startswith("/home/alice/.local/state/chase/env/") and key_path.endswith("/gcloud-key.json"), key_path
+          assert key_path.startswith("/home/alice/.local/state/chase/env/") and "/gcloud-key-" in key_path and key_path.endswith(".json"), key_path
           assert env["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"] == key_path, env
           assert env["CLOUDSDK_CONFIG"] == "/run/user/1000/gcloud", env
           assert env["CLOUDSDK_COMPONENT_MANAGER_DISABLE_UPDATE_CHECK"] == "1", env
@@ -528,6 +534,13 @@ in
           ops = [(q.get("operation") or {}).get("id") for q in asked()]
           assert ops.count("storage.objects.insert") == 2, asked()
           assert ops.count("google.pubsub.v1.Publisher.Publish") == 2, asked()
+          assert set(ops) == {"storage.objects.insert", "google.pubsub.v1.Publisher.Publish"}, asked()
+
+      with subtest("what returns a credential is refused unasked, from an API the session does not carry"):
+          for f in ["mint", "secret"]:
+              assert machine.succeed(f"cat {out}/{f}").strip() == "403", (f, machine.succeed(f"cat {out}/{f}"))
+          assert not [l for l in google_log() if l.get("host", "").startswith(("iamcredentials.", "secretmanager."))], google_log()
+          assert not [q for q in asked() if "iamcredentials" in json.dumps(q) or "secretmanager" in json.dumps(q)], asked()
 
       with subtest("an mTLS host is refused, and never reached"):
           assert machine.succeed(f"cat {out}/mtls").strip() == "403", machine.succeed(f"cat {out}/mtls")

@@ -1,4 +1,4 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"pagespeedonline.batch","summary":"A batch of PageSpeed Insights API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"pagespeedonline"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"pagespeedonline.batch","summary":"A batch of PageSpeed Insights API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"pagespeedonline"}},
 {"methods":["GET","HEAD"],"path":"/pagespeedonline/v5/runPagespeed","operation":{"id":"pagespeedonline.pagespeedapi.runpagespeed","summary":"Runs PageSpeed analysis on the page at the specified URL, and returns PageSpeed scores, a list of suggestions to make that page faster, and other information.","class":"read","category":"pagespeedonline"}}
 ]

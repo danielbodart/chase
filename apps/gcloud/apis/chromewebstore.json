@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"chromewebstore.batch","summary":"A batch of Chrome Web Store API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"chromewebstore"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"chromewebstore.batch","summary":"A batch of Chrome Web Store API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"chromewebstore"}},
 {"methods":["POST"],"path":"/chromewebstore/v1.1/items","operation":{"id":"chromewebstore.items.insert","summary":"Inserts a new item.","class":"write","category":"chromewebstore"}},
 {"methods":["GET","HEAD"],"path":"/chromewebstore/v1.1/items/*","operation":{"id":"chromewebstore.items.get","summary":"Gets your own Chrome Web Store item.","class":"read","category":"chromewebstore"}},
 {"methods":["PUT"],"path":"/chromewebstore/v1.1/items/*","operation":{"id":"chromewebstore.items.update","summary":"Updates an existing item.","class":"write","category":"chromewebstore"}},

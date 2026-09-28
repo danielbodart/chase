@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"chromemanagement.batch","summary":"A batch of Chrome Management API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"chromemanagement"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"chromemanagement.batch","summary":"A batch of Chrome Management API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"chromemanagement"}},
 {"methods":["GET","HEAD"],"path":"/v1/customers/*/apps/android/*","operation":{"id":"chromemanagement.customers.apps.android.get","summary":"Get a specific app for a customer by its resource name.","class":"read","category":"chromemanagement"}},
 {"methods":["GET","HEAD"],"path":"/v1/customers/*/apps/chrome/*","operation":{"id":"chromemanagement.customers.apps.chrome.get","summary":"Get a specific app for a customer by its resource name.","class":"read","category":"chromemanagement"}},
 {"methods":["GET","HEAD"],"path":"/v1/customers/*/apps/web/*","operation":{"id":"chromemanagement.customers.apps.web.get","summary":"Get a specific app for a customer by its resource name.","class":"read","category":"chromemanagement"}},

@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"youtubereporting.batch","summary":"A batch of YouTube Reporting API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"youtubereporting"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"youtubereporting.batch","summary":"A batch of YouTube Reporting API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"youtubereporting"}},
 {"methods":["GET","HEAD"],"prefix":"/download/v1/media","operation":{"id":"youtubereporting.media.download","summary":"Method for media download.","description":"Method for media download. Download is supported on the URI `/v1/media/{+name}?alt=media`.","class":"read","category":"youtubereporting"}},
 {"methods":["GET","HEAD"],"path":"/download/v1/media/*","operation":{"id":"youtubereporting.media.download","summary":"Method for media download.","description":"Method for media download. Download is supported on the URI `/v1/media/{+name}?alt=media`.","class":"read","category":"youtubereporting"}},
 {"methods":["GET","HEAD"],"path":"/v1/jobs","operation":{"id":"youtubereporting.jobs.list","summary":"Lists jobs.","class":"read","category":"youtubereporting"}},

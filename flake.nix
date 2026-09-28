@@ -384,7 +384,9 @@
               {"name": "github", "paths": [
                 {"methods": ["POST"], "path": "/repos/*/*/pulls", "ask": true, "operation": {"id": "pulls/create", "summary": "s", "class": "write", "category": "pulls"}},
                 {"methods": ["PUT"], "path": "/repos/*/*/pulls/*/merge", "ask": true, "operation": {"id": "pulls/merge", "summary": "s", "class": "write", "category": "pulls"}},
-                {"methods": ["DELETE"], "path": "/repos/*/*/git/refs/*", "refuse": true, "operation": {"id": "git/delete-ref", "summary": "s", "class": "guarded", "category": "git"}}]},
+                {"methods": ["DELETE"], "path": "/repos/*/*/git/refs/*", "refuse": true, "operation": {"id": "git/delete-ref", "summary": "s", "class": "guarded", "category": "git"}},
+                {"methods": ["POST"], "path": "/repos/*/*/pulls/*/token", "refuse": true, "fixed": true, "operation": {"id": "pulls/token", "summary": "s", "class": "guarded", "category": "pulls"}},
+                {"methods": ["POST"], "path": "/keys", "refuse": true, "fixed": true, "operation": {"id": "keys/create", "summary": "s", "class": "guarded", "category": "keys"}}]},
               {"name": "git", "git": {"repos": ["*"], "push": "ask"}, "paths": []},
               {"name": "gh", "paths": [], "graphql": [{"path": "/graphql", "unmatched": "ask",
                 "query": {"operation": {"id": "graphql-query", "summary": "s", "class": "read", "category": "graphql"}},
@@ -401,6 +403,13 @@
             [ "$(answer pulls/create <<< "$got")" = allow ] || fail "a category did not decide"
             [ "$(answer pulls/merge <<< "$got")" = refuse ] || fail "a name did not decide before its category"
             [ "$(answer git/delete-ref <<< "$got")" = ask ] || fail "a guarded operation named could not be asked about"
+            [ "$(answer pulls/token <<< "$got")" = refuse ] || fail "a category decided a fixed rule"
+
+            # A fixed rule is no list's: not by name, and not by a category
+            # only fixed rules have.
+            for bad in '{"allow": ["pulls/token"]}' '{"ask": ["pulls/token"]}' '{"allow": ["category:keys"]}'; do
+              ! apply github "$bad" 2>/dev/null || fail "a fixed rule was decided by a list: $bad"
+            done
 
             got=$(apply github '{"allow": [{"methods": ["POST"], "path": "/markdown/x"}], "ask": [], "refuse": []}')
             jq -e '.routes[0].paths[-1] == {"methods": ["POST"], "path": "/markdown/x"}' <<< "$got" >/dev/null \
@@ -429,6 +438,16 @@
             # a literal would otherwise outrank the guarded rule unnamed.
             ! apply github '{"allow": [{"methods": ["DELETE"], "path": "/repos/me/app/git/refs/main"}]}' 2>/dev/null \
               || fail "a path an operation describes was allowed without naming it"
+            ! apply github '{"allow": [{"methods": ["POST"], "path": "/repos/me/app/pulls/1/token"}]}' 2>/dev/null \
+              || fail "a path a fixed rule describes was allowed"
+
+            # An envelope approved before its apps' empty fields were left
+            # out reads as the same envelope now.
+            normal() { jq -cS -f ${./project/normal.jq}; }
+            old='{"secrets": "s.yaml", "seccomp": {"allow": [], "deny": []}, "bindings": {"github": {"allow": ["x"], "ask": [], "refuse": []}, "cloudflare": {"allow": [], "credential": {"secret": null}, "accountId": null}}}'
+            new='{"secrets": "s.yaml", "bindings": {"github": {"allow": ["x"]}}}'
+            [ "$(normal <<< "$old")" = "$(normal <<< "$new")" ] || fail "an envelope approved before reads as another: $(normal <<< "$old")"
+            [ "$(normal <<< '{"secrets": "s.yaml"}')" = '{"secrets":"s.yaml"}' ] || fail "an envelope without bindings was changed"
             touch $out
           '';
 
@@ -466,7 +485,14 @@
                         egress = "direct";
                         envelope = true;
                         unmatched = "allow";
+                        guarded = "allow";
                         apps.gcloud = { enable = true; apis = [ "bigquery" ]; };
+                      };
+                      tiers.closed = {
+                        egress = "direct";
+                        envelope = true;
+                        unmatched = "refuse";
+                        apps.gcloud.enable = true;
                       };
                     };
                   }
@@ -503,8 +529,9 @@
 
               patch=$(prepare trusted "$(binding '{"add": ["pubsub"], "remove": ["storage"]}')") || fail "a binding was not prepared"
               route=$(jq -c '.routes[] | select(.name == "gcloud")' <<< "$patch")
-              [ "$(jq -c '[.paths[].operation.category] | unique' <<< "$route")" = '["bigquery","google.iam.v1.IAMPolicy","pubsub"]' ] \
-                || fail "the APIs are not the tier's with the project's changes: $(jq -c '[.paths[].operation.category] | unique' <<< "$route")"
+              carried() { jq -c '[.paths[] | select(.fixed | not) | .operation.category] | unique'; }
+              [ "$(carried <<< "$route")" = '["bigquery","google.iam.v1.IAMPolicy","pubsub"]' ] \
+                || fail "the APIs are not the tier's with the project's changes: $(carried <<< "$route")"
               jq -e '.paths | group_by([.methods, .path, .prefix]) | all(length == 1)' <<< "$route" >/dev/null || fail "a rule is there twice"
               jq -e '.unmatched == "ask" and .credentialFile == "'"$run"'/gcloud-token.json" and .credentialJSON == {token: "access_token", expiresMillis: "expiry"}
                 and .host == "*.googleapis.com" and .upstream == "https://*.googleapis.com" and .placeholder == "proxy-injected"
@@ -516,11 +543,27 @@
               [ "$(answer bigquery.datasets.insert <<< "$patch")" = ask ] || fail "a write does not ask"
               [ "$(answer pubsub.projects.topics.delete <<< "$patch")" = refuse ] || fail "a guarded operation is not refused"
 
+              # What returns a credential is refused, and fixed, whether its
+              # API is carried or not; so is every guarded operation of an
+              # API that is not, and a carried API's "*" does not decide it.
+              fixed() { jq -r --arg id "$1" '[.routes[] | select(.name == "gcloud") | .paths[] | select(.operation.id? == $id)] | if . != [] and all(.refuse and .fixed) then "fixed" else "not fixed" end'; }
+              for id in bigquery.batch iamcredentials.projects.serviceAccounts.generateAccessToken google.iam.credentials.v1.IAMCredentials.SignJwt \
+                  sts.token iam.projects.serviceAccounts.keys.create storage.projects.hmacKeys.create secretmanager.projects.secrets.versions.access \
+                  google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion storage.buckets.patch compute.instances.delete \
+                  contactcenterinsights.projects.locations.conversations.generateSignedAudio google.cloud.edgecontainer.v1.EdgeContainer.GenerateAccessToken; do
+                [ "$(fixed "$id" <<< "$patch")" = fixed ] || fail "$id is not refused whatever is said"
+              done
+              [ "$(jq -r '.paths[] | select(.path == "/v1/projects/*/locations/*/conversations/*:generateSignedAudio" and .methods[0] == "GET") | .refuse' <<< "$route")" = true ] \
+                || fail "another API's signed audio is not refused"
+              [ "$(fixed pubsub.projects.topics.delete <<< "$patch")" = "not fixed" ] || fail "a carried API's guarded operation is not the project's to decide"
+              [ "$(jq -r '[.paths[] | select(.operation.id? == "bigquery.datasets.get")][0].operation | has("credential")' <<< "$route")" = false ] \
+                || fail "the table's credential mark reached the route"
+
               # The session's key: the service account and its project, a key
               # of its own, and its public half in the route.
-              key=env/gcloud-key.json
-              [ "$(jq -r '.env.GOOGLE_APPLICATION_CREDENTIALS, .env.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE' <<< "$patch" | sort -u)" = "$PWD/$key" ] \
-                || fail "the environment does not name the key"
+              key=$(jq -r .env.GOOGLE_APPLICATION_CREDENTIALS <<< "$patch")
+              case $key in "$PWD"/env/gcloud-key-*.json) ;; *) fail "the key is not the checkout's: $key" ;; esac
+              [ "$(jq -r .env.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE <<< "$patch")" = "$key" ] || fail "gcloud is not given the key"
               jq -e --arg e "$sa" '.type == "service_account" and .client_email == $e and .project_id == "p" and .private_key_id != "real" and (has("client_id") | not)' "$key" >/dev/null \
                 || fail "the session's key is not the service account's shape"
               [ "$(jq -r .sessionKey.publicKey <<< "$route")" = "$(jq -r .private_key "$key" | openssl pkey -pubout)" ] || fail "the route does not hold the session key's public half"
@@ -529,6 +572,15 @@
               prepare trusted "$(binding '{}')" > /dev/null
               [ "$(jq -r .private_key_id "$key")" = "$id" ] || fail "the checkout's key was made again"
               grep -qx "$sa mint $run" renew.log || fail "no first token was minted: $(cat renew.log)"
+
+              # Another account, launched from the same checkout, has a key of
+              # its own and leaves this one's for the session that has it.
+              other=$PWD/run/agent-trusted-3-4
+              mkdir -p "$other/secrets"
+              jq '.client_email = "other@p.iam.gserviceaccount.com"' real.json > "$other/secrets/gcloud"
+              theirs=$(jq -c '.serviceAccount = "other@p.iam.gserviceaccount.com"' <<< "$(binding '{}')" | bash ./prepare trusted /ws "$other" "$PWD/env" | jq -r .env.GOOGLE_APPLICATION_CREDENTIALS)
+              [ "$theirs" != "$key" ] && [ "$(jq -r .client_email "$theirs")" = other@p.iam.gserviceaccount.com ] || fail "another account took this one's key"
+              [ "$(jq -r .private_key_id "$key")" = "$id" ] && [ "$(jq -r .client_email "$key")" = "$sa" ] || fail "another account's launch changed this one's key"
               grep -qx "/run/user/1000 --user start chase-gcloud-renew@agent-trusted-1-2.service" systemctl.log || fail "the renewer was not started: $(cat systemctl.log)"
 
               # Merged into the tier's document, with a project's lists.
@@ -538,15 +590,35 @@
               listed=$(jq -c --arg app gcloud --argjson lists '{"allow": ["category:bigquery"], "ask": ["pubsub.projects.topics.delete"], "refuse": []}' -f ${./project/lists.jq} <<< "$doc")
               [ "$(answer bigquery.datasets.insert <<< "$listed")" = allow ] || fail "category:bigquery did not decide"
               [ "$(answer pubsub.projects.topics.delete <<< "$listed")" = ask ] || fail "a name did not decide"
+              [ "$(answer bigquery.batch <<< "$listed")" = refuse ] || fail "category:bigquery loosened its batch"
+              for bad in iamcredentials.projects.serviceAccounts.generateAccessToken bigquery.batch storage.buckets.patch; do
+                ! jq -c --arg app gcloud --argjson lists '{"allow": ["'"$bad"'"], "ask": [], "refuse": []}' -f ${./project/lists.jq} <<< "$doc" 2>/dev/null \
+                  || fail "a project's list decided $bad"
+              done
               ! jq -c --arg app gcloud --argjson lists '{"allow": ["category:storage"], "ask": [], "refuse": []}' -f ${./project/lists.jq} <<< "$doc" 2>/dev/null \
                 || fail "a category of an API the session does not carry was applied"
               printf '%s' '{"access_token": "t", "expiry": 1}' > "$run/gcloud-token.json"
-              printf '%s\n' "$listed" > policy.json
+              launched() { jq 'del(.routes[]?.paths[]?.fixed)'; }
+              grep -qF "jq 'del(.routes[]?.paths[]?.fixed)'" ${lib.findFirst (p: lib.getName p == "chase-envelope") null config.flong.agent-trusted.path}/bin/chase-envelope \
+                || fail "the launch does not take fixed off as this check does"
+              launched <<< "$listed" > policy.json
               frisket check policy.json || fail "frisket refused the document"
 
-              # What is unmatched is allowed where the tier says so.
+              # What is unmatched is allowed where the tier says so, and what
+              # returns a credential is refused even where guarded is allowed.
+              loose=$(prepare loose "$(binding '{}')")
               jq -e '.routes[0].paths[-1] == {methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"], prefix: "/"} and .routes[0].unmatched == "refuse"' \
-                <<< "$(prepare loose "$(binding '{}')")" >/dev/null || fail "an unmatched allow has no catch-all"
+                <<< "$loose" >/dev/null || fail "an unmatched allow has no catch-all"
+              [ "$(answer bigquery.datasets.delete <<< "$loose")" = allow ] || fail "guarded = allow did not allow a carried API's guarded operation"
+              for id in bigquery.batch iamcredentials.projects.serviceAccounts.generateAccessToken iam.projects.serviceAccounts.keys.create; do
+                [ "$(answer "$id" <<< "$loose")" = refuse ] || fail "$id was not refused where guarded is allowed"
+              done
+
+              # A tier that carries no API and refuses what is unmatched still
+              # has a route frisket takes.
+              jq -c --slurpfile patch <(prepare closed "$(binding '{}')") -f ${./project/merge.jq} <<< '{"name": "closed", "allow": [], "routes": []}' \
+                | launched > closed.json
+              frisket check closed.json || fail "frisket refused a tier that carries no API"
 
               # Refused: an API with no name, a key for someone else, and
               # Google refusing the key. Google out of reach only warns.
@@ -601,6 +673,13 @@
               [ "$(class demo POST '/batch')" = guarded ] || fail "the batch path is not guarded"
               [ "$(class demo POST '/demo.v1.Secrets/AccessSecretVersion')" = guarded ] || fail "gRPC was not classed as the REST it maps to"
               [ "$(class demo POST '/demo.v1.Secrets/DeleteThing')" = guarded ] || fail "an RPC with no HTTP rule was not classed by its name"
+              credential() { rule "$@" | jq -r '.operation.credential // false'; }
+              [ "$(credential demo GET '/v1/projects/*/secrets/*/versions/*:access')" = true ] || fail "an operation that returns a credential is not marked"
+              [ "$(credential demo POST '/demo.v1.Secrets/AccessSecretVersion')" = true ] || fail "gRPC did not take the credential of the REST it maps to"
+              [ "$(credential demo POST '/batch')" = true ] || fail "the batch path is not a credential's"
+              [ "$(credential demo DELETE '/v1/projects/*/secrets/*')" = false ] && [ "$(credential demo POST '/v1/projects/*/secrets/*:setIamPolicy')" = false ] \
+                || fail "a guarded operation that returns no credential is marked"
+              jq -e 'all(.operation.credential)' app/apis/whole.json >/dev/null || fail "an API guarded whole is not a credential's"
               [ "$(rule demo POST '/demo.v1.Secrets/GetSecret' | jq -r .operation.summary)" = "Gets a Secret." ] || fail "a proto's own words were not used"
               [ "$(rule demo POST '/google.longrunning.Operations/GetOperation' | jq -r .operation.category)" = google.longrunning.Operations ] || fail "a mixin is not its own"
               [ "$(rule demo GET '/v1/b/*/o/*' | jq -r .encodedSlashes)" = true ] || fail "an object's name cannot hold a slash"
@@ -622,7 +701,7 @@
               [ ! -e app/apis/gone.json ] || fail "an API with no document was generated"
               jq -e '.demo.streaming == ["demo.v1.Secrets.StreamSecrets"] and .demo.hosts == ["demo.europe-west1.rep.googleapis.com", "demo.googleapis.com"]' app/index.json >/dev/null \
                 || fail "the index is wrong: $(cat app/index.json)"
-              jq -e -s 'all(.[][]; (keys - ["methods", "path", "prefix", "encodedSlashes", "operation"]) == [] and ((.operation | keys) - ["id", "summary", "description", "class", "category"]) == [])' app/apis/*.json >/dev/null \
+              jq -e -s 'all(.[][]; (keys - ["methods", "path", "prefix", "encodedSlashes", "operation"]) == [] and ((.operation | keys) - ["id", "summary", "description", "class", "credential", "category"]) == [])' app/apis/*.json >/dev/null \
                 || fail "a rule is not frisket's shape"
 
               refused() { # WHAT JQ NEEDLE [FILE]
@@ -639,6 +718,9 @@
               refused "an exception that changes nothing" '.guarded["demo.projects.secrets.delete"] = "x"' "the class it has anyway"
               refused "an exception without a reason" '.guarded["demo.objects.insert"] = ""' "needs a reason"
               refused "one name in two classes" '.read["demo.projects.secrets.versions.access"] = "x"' "in more than one class"
+              refused "one name guarded and a credential's" '.guarded["demo.projects.secrets.versions.access"] = "x"' "in more than one class"
+              refused "a credential without a reason" '.credential["demo.projects.secrets.versions.access"] = ""' "needs a reason"
+              refused "a credential with a template that is not" '.guarded = {} | .credential = {"demo.projects.secrets.get": "x"}' "one method and template, two classes"
               refused "a pattern matching nothing" '.patterns.nothing = {"class": "read", "reason": "x"}' "patterns that match no operation"
               refused "encodedSlashes naming nothing" '.encodedSlashes.demo.nothing = "x"' "encodedSlashes that name no parameter"
               refused "an API guarded whole that is not generated" '.apis.nothing = "x"' "APIs guarded whole that are not generated"
@@ -657,7 +739,12 @@
                   "google.cloud.alloydb.v1.AlloyDBAdmin.GenerateClientCertificate", "iap.setIamPolicy", "compute.instances.update"]' \
                 '[.[][] | select(.operation.id as $i | $ids | index($i))] | (map(.operation.id) | unique | length) == ($ids | length) and all(.operation.class == "guarded")' \
                 ${./apps/gcloud/apis}/*.json >/dev/null || fail "the committed table does not guard what returns a credential"
-              jq -e -s 'all(.[][]; .operation.class == "guarded")' ${./apps/gcloud/apis}/iamcredentials.json ${./apps/gcloud/apis}/sts.json >/dev/null \
+              jq -e -s --argjson ids '["iam.projects.serviceAccounts.keys.create", "google.iam.admin.v1.IAM.CreateServiceAccountKey", "storage.projects.hmacKeys.create",
+                  "secretmanager.projects.secrets.versions.access", "google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion",
+                  "cloudshell.users.environments.generateAccessToken", "apikeys.projects.locations.keys.getKeyString", "bigquery.batch", "storage.batch"]' \
+                '[.[][] | select(.operation.id as $i | $ids | index($i))] | (map(.operation.id) | unique | length) == ($ids | length) and all(.operation.credential)' \
+                ${./apps/gcloud/apis}/*.json >/dev/null || fail "the committed table does not mark what returns a credential"
+              jq -e -s 'all(.[][]; .operation.class == "guarded" and .operation.credential)' ${./apps/gcloud/apis}/iamcredentials.json ${./apps/gcloud/apis}/sts.json >/dev/null \
                 || fail "the committed table does not guard iamcredentials and sts whole"
               [ "$(jq -r '.[] | select(.path == "/v1/projects/*/locations/*/clusters/*:generateClientCertificate") | .operation.class' ${./apps/gcloud/apis}/alloydb.json)" = guarded ] \
                 || fail "AlloyDB's REST GenerateClientCertificate is not guarded"

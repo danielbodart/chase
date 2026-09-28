@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch/oauth2/v2","operation":{"id":"oauth2.batch","summary":"A batch of Google OAuth2 API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"oauth2"}},
+{"methods":["POST"],"path":"/batch/oauth2/v2","operation":{"id":"oauth2.batch","summary":"A batch of Google OAuth2 API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"oauth2"}},
 {"methods":["POST"],"path":"/oauth2/v2/tokeninfo","operation":{"id":"oauth2.tokeninfo","summary":"oauth2.tokeninfo","class":"write","category":"oauth2"}},
 {"methods":["GET","HEAD"],"path":"/oauth2/v2/userinfo","operation":{"id":"oauth2.userinfo.get","summary":"oauth2.userinfo.get","class":"read","category":"oauth2"}},
 {"methods":["GET","HEAD"],"path":"/userinfo/v2/me","operation":{"id":"oauth2.userinfo.v2.me.get","summary":"oauth2.userinfo.v2.me.get","class":"read","category":"oauth2"}}

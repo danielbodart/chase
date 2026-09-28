@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"places.batch","summary":"A batch of Places API (New) requests in one, each a whole request frisket cannot see.","class":"guarded","category":"places"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"places.batch","summary":"A batch of Places API (New) requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"places"}},
 {"methods":["POST"],"path":"/google.maps.places.v1.Places/AutocompletePlaces","operation":{"id":"google.maps.places.v1.Places.AutocompletePlaces","summary":"Returns predictions for the given input.","class":"write","category":"places"}},
 {"methods":["POST"],"path":"/google.maps.places.v1.Places/GetPhotoMedia","operation":{"id":"google.maps.places.v1.Places.GetPhotoMedia","summary":"Get a photo media with a photo reference string.","class":"read","category":"places"}},
 {"methods":["POST"],"path":"/google.maps.places.v1.Places/GetPlace","operation":{"id":"google.maps.places.v1.Places.GetPlace","summary":"Get the details of a place based on its resource name, which is a string in the `places/{place_id}` format.","class":"read","category":"places"}},

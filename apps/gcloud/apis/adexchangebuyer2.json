@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"adexchangebuyer2.batch","summary":"A batch of Ad Exchange Buyer API II requests in one, each a whole request frisket cannot see.","class":"guarded","category":"adexchangebuyer2"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"adexchangebuyer2.batch","summary":"A batch of Ad Exchange Buyer API II requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"adexchangebuyer2"}},
 {"methods":["GET","HEAD"],"path":"/v2beta1/accounts/*/clients","operation":{"id":"adexchangebuyer2.accounts.clients.list","summary":"Lists all the clients for the current sponsor buyer.","class":"read","category":"adexchangebuyer2"}},
 {"methods":["POST"],"path":"/v2beta1/accounts/*/clients","operation":{"id":"adexchangebuyer2.accounts.clients.create","summary":"Creates a new client buyer.","class":"write","category":"adexchangebuyer2"}},
 {"methods":["GET","HEAD"],"path":"/v2beta1/accounts/*/clients/*","operation":{"id":"adexchangebuyer2.accounts.clients.get","summary":"Gets a client buyer with a given client account ID.","class":"read","category":"adexchangebuyer2"}},

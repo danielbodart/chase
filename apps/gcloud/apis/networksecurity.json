@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"networksecurity.batch","summary":"A batch of Network Security API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"networksecurity"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"networksecurity.batch","summary":"A batch of Network Security API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"networksecurity"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/GetLocation","operation":{"id":"google.cloud.location.Locations.GetLocation","summary":"Gets information about a location.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/ListLocations","operation":{"id":"google.cloud.location.Locations.ListLocations","summary":"Lists information about the supported locations for this service.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.networksecurity.v1.AddressGroupService/AddAddressGroupItems","operation":{"id":"google.cloud.networksecurity.v1.AddressGroupService.AddAddressGroupItems","summary":"Adds items to an address group.","class":"write","category":"networksecurity"}},

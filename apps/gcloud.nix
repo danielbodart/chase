@@ -13,6 +13,13 @@ let
   apis = ./gcloud/apis;
   known = lib.attrNames (builtins.fromJSON (builtins.readFile ./gcloud/index.json));
 
+  # Every API's guarded operations, whichever a session carries: a request
+  # to an API it does not carry is unmatched, but never one of these, and a
+  # carried API's "*" never decides another's "*:verb" among them.
+  guarded = pkgs.runCommand "chase-gcloud-guarded.json" { nativeBuildInputs = [ pkgs.jq ]; } ''
+    jq -c -s '[.[][] | select(.operation.class == "guarded") | del(.operation.description)]' ${apis}/*.json > $out
+  '';
+
   enabled = lib.filterAttrs (_: t: !t.bare && t.apps.gcloud.enable) cfg.tiers;
 
   tiers = pkgs.writeText "chase-gcloud-tiers.json" (builtins.toJSON (lib.mapAttrs (_: tier:
@@ -59,17 +66,25 @@ let
         | ($s.apis + (.apis.add // []) - (.apis.remove // [])) | unique' <<< "$binding") \
         || die "its APIs do not resolve"
       mapfile -t files < <(jq -r --arg d ${apis} '.[] | "\($d)/\(.).json"' <<< "$selected")
-      paths=$(jq -n -c --argjson s "$settings" --argjson every "$every" '
+      # What returns a credential, and an API's guarded operations the
+      # session does not carry, are refused whatever the tier or the project
+      # says: `fixed`, which the launch takes off before frisket reads it.
+      paths=$(jq -n -c --argjson s "$settings" --argjson every "$every" --slurpfile guarded ${guarded} '
         def outcome($a): if $a == "ask" then {ask: true} elif $a == "refuse" then {refuse: true} else {} end;
-        [inputs[]] | group_by([.methods, .path, .prefix]) | map(max_by(.encodedSlashes // false))
-        | map(. + outcome({read: "allow", write: $s.writes, guarded: $s.guarded}[.operation.class]))
+        ([inputs[]] | map(if .operation.credential then . + {refuse: true, fixed: true}
+                          else . + outcome({read: "allow", write: $s.writes, guarded: $s.guarded}[.operation.class]) end))
+        + ($guarded[0] | map(. + {refuse: true, fixed: true}))
+        | group_by([.methods, .path, .prefix])
+        | map(max_by([(.fixed | not), .encodedSlashes // false, .operation.description != null]))
+        | map(.operation |= del(.credential))
         + (if $s.unmatched == "allow" then [{methods: $every, prefix: "/"}] else [] end)
       ' "''${files[@]}" /dev/null)
 
-      # The session's key: made once for the checkout, naming the service
-      # account and its project, and never seen by Google.
+      # The session's key: made once for the checkout and the service
+      # account, naming it and its project, and never seen by Google. One
+      # per account, so a session launched with another leaves this one's.
       mkdir -p "$envdir"
-      key=$envdir/gcloud-key.json
+      key=$envdir/gcloud-key-$(printf '%s %s' "$email" "$project" | sha256sum | cut -c1-16).json
       exec 9> "$envdir/.gcloud-key.lock"
       flock 9
       if ! jq -e --arg e "$email" --arg p "$project" '.client_email == $e and .project_id == $p' "$key" >/dev/null 2>&1; then

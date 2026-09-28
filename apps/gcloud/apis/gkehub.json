@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"gkehub.batch","summary":"A batch of GKE Hub API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"gkehub"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"gkehub.batch","summary":"A batch of GKE Hub API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"gkehub"}},
 {"methods":["POST"],"path":"/google.cloud.gkehub.v1.GkeHub/CreateFeature","operation":{"id":"google.cloud.gkehub.v1.GkeHub.CreateFeature","summary":"Adds a new Feature.","class":"write","category":"gkehub"}},
 {"methods":["POST"],"path":"/google.cloud.gkehub.v1.GkeHub/CreateFleet","operation":{"id":"google.cloud.gkehub.v1.GkeHub.CreateFleet","summary":"Creates a fleet.","class":"write","category":"gkehub"}},
 {"methods":["POST"],"path":"/google.cloud.gkehub.v1.GkeHub/CreateMembership","operation":{"id":"google.cloud.gkehub.v1.GkeHub.CreateMembership","summary":"Creates a new Membership.","description":"Creates a new Membership. **This is currently only supported for GKE clusters on Google Cloud**. To register other clusters, follow the instructions at https://cloud.google.com/anthos/multicluster-management/connect/registering-a-cluster.","class":"write","category":"gkehub"}},

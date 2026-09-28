@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"books.batch","summary":"A batch of Books API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"books"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"books.batch","summary":"A batch of Books API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"books"}},
 {"methods":["POST"],"path":"/books/v1/cloudloading/addBook","operation":{"id":"books.cloudloading.addBook","summary":"Add a user-upload volume and triggers processing.","class":"write","category":"books"}},
 {"methods":["POST"],"path":"/books/v1/cloudloading/deleteBook","operation":{"id":"books.cloudloading.deleteBook","summary":"Remove the book and its contents","class":"write","category":"books"}},
 {"methods":["POST"],"path":"/books/v1/cloudloading/updateBook","operation":{"id":"books.cloudloading.updateBook","summary":"Updates a user-upload volume.","class":"write","category":"books"}},

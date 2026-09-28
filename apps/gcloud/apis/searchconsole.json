@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"searchconsole.batch","summary":"A batch of Google Search Console API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"searchconsole"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"searchconsole.batch","summary":"A batch of Google Search Console API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"searchconsole"}},
 {"methods":["POST"],"path":"/v1/urlInspection/index:inspect","operation":{"id":"searchconsole.urlInspection.index.inspect","summary":"Index inspection.","class":"write","category":"searchconsole"}},
 {"methods":["POST"],"path":"/v1/urlTestingTools/mobileFriendlyTest:run","operation":{"id":"searchconsole.urlTestingTools.mobileFriendlyTest.run","summary":"Runs Mobile-Friendly Test for a given URL.","class":"write","category":"searchconsole"}},
 {"methods":["GET","HEAD"],"path":"/webmasters/v3/sites","operation":{"id":"webmasters.sites.list","summary":"Lists the user's Search Console sites.","class":"read","category":"searchconsole"}},

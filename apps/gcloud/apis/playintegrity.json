@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"playintegrity.batch","summary":"A batch of Google Play Integrity API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"playintegrity"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"playintegrity.batch","summary":"A batch of Google Play Integrity API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"playintegrity"}},
 {"methods":["POST"],"path":"/v1/*/deviceRecall:write","operation":{"id":"playintegrity.deviceRecall.write","summary":"Writes recall bits for the device where Play Integrity API token is obtained.","description":"Writes recall bits for the device where Play Integrity API token is obtained. The endpoint is available to select Play partners in an early access program (EAP).","class":"write","category":"playintegrity"}},
 {"methods":["POST"],"path":"/v1/*:decodeIntegrityToken","operation":{"id":"playintegrity.decodeIntegrityToken","summary":"Decodes the integrity token and returns the token payload.","class":"write","category":"playintegrity"}},
 {"methods":["POST"],"path":"/v1/*:decodePcIntegrityToken","operation":{"id":"playintegrity.decodePcIntegrityToken","summary":"Decodes the PC integrity token and returns the PC token payload.","class":"write","category":"playintegrity"}}

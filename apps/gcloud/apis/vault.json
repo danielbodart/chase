@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"vault.batch","summary":"A batch of Google Vault API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"vault"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"vault.batch","summary":"A batch of Google Vault API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"vault"}},
 {"methods":["GET","HEAD"],"path":"/v1/matters","operation":{"id":"vault.matters.list","summary":"Lists matters the requestor has access to.","class":"read","category":"vault"}},
 {"methods":["POST"],"path":"/v1/matters","operation":{"id":"vault.matters.create","summary":"Creates a matter with the given name and description.","description":"Creates a matter with the given name and description. The initial state is open, and the owner is the method caller. Returns the created matter with default view.","class":"write","category":"vault"}},
 {"methods":["DELETE"],"path":"/v1/matters/*","operation":{"id":"vault.matters.delete","summary":"Deletes the specified matter.","description":"Deletes the specified matter. Returns the matter with updated state.","class":"guarded","category":"vault"}},

@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch/discovery/v1","operation":{"id":"discovery.batch","summary":"A batch of API Discovery Service requests in one, each a whole request frisket cannot see.","class":"guarded","category":"discovery"}},
+{"methods":["POST"],"path":"/batch/discovery/v1","operation":{"id":"discovery.batch","summary":"A batch of API Discovery Service requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"discovery"}},
 {"methods":["GET","HEAD"],"path":"/discovery/v1/apis","operation":{"id":"discovery.apis.list","summary":"Retrieve the list of APIs supported at this endpoint.","class":"read","category":"discovery"}},
 {"methods":["GET","HEAD"],"path":"/discovery/v1/apis/*/*/rest","operation":{"id":"discovery.apis.getRest","summary":"Retrieve the description of a particular version of an api.","class":"read","category":"discovery"}}
 ]

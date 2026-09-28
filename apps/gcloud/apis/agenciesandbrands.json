@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"agenciesandbrands.batch","summary":"A batch of Agencies and Brands API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"agenciesandbrands"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"agenciesandbrands.batch","summary":"A batch of Agencies and Brands API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"agenciesandbrands"}},
 {"methods":["GET","HEAD"],"path":"/v1/agencies/*/reports","operation":{"id":"agenciesandbrands.agencies.reports.list","summary":"Lists `Report` objects.","class":"read","category":"agenciesandbrands"}},
 {"methods":["POST"],"path":"/v1/agencies/*/reports","operation":{"id":"agenciesandbrands.agencies.reports.create","summary":"Creates a `Report` object.","class":"write","category":"agenciesandbrands"}},
 {"methods":["DELETE"],"path":"/v1/agencies/*/reports/*","operation":{"id":"agenciesandbrands.agencies.reports.delete","summary":"Deletes a `Report` object.","class":"guarded","category":"agenciesandbrands"}},

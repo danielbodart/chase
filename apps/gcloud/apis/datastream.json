@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"datastream.batch","summary":"A batch of Datastream API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"datastream"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"datastream.batch","summary":"A batch of Datastream API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"datastream"}},
 {"methods":["POST"],"path":"/google.cloud.datastream.v1.Datastream/CreateConnectionProfile","operation":{"id":"google.cloud.datastream.v1.Datastream.CreateConnectionProfile","summary":"Use this method to create a connection profile in a project and location.","class":"write","category":"datastream"}},
 {"methods":["POST"],"path":"/google.cloud.datastream.v1.Datastream/CreatePrivateConnection","operation":{"id":"google.cloud.datastream.v1.Datastream.CreatePrivateConnection","summary":"Use this method to create a private connectivity configuration.","class":"write","category":"datastream"}},
 {"methods":["POST"],"path":"/google.cloud.datastream.v1.Datastream/CreateRoute","operation":{"id":"google.cloud.datastream.v1.Datastream.CreateRoute","summary":"Use this method to create a route for a private connectivity configuration in a project and location.","class":"write","category":"datastream"}},

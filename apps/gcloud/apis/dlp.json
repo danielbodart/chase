@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"dlp.batch","summary":"A batch of Sensitive Data Protection (DLP) requests in one, each a whole request frisket cannot see.","class":"guarded","category":"dlp"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"dlp.batch","summary":"A batch of Sensitive Data Protection (DLP) requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"dlp"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/GetLocation","operation":{"id":"google.cloud.location.Locations.GetLocation","summary":"Gets information about a location.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.cloud.location.Locations/ListLocations","operation":{"id":"google.cloud.location.Locations.ListLocations","summary":"Lists information about the supported locations for this service.","class":"read","category":"google.cloud.location.Locations"}},
 {"methods":["POST"],"path":"/google.privacy.dlp.v2.DlpService/ActivateJobTrigger","operation":{"id":"google.privacy.dlp.v2.DlpService.ActivateJobTrigger","summary":"Activate a job trigger.","description":"Activate a job trigger. Causes the immediate execute of a trigger instead of waiting on the trigger event to occur.","class":"write","category":"dlp"}},

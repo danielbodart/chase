@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"dataplex.batch","summary":"A batch of Cloud Dataplex API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"dataplex"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"dataplex.batch","summary":"A batch of Cloud Dataplex API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"dataplex"}},
 {"methods":["POST"],"path":"/google.cloud.dataplex.v1.BusinessGlossaryService/CreateGlossary","operation":{"id":"google.cloud.dataplex.v1.BusinessGlossaryService.CreateGlossary","summary":"Creates a new Glossary resource.","class":"write","category":"dataplex"}},
 {"methods":["POST"],"path":"/google.cloud.dataplex.v1.BusinessGlossaryService/CreateGlossaryCategory","operation":{"id":"google.cloud.dataplex.v1.BusinessGlossaryService.CreateGlossaryCategory","summary":"Creates a new GlossaryCategory resource.","class":"write","category":"dataplex"}},
 {"methods":["POST"],"path":"/google.cloud.dataplex.v1.BusinessGlossaryService/CreateGlossaryTerm","operation":{"id":"google.cloud.dataplex.v1.BusinessGlossaryService.CreateGlossaryTerm","summary":"Creates a new GlossaryTerm resource.","class":"write","category":"dataplex"}},

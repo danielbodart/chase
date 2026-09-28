@@ -1,4 +1,4 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"fcmdata.batch","summary":"A batch of Firebase Cloud Messaging Data API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"fcmdata"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"fcmdata.batch","summary":"A batch of Firebase Cloud Messaging Data API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"fcmdata"}},
 {"methods":["GET","HEAD"],"path":"/v1beta1/projects/*/androidApps/*/deliveryData","operation":{"id":"fcmdata.projects.androidApps.deliveryData.list","summary":"List aggregate delivery data for the given Android application.","class":"read","category":"fcmdata"}}
 ]

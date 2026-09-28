@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"gamesConfiguration.batch","summary":"A batch of Google Play Games Services Publishing API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"gamesConfiguration"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"gamesConfiguration.batch","summary":"A batch of Google Play Games Services Publishing API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"gamesConfiguration"}},
 {"methods":["DELETE"],"path":"/games/v1configuration/achievements/*","operation":{"id":"gamesConfiguration.achievementConfigurations.delete","summary":"Delete the achievement configuration with the given ID.","class":"guarded","category":"gamesConfiguration"}},
 {"methods":["GET","HEAD"],"path":"/games/v1configuration/achievements/*","operation":{"id":"gamesConfiguration.achievementConfigurations.get","summary":"Retrieves the metadata of the achievement configuration with the given ID.","class":"read","category":"gamesConfiguration"}},
 {"methods":["PUT"],"path":"/games/v1configuration/achievements/*","operation":{"id":"gamesConfiguration.achievementConfigurations.update","summary":"Update the metadata of the achievement configuration with the given ID.","class":"write","category":"gamesConfiguration"}},

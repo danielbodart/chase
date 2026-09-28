@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"clouddeploy.batch","summary":"A batch of Cloud Deploy API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"clouddeploy"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"clouddeploy.batch","summary":"A batch of Cloud Deploy API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"clouddeploy"}},
 {"methods":["POST"],"path":"/google.cloud.deploy.v1.CloudDeploy/AbandonRelease","operation":{"id":"google.cloud.deploy.v1.CloudDeploy.AbandonRelease","summary":"Abandons a Release in the Delivery Pipeline.","class":"write","category":"clouddeploy"}},
 {"methods":["POST"],"path":"/google.cloud.deploy.v1.CloudDeploy/AdvanceRollout","operation":{"id":"google.cloud.deploy.v1.CloudDeploy.AdvanceRollout","summary":"Advances a Rollout in a given project and location.","class":"write","category":"clouddeploy"}},
 {"methods":["POST"],"path":"/google.cloud.deploy.v1.CloudDeploy/ApproveRollout","operation":{"id":"google.cloud.deploy.v1.CloudDeploy.ApproveRollout","summary":"Approves a Rollout.","class":"write","category":"clouddeploy"}},

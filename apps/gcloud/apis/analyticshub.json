@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"analyticshub.batch","summary":"A batch of Analytics Hub API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"analyticshub"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"analyticshub.batch","summary":"A batch of Analytics Hub API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"analyticshub"}},
 {"methods":["POST"],"path":"/google.cloud.bigquery.analyticshub.v1.AnalyticsHubService/ApproveQueryTemplate","operation":{"id":"google.cloud.bigquery.analyticshub.v1.AnalyticsHubService.ApproveQueryTemplate","summary":"Approves a query template.","class":"write","category":"analyticshub"}},
 {"methods":["POST"],"path":"/google.cloud.bigquery.analyticshub.v1.AnalyticsHubService/CreateDataExchange","operation":{"id":"google.cloud.bigquery.analyticshub.v1.AnalyticsHubService.CreateDataExchange","summary":"Creates a new data exchange.","class":"write","category":"analyticshub"}},
 {"methods":["POST"],"path":"/google.cloud.bigquery.analyticshub.v1.AnalyticsHubService/CreateListing","operation":{"id":"google.cloud.bigquery.analyticshub.v1.AnalyticsHubService.CreateListing","summary":"Creates a new listing.","class":"write","category":"analyticshub"}},

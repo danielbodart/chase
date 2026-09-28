@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"dfareporting.batch","summary":"A batch of Campaign Manager 360 API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"dfareporting"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"dfareporting.batch","summary":"A batch of Campaign Manager 360 API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"dfareporting"}},
 {"methods":["POST"],"path":"/dfareporting/v3.5/userprofiles/*/creativeAssets/*/creativeAssets","operation":{"id":"dfareporting.media.upload","summary":"Inserts a new creative asset.","class":"write","category":"dfareporting"}},
 {"methods":["GET","HEAD"],"path":"/dfareporting/v5/reports/*/files/*","operation":{"id":"dfareporting.files.get","summary":"Retrieves a report file by its report ID and file ID.","description":"Retrieves a report file by its report ID and file ID. This method supports media download.","class":"read","category":"dfareporting"}},
 {"methods":["POST"],"path":"/dfareporting/v5/studio/creativeAssets","operation":{"id":"dfareporting.studioCreativeAssets.insert","summary":"Inserts a new studio creative asset.","class":"write","category":"dfareporting"}},

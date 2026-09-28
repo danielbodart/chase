@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"batch.batch","summary":"A batch of Batch API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"batch"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"batch.batch","summary":"A batch of Batch API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"batch"}},
 {"methods":["POST"],"path":"/google.cloud.batch.v1.BatchService/CancelJob","operation":{"id":"google.cloud.batch.v1.BatchService.CancelJob","summary":"Cancel a Job.","class":"write","category":"batch"}},
 {"methods":["POST"],"path":"/google.cloud.batch.v1.BatchService/CreateJob","operation":{"id":"google.cloud.batch.v1.BatchService.CreateJob","summary":"Create a Job.","class":"write","category":"batch"}},
 {"methods":["POST"],"path":"/google.cloud.batch.v1.BatchService/DeleteJob","operation":{"id":"google.cloud.batch.v1.BatchService.DeleteJob","summary":"Delete a Job.","class":"guarded","category":"batch"}},

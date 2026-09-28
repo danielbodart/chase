@@ -1,5 +1,5 @@
 [
-{"methods":["POST"],"path":"/batch","operation":{"id":"osconfig.batch","summary":"A batch of OS Config API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"osconfig"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"osconfig.batch","summary":"A batch of OS Config API requests in one, each a whole request frisket cannot see.","class":"guarded","credential":true,"category":"osconfig"}},
 {"methods":["POST"],"path":"/google.cloud.osconfig.agentendpoint.v1.AgentEndpointService/ReceiveTaskNotification","operation":{"id":"google.cloud.osconfig.agentendpoint.v1.AgentEndpointService.ReceiveTaskNotification","summary":"Stream established by client to receive Task notifications.","class":"write","category":"osconfig"}},
 {"methods":["POST"],"path":"/google.cloud.osconfig.agentendpoint.v1.AgentEndpointService/RegisterAgent","operation":{"id":"google.cloud.osconfig.agentendpoint.v1.AgentEndpointService.RegisterAgent","summary":"Registers the agent running on the VM.","class":"write","category":"osconfig"}},
 {"methods":["POST"],"path":"/google.cloud.osconfig.agentendpoint.v1.AgentEndpointService/ReportInventory","operation":{"id":"google.cloud.osconfig.agentendpoint.v1.AgentEndpointService.ReportInventory","summary":"Reports the VMs current inventory.","class":"write","category":"osconfig"}},

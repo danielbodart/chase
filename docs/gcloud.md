@@ -72,12 +72,14 @@ sign.
 answers; chase's `gcloud` app says where. With the app enabled for a session
 it:
 
-- writes the fake key file, once for the checkout, beside its environment in
-  `~/.local/state/chase/env/<checkout>/`, which the session has read-only: an
+- writes the fake key file, once for the checkout and the service account,
+  beside its environment in `~/.local/state/chase/env/<checkout>/`, which the
+  session has read-only: an
   RSA-2048 key of its own, a random `private_key_id`, and `client_email` and
   `project_id` from the real key, which must name the binding's
   `serviceAccount`. Its public half goes in the session's policy, inline, with
-  the service account as issuer. Made again only when the account changes;
+  the service account as issuer. One file per account and project, so a
+  launch with another leaves a running session's key alone;
 
 - sets `GOOGLE_APPLICATION_CREDENTIALS` to it, and
   `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` too, since gcloud reads only that.
@@ -201,15 +203,21 @@ read, write and guarded, a tier's switch per class, a project's lists by name.
   Discovery method. Mixins (`google.iam.v1.IAMPolicy`, Locations, Operations)
   come from each service's yaml.
 - **Exceptions**, by operation id, each with its reason:
-  - *guarded*: everything that returns or mints a credential. Tokens
+  - *guarded*, and marked `credential`: everything that returns or mints a
+    credential, in `exceptions.json`'s `credential`. Tokens
     (`iamcredentials.*`, `sts.*`, `cloudshell…generateAccessToken`, which
     mints one by GET), keys and secrets (`serviceAccounts.keys.create`,
     `storage.projects.hmacKeys.create`, `apikeys…getKeyString`,
     `secretmanager…versions.access`, `redis…getAuthString`, and about sixty
     more the spike found by method name, response schema and proto field),
-    signed URLs, ephemeral database client certificates, and every API's
+    signed URLs (but Cloud Functions' `generateUploadUrl`, which gcloud's
+    deploy needs, and which is only guarded), ephemeral database client
+    certificates, and every API's
     batch path — `POST /batch` carried a Secret Manager `access` inside it
-    (measured). Also `*.setIamPolicy`, key upload, ACLs, a bucket's patch
+    (measured). A gRPC method takes the mark of the REST method it maps to.
+    These are refused whatever a tier or a project says.
+  - *guarded*, in `exceptions.json`'s `guarded`: `*.setIamPolicy`, key
+    upload, ACLs, a bucket's patch
     and update, which can set its ACLs, and what writes instance metadata
     (ssh keys, startup scripts), `instances.update` too. An object written
     with `predefinedAcl` or an `acl` is a write, asked like any upload: its
@@ -243,7 +251,11 @@ chaseModules.default.chase.bindings.gcloud = {
 Resolved at launch: the named APIs' rules, one rule per method and template,
 answered as the tier's switches say and then as the project's lists; a
 category is the API. A name with no API is an error, and a request to an API
-not carried is unmatched. Only a tier that takes envelopes can enable it, and
+not carried is unmatched, unless it is one of that API's guarded operations:
+every API's are in the route whatever is carried, refused, so a carried API's
+`*` never decides another's `*:verb`. Those, and what returns a credential in
+a carried API, are `fixed`: no project list names them, and no category
+reaches them. Only a tier that takes envelopes can enable it, and
 nothing of Google's is in a tier's own policy.
 
 ## What frisket needs
@@ -344,7 +356,7 @@ messages passed through the interceptor unchanged (measured).
   IAP names, or frisket matching a name of any depth before a verb, would fix
   it.
 - **gcloud's own noise.** Every gcloud command calls
-  `iamcredentials…/allowedLocations`, which is guarded; gcloud tolerates the
+  `iamcredentials…/allowedLocations`, which is refused; gcloud tolerates the
   refusal (measured), but the log has a line per command.
 - **The host's name service.** With `/run/nscd` visible, a session resolved a
   name outside its allowlist; the connection was still refused. Whether flong
