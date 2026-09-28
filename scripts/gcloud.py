@@ -18,6 +18,7 @@ from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 CLASSES = ["read", "write", "guarded"]
 MIXINS = {"google.iam.v1.IAMPolicy", "google.cloud.location.Locations", "google.longrunning.Operations"}
 STABILITY = {"alpha": 0, "beta": 1, "": 2}
+DEPTH = 12
 
 
 class Failed(Exception):
@@ -49,6 +50,26 @@ def segment(s):
 
 def template(path):
     return "/" + "/".join(segment(s) for s in path.strip("/").split("/"))
+
+
+def spans(path, params):
+    """The templates of a path whose {+name} is any number of segments, its
+    pattern ending ".*": a prefix where nothing follows, else every depth to
+    DEPTH. None where nothing literal would bound it."""
+    m = re.search(r"\{\+([^}]+)\}", path)
+    pattern = m and (params.get(m.group(1)) or {}).get("pattern") or ""
+    if not pattern.startswith("^") or not pattern.endswith(".*$"):
+        return None
+    fixed = pattern[1:-3].replace("[^/]+", "{x}")
+    if not re.fullmatch(r"((?:[A-Za-z0-9_.~-]+|\{x\})/)*", fixed):
+        return None
+    before, after = path[:m.start()] + fixed, path[m.end():]
+    if not after:
+        prefix = template(before)
+        return [("prefix", prefix)] if prefix.strip("/") and not version_rank(prefix.strip("/")) else None
+    if not fixed:
+        return None
+    return [("path", template(before + "/".join(["{x}"] * n) + after)) for n in range(1, DEPTH + 1)]
 
 
 def proto_template(path):
@@ -264,20 +285,23 @@ class Generator:
                     rel = m.get("flatPath") or m["path"]
                     cls = self.classify(id, self.base(id.split(".")[-1], verb), name)
                     op = {"id": id, **words(id, m.get("description")), "class": cls, "category": name}
-                    enc = [p for p in slashed.get(name, {}) if "{" + p + "}" in m["path"]]
+                    enc = [p for p in slashed.get(name, {}) if "{" + p + "}" in m["path"] + m.get("flatPath", "")]
                     self.used |= {("encodedSlashes", name, p) for p in enc}
                     methods = ["GET", "HEAD"] if verb == "GET" else [verb]
-                    paths = [(methods, template(sp + rel))]
+                    params = m.get("parameters") or {}
+                    shapes = lambda p, flat=None: list(dict.fromkeys([("path", template(flat or p))] + (spans(p, params) or [])))
+                    own = shapes(sp + m["path"], sp + rel)
+                    rest |= {(name, verb, kind, path.lower()): (name, id, cls) for kind, path in own}
+                    paths = [(methods, s) for s in own]
                     protocols = m.get("mediaUpload", {}).get("protocols") or {}
                     for proto in protocols.values():
-                        paths.append(([verb], template(proto["path"])))
+                        paths += [([verb], s) for s in shapes(proto["path"])]
                     if "resumable" in protocols and "simple" in protocols and verb != "PUT":
-                        paths.append((["PUT"], template(protocols["simple"]["path"])))
+                        paths += [(["PUT"], s) for s in shapes(protocols["simple"]["path"])]
                     if m.get("useMediaDownloadService"):
-                        paths.append((methods, template("/download/" + sp + rel)))
-                    for ms, path in paths:
-                        rules.append({"methods": ms, "path": path, **({"encodedSlashes": True} if enc else {}), "operation": op})
-                    rest[(name, verb, template(sp + rel).lower())] = (name, id, cls)
+                        paths += [(methods, s) for s in shapes("/download/" + sp + m["path"], "/download/" + sp + rel)]
+                    for ms, (kind, path) in paths:
+                        rules.append({"methods": ms, kind: path, **({"encodedSlashes": True} if enc else {}), "operation": op})
                 if d.get("batchPath"):
                     self.used.add(("batch",))
                     rules.append({"methods": ["POST"], "path": "/" + d["batchPath"], "operation": {
@@ -362,8 +386,10 @@ class Generator:
                     a["grpc"].add(r["service"])
                     if r["streaming"]:
                         a["streaming"].add(op["id"])
-                if proto_only and r["service"] not in MIXINS:
+                if r["service"] not in MIXINS:
                     for v, p in r["http"]:
+                        if self.lookup(rest, name, v, p):
+                            continue
                         t = proto_template(p)
                         if t is None:
                             self.counts["HTTP rules no template can say"] += 1
@@ -373,9 +399,7 @@ class Generator:
 
     def lookup(self, rest, api, verb, path):
         t = proto_template(path)
-        if t is None or t[1]:
-            return None
-        return rest.get((api, verb, t[0].lower()))
+        return t and rest.get((api, verb, "prefix" if t[1] else "path", t[0].lower()))
 
     def rest_only(self, file):
         path = os.path.join(self.googleapis, os.path.dirname(file), "BUILD.bazel")

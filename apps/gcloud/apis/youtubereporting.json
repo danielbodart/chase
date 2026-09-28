@@ -1,5 +1,6 @@
 [
 {"methods":["POST"],"path":"/batch","operation":{"id":"youtubereporting.batch","summary":"A batch of YouTube Reporting API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"youtubereporting"}},
+{"methods":["GET","HEAD"],"prefix":"/download/v1/media","operation":{"id":"youtubereporting.media.download","summary":"Method for media download.","description":"Method for media download. Download is supported on the URI `/v1/media/{+name}?alt=media`.","class":"read","category":"youtubereporting"}},
 {"methods":["GET","HEAD"],"path":"/download/v1/media/*","operation":{"id":"youtubereporting.media.download","summary":"Method for media download.","description":"Method for media download. Download is supported on the URI `/v1/media/{+name}?alt=media`.","class":"read","category":"youtubereporting"}},
 {"methods":["GET","HEAD"],"path":"/v1/jobs","operation":{"id":"youtubereporting.jobs.list","summary":"Lists jobs.","class":"read","category":"youtubereporting"}},
 {"methods":["POST"],"path":"/v1/jobs","operation":{"id":"youtubereporting.jobs.create","summary":"Creates a job and returns it.","class":"write","category":"youtubereporting"}},
@@ -7,6 +8,7 @@
 {"methods":["GET","HEAD"],"path":"/v1/jobs/*","operation":{"id":"youtubereporting.jobs.get","summary":"Gets a job.","class":"read","category":"youtubereporting"}},
 {"methods":["GET","HEAD"],"path":"/v1/jobs/*/reports","operation":{"id":"youtubereporting.jobs.reports.list","summary":"Lists reports created by a specific job.","description":"Lists reports created by a specific job. Returns NOT_FOUND if the job does not exist.","class":"read","category":"youtubereporting"}},
 {"methods":["GET","HEAD"],"path":"/v1/jobs/*/reports/*","operation":{"id":"youtubereporting.jobs.reports.get","summary":"Gets the metadata of a specific report.","class":"read","category":"youtubereporting"}},
+{"methods":["GET","HEAD"],"prefix":"/v1/media","operation":{"id":"youtubereporting.media.download","summary":"Method for media download.","description":"Method for media download. Download is supported on the URI `/v1/media/{+name}?alt=media`.","class":"read","category":"youtubereporting"}},
 {"methods":["GET","HEAD"],"path":"/v1/media/*","operation":{"id":"youtubereporting.media.download","summary":"Method for media download.","description":"Method for media download. Download is supported on the URI `/v1/media/{+name}?alt=media`.","class":"read","category":"youtubereporting"}},
 {"methods":["GET","HEAD"],"path":"/v1/reportTypes","operation":{"id":"youtubereporting.reportTypes.list","summary":"Lists report types.","class":"read","category":"youtubereporting"}}
 ]

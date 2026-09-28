@@ -418,7 +418,7 @@
               cp -r ${./tests/gcloud} t && chmod -R u+w t && cd t
               fail() { echo "gcloud: $*" >&2; exit 1; }
               entries=$TMPDIR/entries
-              printf '%s\n' demo/v1/demo.proto other/v1/other.proto other/v1beta1/other.proto google/longrunning/operations.proto > "$entries"
+              printf '%s\n' demo/v1/demo.proto other/v1/other.proto other/v1beta1/other.proto whole/v1/whole.proto google/longrunning/operations.proto > "$entries"
               (cd googleapis && xargs protoc -I . --include_imports --include_source_info --descriptor_set_out=$TMPDIR/d.pb < "$entries")
               generate() { python3 ${./scripts/gcloud.py} generate app discoveries googleapis $TMPDIR/d.pb "$entries"; }
               rule() { jq -c --arg m "$2" --arg p "$3" '.[] | select(.methods[0] == $m and (.path // .prefix) == $p)' "app/apis/$1.json"; }
@@ -440,6 +440,14 @@
               [ "$(class demo PUT '/upload/v1/b/*/o')" = write ] || fail "a resumable upload's PUT has no rule"
               [ "$(class demo GET '/download/v1/b/*/o/*')" = read ] || fail "a download has no rule"
               [ "$(class demo GET '/v2/projects/*/secrets/*')" = read ] || fail "a stable version that is not preferred was left out"
+              [ "$(rule demo GET '/v1/projects/*/locations/*/secrets/*' | jq -r .operation.id)" = demo.v1.Secrets.GetSecret ] || fail "an HTTP rule Discovery lacks has no REST rule"
+              [ "$(rule demo GET '/v1/projects/*/files' | jq -r '.prefix + " " + (.encodedSlashes | tostring)')" = "/v1/projects/*/files true" ] \
+                || fail "a name of any depth at the end is not a prefix, or its flatPath's encodedSlashes were missed"
+              [ "$(class demo POST '/v1/operations/*/*/*:cancel')" = write ] && [ "$(class demo POST '/v1/operations/*/*/*/*/*/*/*/*/*/*/*/*:cancel')" = write ] \
+                || fail "a name of any depth before a verb is not every depth"
+              [ "$(class demo POST '/v1/*:setIamPolicy')" = guarded ] && [ -z "$(rule demo POST '/v1/*/*:setIamPolicy')" ] \
+                || fail "a name with nothing literal before a verb was taken for every path ending so"
+              jq -e 'length == 3 and all(.operation.class == "guarded")' app/apis/whole.json >/dev/null || fail "an API guarded whole has a rule that is not guarded"
               ! grep -q v1beta1 app/apis/demo.json || fail "a beta that is not preferred was generated"
               [ "$(rule other GET '/v1/things' | jq -r .operation.id)" = other.v1.Things.ReadThing ] || fail "a proto-only API's ** is not a prefix"
               ! grep -q v1beta1 app/apis/other.json || fail "a proto-only API's older version was generated"
@@ -449,12 +457,13 @@
               jq -e -s 'all(.[][]; (keys - ["methods", "path", "prefix", "encodedSlashes", "operation"]) == [] and ((.operation | keys) - ["id", "summary", "description", "class", "category"]) == [])' app/apis/*.json >/dev/null \
                 || fail "a rule is not frisket's shape"
 
-              refused() { # WHAT JQ NEEDLE
-                cp app/exceptions.json $TMPDIR/e.json
-                jq "$2" $TMPDIR/e.json > app/exceptions.json
+              refused() { # WHAT JQ NEEDLE [FILE]
+                f=''${4:-app/exceptions.json}
+                cp "$f" $TMPDIR/e.json
+                jq "$2" $TMPDIR/e.json > "$f"
                 if said=$(generate 2>&1); then fail "$1 was not refused"; fi
                 case $said in *"$3"*) ;; *) fail "$1: expected '$3' in: $said" ;; esac
-                cp $TMPDIR/e.json app/exceptions.json
+                cp $TMPDIR/e.json "$f"
               }
               refused "two classes on one template, across APIs" '.write["demo.projects.secrets.get"] = "x"' "one method and template, two classes"
               refused "another API's literal deciding a stricter operation" '.guarded["demo.projects.secrets.get"] = "x"' "is more specific than a stricter one"
@@ -464,6 +473,13 @@
               refused "one name in two classes" '.read["demo.projects.secrets.versions.access"] = "x"' "in more than one class"
               refused "a pattern matching nothing" '.patterns.nothing = {"class": "read", "reason": "x"}' "patterns that match no operation"
               refused "encodedSlashes naming nothing" '.encodedSlashes.demo.nothing = "x"' "encodedSlashes that name no parameter"
+              refused "an API guarded whole that is not generated" '.apis.nothing = "x"' "APIs guarded whole that are not generated"
+              refused "an API guarded whole without a reason" '.apis.whole = ""' "needs a reason"
+              refused "batch without a reason" 'del(.batch)' "batch has no reason"
+              refused "one operation, two classes" '.resources.projects.resources.secrets.methods.get.httpMethod = "DELETE"' "one operation, two classes" discoveries/demo.v2.json
+              refused "a path frisket could not match" '.resources.projects.resources.secrets.methods.get.flatPath = "v2/pro%20jects/{p}"' "a path frisket could not match" discoveries/demo.v2.json
+              refused "a version Discovery does not have" '.discovery.versions["demo:v9"] = "x"' "versions not in Discovery's index" app/source.json
+              refused "a version with no document" '.discovery.versions["gone:v1"] = "x"' "versions without a document" app/source.json
               touch $out
             '';
 

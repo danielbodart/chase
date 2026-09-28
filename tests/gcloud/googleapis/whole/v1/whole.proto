@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package whole.v1;
+
+import "google/api/annotations.proto";
+import "google/api/client.proto";
+
+service Things {
+  option (google.api.default_host) = "whole.googleapis.com";
+
+  // Gets a thing.
+  rpc GetThing(Thing) returns (Thing) {
+    option (google.api.http) = { get: "/v1/things/{thing}" };
+  }
+
+  // Lists things.
+  rpc ListThings(Thing) returns (Thing);
+}
+
+message Thing {
+  string thing = 1;
+}

@@ -1,0 +1,4 @@
+{
+  "id": "whole:v1", "name": "whole", "version": "v1", "rootUrl": "https://whole.googleapis.com/", "servicePath": "",
+  "resources": {"things": {"methods": {"get": {"id": "whole.things.get", "httpMethod": "GET", "path": "v1/things/{thing}", "description": "Gets a thing."}}}}
+}

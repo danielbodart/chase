@@ -8,6 +8,9 @@
   "servicePath": "",
   "batchPath": "batch",
   "endpoints": [{"endpointUrl": "https://demo.europe-west1.rep.googleapis.com/", "location": "europe-west1"}],
+  "methods": {
+    "setIamPolicy": {"id": "demo.setIamPolicy", "httpMethod": "POST", "path": "v1/{+resource}:setIamPolicy", "flatPath": "v1/{v1Id}:setIamPolicy", "parameters": {"resource": {"pattern": "^.*$"}}, "description": "Sets the policy of anything."}
+  },
   "resources": {
     "projects": {"resources": {"secrets": {
       "methods": {
@@ -22,6 +25,12 @@
         "get": {"id": "demo.projects.secrets.versions.get", "httpMethod": "GET", "path": "v1/{+name}", "flatPath": "v1/projects/{projectsId}/secrets/{secretsId}/versions/{versionsId}", "description": "Gets a version."}
       }}}
     }}},
+    "files": {"methods": {
+      "get": {"id": "demo.projects.files.get", "httpMethod": "GET", "path": "v1/{+name}", "flatPath": "v1/projects/{projectsId}/files/{filesId}", "parameters": {"name": {"pattern": "^projects/[^/]+/files/.*$"}}, "description": "Gets a file."}
+    }},
+    "operations": {"methods": {
+      "cancel": {"id": "demo.operations.cancel", "httpMethod": "POST", "path": "v1/{+name}:cancel", "flatPath": "v1/operations/{operationsId}:cancel", "parameters": {"name": {"pattern": "^operations/.*$"}}, "description": "Cancels an operation."}
+    }},
     "objects": {"methods": {
       "get": {"id": "demo.objects.get", "httpMethod": "GET", "path": "v1/b/{bucket}/o/{object}", "useMediaDownloadService": true, "description": "Gets an object."},
       "insert": {"id": "demo.objects.insert", "httpMethod": "POST", "path": "v1/b/{bucket}/o", "description": "Stores an object.",

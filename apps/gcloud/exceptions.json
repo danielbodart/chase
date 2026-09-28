@@ -19,6 +19,9 @@
     }
   },
   "encodedSlashes": {
+    "artifactregistry": {
+      "filesId": "A file's id is a path, its slashes encoded as %2F."
+    },
     "storage": {
       "object": "An object's name is one segment, its slashes encoded as %2F.",
       "sourceObject": "An object's name is one segment, its slashes encoded as %2F.",
