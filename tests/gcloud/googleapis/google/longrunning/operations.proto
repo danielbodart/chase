@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package google.longrunning;
+
+import "google/api/annotations.proto";
+import "google/api/client.proto";
+
+service Operations {
+  option (google.api.default_host) = "longrunning.googleapis.com";
+
+  // Gets the latest state of a long-running operation.
+  rpc GetOperation(Name) returns (Name) {
+    option (google.api.http) = { get: "/v1/{name=operations/**}" };
+  }
+
+  // Deletes a long-running operation.
+  rpc DeleteOperation(Name) returns (Name) {
+    option (google.api.http) = { delete: "/v1/{name=operations/**}" };
+  }
+}
+
+message Name {
+  string name = 1;
+}

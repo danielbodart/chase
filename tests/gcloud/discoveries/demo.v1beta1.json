@@ -1,0 +1,4 @@
+{
+  "id": "demo:v1beta1", "name": "demo", "version": "v1beta1", "rootUrl": "https://demo.googleapis.com/", "servicePath": "",
+  "resources": {"things": {"methods": {"get": {"id": "demo.things.get", "httpMethod": "GET", "path": "v1beta1/things/{thing}", "description": "Gets a thing."}}}}
+}

@@ -1,0 +1,11 @@
+{
+  "batch": "Carries any operation.",
+  "patterns": {
+    "getIamPolicy": {"class": "read", "reason": "Reads, by POST."},
+    "setIamPolicy": {"class": "guarded", "reason": "Widens access."}
+  },
+  "encodedSlashes": {"demo": {"object": "An object's name."}},
+  "read": {},
+  "write": {},
+  "guarded": {"demo.projects.secrets.versions.access": "Returns the payload."}
+}

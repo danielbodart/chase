@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package demo.v1;
+
+import "google/api/annotations.proto";
+import "google/api/client.proto";
+
+service Secrets {
+  option (google.api.default_host) = "demo.googleapis.com";
+
+  // Gets a [Secret][demo.v1.Secret].
+  rpc GetSecret(Secret) returns (Secret) {
+    option (google.api.http) = {
+      get: "/v1/{name=projects/*/secrets/*}"
+      additional_bindings { get: "/v1/{name=projects/*/locations/*/secrets/*}" }
+    };
+  }
+
+  // Creates a secret.
+  rpc CreateSecret(Secret) returns (Secret) {
+    option (google.api.http) = { post: "/v1/{parent=projects/*}/secrets" body: "*" };
+  }
+
+  // Accesses a secret version.
+  rpc AccessSecretVersion(Secret) returns (Secret) {
+    option (google.api.http) = { get: "/v1/{name=projects/*/secrets/*/versions/*}:access" };
+  }
+
+  // Streams secrets.
+  rpc StreamSecrets(stream Secret) returns (stream Secret);
+
+  // Deletes a thing.
+  rpc DeleteThing(Secret) returns (Secret);
+}
+
+message Secret {
+  string name = 1;
+}

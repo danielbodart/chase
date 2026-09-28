@@ -1,0 +1,8 @@
+{
+  "items": [
+    {"id": "demo:v1", "name": "demo", "version": "v1", "preferred": true},
+    {"id": "demo:v1beta1", "name": "demo", "version": "v1beta1", "preferred": false},
+    {"id": "demo:v2", "name": "demo", "version": "v2", "preferred": false},
+    {"id": "gone:v1", "name": "gone", "version": "v1", "preferred": true}
+  ]
+}

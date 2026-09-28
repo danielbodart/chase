@@ -409,23 +409,82 @@
             touch $out
           '';
 
+          # GOOGLE CLOUD'S GENERATOR (docs/gcloud.md, decision 8), run on a
+          # small API of each kind: Discovery and protos, a proto-only API, a
+          # mixin. Every way the classification can be wrong is refused.
+          gcloud = pkgs.runCommand "gcloud"
+            { nativeBuildInputs = [ pkgs.jq pkgs.protobuf (pkgs.python3.withPackages (p: [ p.protobuf p.pyyaml ])) ]; }
+            ''
+              cp -r ${./tests/gcloud} t && chmod -R u+w t && cd t
+              fail() { echo "gcloud: $*" >&2; exit 1; }
+              entries=$TMPDIR/entries
+              printf '%s\n' demo/v1/demo.proto other/v1/other.proto other/v1beta1/other.proto google/longrunning/operations.proto > "$entries"
+              (cd googleapis && xargs protoc -I . --include_imports --include_source_info --descriptor_set_out=$TMPDIR/d.pb < "$entries")
+              generate() { python3 ${./scripts/gcloud.py} generate app discoveries googleapis $TMPDIR/d.pb "$entries"; }
+              rule() { jq -c --arg m "$2" --arg p "$3" '.[] | select(.methods[0] == $m and (.path // .prefix) == $p)' "app/apis/$1.json"; }
+              class() { rule "$@" | jq -r .operation.class; }
+
+              generate
+              [ "$(class demo GET '/v1/projects/*/secrets/*/versions/*:access')" = guarded ] || fail "an exception did not decide"
+              [ "$(class demo GET '/v1/projects/*/secrets/*/versions/*')" = read ] || fail "*:verb was not its own template"
+              [ "$(class demo POST '/v1/projects/*/secrets/*:getIamPolicy')" = read ] || fail "a pattern did not decide"
+              [ "$(class demo POST '/v1/projects/*/secrets/*:setIamPolicy')" = guarded ] || fail "setIamPolicy is not guarded"
+              [ "$(class demo DELETE '/v1/projects/*/secrets/*')" = guarded ] || fail "a DELETE is not guarded"
+              [ "$(class demo POST '/batch')" = guarded ] || fail "the batch path is not guarded"
+              [ "$(class demo POST '/demo.v1.Secrets/AccessSecretVersion')" = guarded ] || fail "gRPC was not classed as the REST it maps to"
+              [ "$(class demo POST '/demo.v1.Secrets/DeleteThing')" = guarded ] || fail "an RPC with no HTTP rule was not classed by its name"
+              [ "$(rule demo POST '/demo.v1.Secrets/GetSecret' | jq -r .operation.summary)" = "Gets a Secret." ] || fail "a proto's own words were not used"
+              [ "$(rule demo POST '/google.longrunning.Operations/GetOperation' | jq -r .operation.category)" = google.longrunning.Operations ] || fail "a mixin is not its own"
+              [ "$(rule demo GET '/v1/b/*/o/*' | jq -r .encodedSlashes)" = true ] || fail "an object's name cannot hold a slash"
+              [ "$(rule demo GET '/v1/projects/*/secrets/*' | jq -r .encodedSlashes)" = null ] || fail "encodedSlashes where nothing said so"
+              [ "$(class demo PUT '/upload/v1/b/*/o')" = write ] || fail "a resumable upload's PUT has no rule"
+              [ "$(class demo GET '/download/v1/b/*/o/*')" = read ] || fail "a download has no rule"
+              [ "$(class demo GET '/v2/projects/*/secrets/*')" = read ] || fail "a stable version that is not preferred was left out"
+              ! grep -q v1beta1 app/apis/demo.json || fail "a beta that is not preferred was generated"
+              [ "$(rule other GET '/v1/things' | jq -r .operation.id)" = other.v1.Things.ReadThing ] || fail "a proto-only API's ** is not a prefix"
+              ! grep -q v1beta1 app/apis/other.json || fail "a proto-only API's older version was generated"
+              [ ! -e app/apis/gone.json ] || fail "an API with no document was generated"
+              jq -e '.demo.streaming == ["demo.v1.Secrets.StreamSecrets"] and .demo.hosts == ["demo.europe-west1.rep.googleapis.com", "demo.googleapis.com"]' app/index.json >/dev/null \
+                || fail "the index is wrong: $(cat app/index.json)"
+              jq -e -s 'all(.[][]; (keys - ["methods", "path", "prefix", "encodedSlashes", "operation"]) == [] and ((.operation | keys) - ["id", "summary", "description", "class", "category"]) == [])' app/apis/*.json >/dev/null \
+                || fail "a rule is not frisket's shape"
+
+              refused() { # WHAT JQ NEEDLE
+                cp app/exceptions.json $TMPDIR/e.json
+                jq "$2" $TMPDIR/e.json > app/exceptions.json
+                if said=$(generate 2>&1); then fail "$1 was not refused"; fi
+                case $said in *"$3"*) ;; *) fail "$1: expected '$3' in: $said" ;; esac
+                cp $TMPDIR/e.json app/exceptions.json
+              }
+              refused "two classes on one template, across APIs" '.write["demo.projects.secrets.get"] = "x"' "one method and template, two classes"
+              refused "another API's literal deciding a stricter operation" '.guarded["demo.projects.secrets.get"] = "x"' "is more specific than a stricter one"
+              refused "an exception naming nothing" '.read["demo.nothing"] = "x"' "exceptions that name no operation"
+              refused "an exception that changes nothing" '.guarded["demo.projects.secrets.delete"] = "x"' "the class it has anyway"
+              refused "an exception without a reason" '.guarded["demo.objects.insert"] = ""' "needs a reason"
+              refused "one name in two classes" '.read["demo.projects.secrets.versions.access"] = "x"' "in more than one class"
+              refused "a pattern matching nothing" '.patterns.nothing = {"class": "read", "reason": "x"}' "patterns that match no operation"
+              refused "encodedSlashes naming nothing" '.encodedSlashes.demo.nothing = "x"' "encodedSlashes that name no parameter"
+              touch $out
+            '';
+
           # The version script decides what every release is called, so it is
           # gated by the same check that gates the release.
           shellcheck = pkgs.runCommand "shellcheck"
             { nativeBuildInputs = [ pkgs.shellcheck ]; }
             ''
-              shellcheck ${./scripts/version.sh} ${./scripts/operations.sh}
+              shellcheck ${./scripts/version.sh} ${./scripts/operations.sh} ${./scripts/gcloud.sh}
               touch $out
             '';
         });
 
       # What ./scripts/operations.sh needs: jq and curl for every app, and
-      # graphql-core for a GraphQL schema.
+      # graphql-core for a GraphQL schema. ./scripts/gcloud.sh needs git,
+      # protoc, protobuf to read what protoc compiles, and pyyaml.
       devShells = forAllSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system}; in
         {
           default = pkgs.mkShell {
-            packages = [ pkgs.jq pkgs.curl pkgs.shellcheck (pkgs.python3.withPackages (p: [ p.graphql-core ])) ];
+            packages = [ pkgs.jq pkgs.curl pkgs.git pkgs.protobuf pkgs.shellcheck (pkgs.python3.withPackages (p: [ p.graphql-core p.protobuf p.pyyaml ])) ];
           };
         });
 

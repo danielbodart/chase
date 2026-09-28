@@ -1,0 +1,31 @@
+{
+  "id": "demo:v1",
+  "name": "demo",
+  "version": "v1",
+  "title": "Demo API",
+  "rootUrl": "https://demo.googleapis.com/",
+  "mtlsRootUrl": "https://demo.mtls.googleapis.com/",
+  "servicePath": "",
+  "batchPath": "batch",
+  "endpoints": [{"endpointUrl": "https://demo.europe-west1.rep.googleapis.com/", "location": "europe-west1"}],
+  "resources": {
+    "projects": {"resources": {"secrets": {
+      "methods": {
+        "get": {"id": "demo.projects.secrets.get", "httpMethod": "GET", "path": "v1/{+name}", "flatPath": "v1/projects/{projectsId}/secrets/{secretsId}", "description": "Gets a secret.\n\nMetadata only."},
+        "create": {"id": "demo.projects.secrets.create", "httpMethod": "POST", "path": "v1/{+parent}/secrets", "flatPath": "v1/projects/{projectsId}/secrets", "description": "Creates a secret."},
+        "delete": {"id": "demo.projects.secrets.delete", "httpMethod": "DELETE", "path": "v1/{+name}", "flatPath": "v1/projects/{projectsId}/secrets/{secretsId}", "description": "Deletes a secret."},
+        "getIamPolicy": {"id": "demo.projects.secrets.getIamPolicy", "httpMethod": "POST", "path": "v1/{+resource}:getIamPolicy", "flatPath": "v1/projects/{projectsId}/secrets/{secretsId}:getIamPolicy"},
+        "setIamPolicy": {"id": "demo.projects.secrets.setIamPolicy", "httpMethod": "POST", "path": "v1/{+resource}:setIamPolicy", "flatPath": "v1/projects/{projectsId}/secrets/{secretsId}:setIamPolicy", "description": "Sets the policy."}
+      },
+      "resources": {"versions": {"methods": {
+        "access": {"id": "demo.projects.secrets.versions.access", "httpMethod": "GET", "path": "v1/{+name}:access", "flatPath": "v1/projects/{projectsId}/secrets/{secretsId}/versions/{versionsId}:access", "description": "Accesses a version."},
+        "get": {"id": "demo.projects.secrets.versions.get", "httpMethod": "GET", "path": "v1/{+name}", "flatPath": "v1/projects/{projectsId}/secrets/{secretsId}/versions/{versionsId}", "description": "Gets a version."}
+      }}}
+    }}},
+    "objects": {"methods": {
+      "get": {"id": "demo.objects.get", "httpMethod": "GET", "path": "v1/b/{bucket}/o/{object}", "useMediaDownloadService": true, "description": "Gets an object."},
+      "insert": {"id": "demo.objects.insert", "httpMethod": "POST", "path": "v1/b/{bucket}/o", "description": "Stores an object.",
+        "mediaUpload": {"protocols": {"simple": {"path": "/upload/v1/b/{bucket}/o"}, "resumable": {"path": "/resumable/upload/v1/b/{bucket}/o"}}}}
+    }}
+  }
+}

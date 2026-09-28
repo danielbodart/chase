@@ -1,0 +1,6 @@
+{
+  "id": "demo:v2", "name": "demo", "version": "v2", "rootUrl": "https://demo.googleapis.com/", "servicePath": "",
+  "resources": {"projects": {"resources": {"secrets": {"methods": {
+    "get": {"id": "demo.projects.secrets.get", "httpMethod": "GET", "path": "v2/{+name}", "flatPath": "v2/projects/{projectsId}/secrets/{secretsId}", "description": "Gets a secret."}
+  }}}}}
+}

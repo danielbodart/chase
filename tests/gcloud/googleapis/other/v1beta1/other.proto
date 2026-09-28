@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package other.v1beta1;
+
+import "google/api/annotations.proto";
+import "google/api/client.proto";
+
+service Things {
+  option (google.api.default_host) = "other.googleapis.com";
+
+  // Lists things.
+  rpc ListThings(Thing) returns (Thing) {
+    option (google.api.http) = { get: "/v1beta1/{parent=projects/*}/things" };
+  }
+
+  // Reads the rest of a thing.
+  rpc ReadThing(Thing) returns (Thing) {
+    option (google.api.http) = { get: "/v1beta1/{name=things/**}" };
+  }
+
+  // Gets a secret, by another name.
+  rpc GetSecret(Thing) returns (Thing) {
+    option (google.api.http) = { get: "/v1/{name=projects/*/secrets/*}" };
+  }
+}
+
+message Thing {
+  string name = 1;
+}

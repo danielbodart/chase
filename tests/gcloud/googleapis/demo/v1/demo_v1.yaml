@@ -1,0 +1,6 @@
+type: google.api.Service
+config_version: 3
+name: demo.googleapis.com
+apis:
+- name: demo.v1.Secrets
+- name: google.longrunning.Operations
