@@ -1,0 +1,6 @@
+[
+{"methods":["POST"],"path":"/batch/groupssettings/v1","operation":{"id":"groupssettings.batch","summary":"A batch of Groups Settings API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"groupssettings"}},
+{"methods":["GET","HEAD"],"path":"/groups/v1/groups/*","operation":{"id":"groupsSettings.groups.get","summary":"Gets one resource by id.","class":"read","category":"groupssettings"}},
+{"methods":["PATCH"],"path":"/groups/v1/groups/*","operation":{"id":"groupsSettings.groups.patch","summary":"Updates an existing resource.","description":"Updates an existing resource. This method supports patch semantics.","class":"write","category":"groupssettings"}},
+{"methods":["PUT"],"path":"/groups/v1/groups/*","operation":{"id":"groupsSettings.groups.update","summary":"Updates an existing resource.","class":"write","category":"groupssettings"}}
+]

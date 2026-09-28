@@ -1,0 +1,4 @@
+[
+{"methods":["POST"],"path":"/batch","operation":{"id":"acceleratedmobilepageurl.batch","summary":"A batch of Accelerated Mobile Pages (AMP) URL API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"acceleratedmobilepageurl"}},
+{"methods":["POST"],"path":"/v1/ampUrls:batchGet","operation":{"id":"acceleratedmobilepageurl.ampUrls.batchGet","summary":"Returns AMP URL(s) and equivalent [AMP Cache URL(s)](/amp/cache/overview#amp-cache-url-format).","class":"write","category":"acceleratedmobilepageurl"}}
+]

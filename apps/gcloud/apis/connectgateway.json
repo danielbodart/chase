@@ -1,0 +1,3 @@
+[
+{"methods":["GET","HEAD"],"path":"/v1/projects/*/locations/*/memberships/*:generateCredentials","operation":{"id":"google.cloud.gkeconnect.gateway.v1.GatewayControl.GenerateCredentials","summary":"GenerateCredentials provides connection information that allows a user to access the specified membership using Connect Gateway.","class":"read","category":"connectgateway"}}
+]

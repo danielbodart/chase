@@ -1,0 +1,6 @@
+[
+{"methods":["POST"],"path":"/google.maps.navconnect.v1.NavConnectService/CreateTrip","operation":{"id":"google.maps.navconnect.v1.NavConnectService.CreateTrip","summary":"Creates a trip.","description":"Creates a trip. This must be called before the mobile application can start the trip. The returned trip will have the `auth_token` field set.","class":"write","category":"navigationconnect"}},
+{"methods":["POST"],"path":"/google.maps.navconnect.v1.NavConnectService/GetTrip","operation":{"id":"google.maps.navconnect.v1.NavConnectService.GetTrip","summary":"Gets a trip.","class":"read","category":"navigationconnect"}},
+{"methods":["POST"],"path":"/v1/projects/*/trips","operation":{"id":"google.maps.navconnect.v1.NavConnectService.CreateTrip","summary":"Creates a trip.","description":"Creates a trip. This must be called before the mobile application can start the trip. The returned trip will have the `auth_token` field set.","class":"write","category":"navigationconnect"}},
+{"methods":["GET","HEAD"],"path":"/v1/projects/*/trips/*","operation":{"id":"google.maps.navconnect.v1.NavConnectService.GetTrip","summary":"Gets a trip.","class":"read","category":"navigationconnect"}}
+]

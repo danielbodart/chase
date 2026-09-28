@@ -1,0 +1,4 @@
+[
+{"methods":["POST"],"path":"/batch","operation":{"id":"androiddeveloperidstatus.batch","summary":"A batch of Android Developer ID Status API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"androiddeveloperidstatus"}},
+{"methods":["GET","HEAD"],"path":"/v1/packages/*/packageRegistrationStatus:check","operation":{"id":"androiddeveloperidstatus.packages.packageRegistrationStatus.check","summary":"Retrieves the Android Developer ID registration status for a given package.","class":"read","category":"androiddeveloperidstatus"}}
+]

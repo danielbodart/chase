@@ -1,0 +1,7 @@
+[
+{"methods":["POST"],"path":"/batch","operation":{"id":"versionhistory.batch","summary":"A batch of versionhistory.googleapis.com API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"versionhistory"}},
+{"methods":["GET","HEAD"],"path":"/v1/*/platforms","operation":{"id":"versionhistory.platforms.list","summary":"Returns list of platforms that are available for a given product.","description":"Returns list of platforms that are available for a given product. The resource \"product\" has no resource name in its name.","class":"read","category":"versionhistory"}},
+{"methods":["GET","HEAD"],"path":"/v1/*/platforms/*/channels","operation":{"id":"versionhistory.platforms.channels.list","summary":"Returns list of channels that are available for a given platform.","class":"read","category":"versionhistory"}},
+{"methods":["GET","HEAD"],"path":"/v1/*/platforms/*/channels/*/versions","operation":{"id":"versionhistory.platforms.channels.versions.list","summary":"Returns list of version for the given platform/channel.","class":"read","category":"versionhistory"}},
+{"methods":["GET","HEAD"],"path":"/v1/*/platforms/*/channels/*/versions/*/releases","operation":{"id":"versionhistory.platforms.channels.versions.releases.list","summary":"Returns list of releases of the given version.","class":"read","category":"versionhistory"}}
+]

@@ -1,0 +1,5 @@
+[
+{"methods":["POST"],"path":"/batch","operation":{"id":"indexing.batch","summary":"A batch of Web Search Indexing API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"indexing"}},
+{"methods":["GET","HEAD"],"path":"/v3/urlNotifications/metadata","operation":{"id":"indexing.urlNotifications.getMetadata","summary":"Gets metadata about a Web Document.","description":"Gets metadata about a Web Document. This method can _only_ be used to query URLs that were previously seen in successful Indexing API notifications. Includes the latest `UrlNotification` received via this API.","class":"read","category":"indexing"}},
+{"methods":["POST"],"path":"/v3/urlNotifications:publish","operation":{"id":"indexing.urlNotifications.publish","summary":"Notifies that a URL has been updated or deleted.","class":"write","category":"indexing"}}
+]

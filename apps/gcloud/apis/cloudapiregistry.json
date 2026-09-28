@@ -1,0 +1,12 @@
+[
+{"methods":["POST"],"path":"/google.cloud.apiregistry.v1.CloudApiRegistry/GetMcpServer","operation":{"id":"google.cloud.apiregistry.v1.CloudApiRegistry.GetMcpServer","summary":"Gets a single McpServer.","class":"read","category":"cloudapiregistry"}},
+{"methods":["POST"],"path":"/google.cloud.apiregistry.v1.CloudApiRegistry/GetMcpTool","operation":{"id":"google.cloud.apiregistry.v1.CloudApiRegistry.GetMcpTool","summary":"Gets a single McpTool.","class":"read","category":"cloudapiregistry"}},
+{"methods":["POST"],"path":"/google.cloud.apiregistry.v1.CloudApiRegistry/ListMcpServers","operation":{"id":"google.cloud.apiregistry.v1.CloudApiRegistry.ListMcpServers","summary":"Lists McpServers in a given Project.","class":"read","category":"cloudapiregistry"}},
+{"methods":["POST"],"path":"/google.cloud.apiregistry.v1.CloudApiRegistry/ListMcpTools","operation":{"id":"google.cloud.apiregistry.v1.CloudApiRegistry.ListMcpTools","summary":"Lists McpTools in a given McpServer.","class":"read","category":"cloudapiregistry"}},
+{"methods":["POST"],"path":"/google.cloud.location.Locations/GetLocation","operation":{"id":"google.cloud.location.Locations.GetLocation","summary":"Gets information about a location.","class":"read","category":"google.cloud.location.Locations"}},
+{"methods":["POST"],"path":"/google.cloud.location.Locations/ListLocations","operation":{"id":"google.cloud.location.Locations.ListLocations","summary":"Lists information about the supported locations for this service.","class":"read","category":"google.cloud.location.Locations"}},
+{"methods":["GET","HEAD"],"path":"/v1/projects/*/locations/*/mcpServers","operation":{"id":"google.cloud.apiregistry.v1.CloudApiRegistry.ListMcpServers","summary":"Lists McpServers in a given Project.","class":"read","category":"cloudapiregistry"}},
+{"methods":["GET","HEAD"],"path":"/v1/projects/*/locations/*/mcpServers/*","operation":{"id":"google.cloud.apiregistry.v1.CloudApiRegistry.GetMcpServer","summary":"Gets a single McpServer.","class":"read","category":"cloudapiregistry"}},
+{"methods":["GET","HEAD"],"path":"/v1/projects/*/locations/*/mcpServers/*/mcpTools","operation":{"id":"google.cloud.apiregistry.v1.CloudApiRegistry.ListMcpTools","summary":"Lists McpTools in a given McpServer.","class":"read","category":"cloudapiregistry"}},
+{"methods":["GET","HEAD"],"path":"/v1/projects/*/locations/*/mcpServers/*/mcpTools/*","operation":{"id":"google.cloud.apiregistry.v1.CloudApiRegistry.GetMcpTool","summary":"Gets a single McpTool.","class":"read","category":"cloudapiregistry"}}
+]

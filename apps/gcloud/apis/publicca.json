@@ -1,0 +1,5 @@
+[
+{"methods":["POST"],"path":"/batch","operation":{"id":"publicca.batch","summary":"A batch of Public Certificate Authority API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"publicca"}},
+{"methods":["POST"],"path":"/google.cloud.security.publicca.v1.PublicCertificateAuthorityService/CreateExternalAccountKey","operation":{"id":"google.cloud.security.publicca.v1.PublicCertificateAuthorityService.CreateExternalAccountKey","summary":"Creates a new ExternalAccountKey bound to the project.","class":"guarded","category":"publicca"}},
+{"methods":["POST"],"path":"/v1/projects/*/locations/*/externalAccountKeys","operation":{"id":"publicca.projects.locations.externalAccountKeys.create","summary":"Creates a new ExternalAccountKey bound to the project.","class":"guarded","category":"publicca"}}
+]

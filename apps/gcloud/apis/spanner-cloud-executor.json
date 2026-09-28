@@ -1,0 +1,3 @@
+[
+{"methods":["POST"],"path":"/google.spanner.executor.v1.SpannerExecutorProxy/ExecuteActionAsync","operation":{"id":"google.spanner.executor.v1.SpannerExecutorProxy.ExecuteActionAsync","summary":"ExecuteActionAsync is a streaming call that starts executing a new Spanner action.","description":"ExecuteActionAsync is a streaming call that starts executing a new Spanner action. For each request, the server will reply with one or more responses, but only the last response will contain status in the outcome. Responses can be matched to requests by action_id. It is allowed to have multiple actions in flight--in that case, actions are be executed in parallel.","class":"write","category":"spanner-cloud-executor"}}
+]

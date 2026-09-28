@@ -1,0 +1,7 @@
+[
+{"methods":["POST"],"path":"/batch","operation":{"id":"civicinfo.batch","summary":"A batch of Google Civic Information API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"civicinfo"}},
+{"methods":["GET","HEAD"],"path":"/civicinfo/v2/divisions","operation":{"id":"civicinfo.divisions.search","summary":"Searches for political divisions by their natural name or OCD ID.","class":"read","category":"civicinfo"}},
+{"methods":["GET","HEAD"],"path":"/civicinfo/v2/divisionsByAddress","operation":{"id":"civicinfo.divisions.queryDivisionByAddress","summary":"Lookup OCDIDs and names for divisions related to an address.","class":"read","category":"civicinfo"}},
+{"methods":["GET","HEAD"],"path":"/civicinfo/v2/elections","operation":{"id":"civicinfo.elections.electionQuery","summary":"List of available elections to query.","class":"read","category":"civicinfo"}},
+{"methods":["GET","HEAD"],"path":"/civicinfo/v2/voterinfo","operation":{"id":"civicinfo.elections.voterInfoQuery","summary":"Looks up information relevant to a voter based on the voter's registered address.","class":"read","category":"civicinfo"}}
+]

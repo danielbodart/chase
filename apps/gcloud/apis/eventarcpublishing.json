@@ -1,0 +1,8 @@
+[
+{"methods":["POST"],"path":"/google.cloud.eventarc.publishing.v1.Publisher/Publish","operation":{"id":"google.cloud.eventarc.publishing.v1.Publisher.Publish","summary":"Publish events to a message bus.","class":"write","category":"eventarcpublishing"}},
+{"methods":["POST"],"path":"/google.cloud.eventarc.publishing.v1.Publisher/PublishChannelConnectionEvents","operation":{"id":"google.cloud.eventarc.publishing.v1.Publisher.PublishChannelConnectionEvents","summary":"Publish events to a ChannelConnection in a partner's project.","class":"write","category":"eventarcpublishing"}},
+{"methods":["POST"],"path":"/google.cloud.eventarc.publishing.v1.Publisher/PublishEvents","operation":{"id":"google.cloud.eventarc.publishing.v1.Publisher.PublishEvents","summary":"Publish events to a subscriber's channel.","class":"write","category":"eventarcpublishing"}},
+{"methods":["POST"],"path":"/v1/projects/*/locations/*/channelConnections/*:publishEvents","operation":{"id":"google.cloud.eventarc.publishing.v1.Publisher.PublishChannelConnectionEvents","summary":"Publish events to a ChannelConnection in a partner's project.","class":"write","category":"eventarcpublishing"}},
+{"methods":["POST"],"path":"/v1/projects/*/locations/*/channels/*:publishEvents","operation":{"id":"google.cloud.eventarc.publishing.v1.Publisher.PublishEvents","summary":"Publish events to a subscriber's channel.","class":"write","category":"eventarcpublishing"}},
+{"methods":["POST"],"path":"/v1/projects/*/locations/*/messageBuses/*:publish","operation":{"id":"google.cloud.eventarc.publishing.v1.Publisher.Publish","summary":"Publish events to a message bus.","class":"write","category":"eventarcpublishing"}}
+]

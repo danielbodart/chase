@@ -1,0 +1,4 @@
+[
+{"methods":["POST"],"path":"/google.chromeos.uidetection.v1.UiDetectionService/ExecuteDetection","operation":{"id":"google.chromeos.uidetection.v1.UiDetectionService.ExecuteDetection","summary":"Runs the detection.","class":"read","category":"chromeosuidetection"}},
+{"methods":["GET","HEAD"],"path":"/v1/executeDetection:execute","operation":{"id":"google.chromeos.uidetection.v1.UiDetectionService.ExecuteDetection","summary":"Runs the detection.","class":"read","category":"chromeosuidetection"}}
+]

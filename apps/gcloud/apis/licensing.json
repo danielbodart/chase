@@ -1,0 +1,10 @@
+[
+{"methods":["POST"],"path":"/apps/licensing/v1/product/*/sku/*/user","operation":{"id":"licensing.licenseAssignments.insert","summary":"Assign a license.","class":"write","category":"licensing"}},
+{"methods":["DELETE"],"path":"/apps/licensing/v1/product/*/sku/*/user/*","operation":{"id":"licensing.licenseAssignments.delete","summary":"Revoke a license.","class":"guarded","category":"licensing"}},
+{"methods":["GET","HEAD"],"path":"/apps/licensing/v1/product/*/sku/*/user/*","operation":{"id":"licensing.licenseAssignments.get","summary":"Get a specific user's license by product SKU.","class":"read","category":"licensing"}},
+{"methods":["PATCH"],"path":"/apps/licensing/v1/product/*/sku/*/user/*","operation":{"id":"licensing.licenseAssignments.patch","summary":"Reassign a user's product SKU with a different SKU in the same product.","description":"Reassign a user's product SKU with a different SKU in the same product. This method supports patch semantics.","class":"write","category":"licensing"}},
+{"methods":["PUT"],"path":"/apps/licensing/v1/product/*/sku/*/user/*","operation":{"id":"licensing.licenseAssignments.update","summary":"Reassign a user's product SKU with a different SKU in the same product.","class":"write","category":"licensing"}},
+{"methods":["GET","HEAD"],"path":"/apps/licensing/v1/product/*/sku/*/users","operation":{"id":"licensing.licenseAssignments.listForProductAndSku","summary":"List all users assigned licenses for a specific product SKU.","class":"read","category":"licensing"}},
+{"methods":["GET","HEAD"],"path":"/apps/licensing/v1/product/*/users","operation":{"id":"licensing.licenseAssignments.listForProduct","summary":"List all users assigned licenses for a specific product SKU.","class":"read","category":"licensing"}},
+{"methods":["POST"],"path":"/batch","operation":{"id":"licensing.batch","summary":"A batch of Enterprise License Manager API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"licensing"}}
+]

@@ -1,0 +1,7 @@
+[
+{"methods":["POST"],"path":"/batch","operation":{"id":"verifiedaccess.batch","summary":"A batch of Chrome Verified Access API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"verifiedaccess"}},
+{"methods":["POST"],"path":"/v1/challenge","operation":{"id":"verifiedaccess.challenge.create","summary":"CreateChallenge API","class":"write","category":"verifiedaccess"}},
+{"methods":["POST"],"path":"/v1/challenge:verify","operation":{"id":"verifiedaccess.challenge.verify","summary":"VerifyChallengeResponse API","class":"write","category":"verifiedaccess"}},
+{"methods":["POST"],"path":"/v2/challenge:generate","operation":{"id":"verifiedaccess.challenge.generate","summary":"Generates a new challenge.","class":"write","category":"verifiedaccess"}},
+{"methods":["POST"],"path":"/v2/challenge:verify","operation":{"id":"verifiedaccess.challenge.verify","summary":"Verifies the challenge response.","class":"write","category":"verifiedaccess"}}
+]

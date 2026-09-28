@@ -1,0 +1,6 @@
+[
+{"methods":["POST"],"path":"/batch","operation":{"id":"policyanalyzer.batch","summary":"A batch of Policy Analyzer API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"policyanalyzer"}},
+{"methods":["GET","HEAD"],"path":"/v1/folders/*/locations/*/activityTypes/*/activities:query","operation":{"id":"policyanalyzer.folders.locations.activityTypes.activities.query","summary":"Queries policy activities on Google Cloud resources.","class":"read","category":"policyanalyzer"}},
+{"methods":["GET","HEAD"],"path":"/v1/organizations/*/locations/*/activityTypes/*/activities:query","operation":{"id":"policyanalyzer.organizations.locations.activityTypes.activities.query","summary":"Queries policy activities on Google Cloud resources.","class":"read","category":"policyanalyzer"}},
+{"methods":["GET","HEAD"],"path":"/v1/projects/*/locations/*/activityTypes/*/activities:query","operation":{"id":"policyanalyzer.projects.locations.activityTypes.activities.query","summary":"Queries policy activities on Google Cloud resources.","class":"read","category":"policyanalyzer"}}
+]

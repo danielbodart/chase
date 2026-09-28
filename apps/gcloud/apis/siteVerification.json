@@ -1,0 +1,10 @@
+[
+{"methods":["POST"],"path":"/batch/siteVerification/v1","operation":{"id":"siteVerification.batch","summary":"A batch of Google Site Verification API requests in one, each a whole request frisket cannot see.","class":"guarded","category":"siteVerification"}},
+{"methods":["POST"],"path":"/siteVerification/v1/token","operation":{"id":"siteVerification.webResource.getToken","summary":"Get a verification token for placing on a website or domain.","class":"write","category":"siteVerification"}},
+{"methods":["GET","HEAD"],"path":"/siteVerification/v1/webResource","operation":{"id":"siteVerification.webResource.list","summary":"Get the list of your verified websites and domains.","class":"read","category":"siteVerification"}},
+{"methods":["POST"],"path":"/siteVerification/v1/webResource","operation":{"id":"siteVerification.webResource.insert","summary":"Attempt verification of a website or domain.","class":"write","category":"siteVerification"}},
+{"methods":["DELETE"],"path":"/siteVerification/v1/webResource/*","operation":{"id":"siteVerification.webResource.delete","summary":"Relinquish ownership of a website or domain.","class":"guarded","category":"siteVerification"}},
+{"methods":["GET","HEAD"],"path":"/siteVerification/v1/webResource/*","operation":{"id":"siteVerification.webResource.get","summary":"Get the most current data for a website or domain.","class":"read","category":"siteVerification"}},
+{"methods":["PATCH"],"path":"/siteVerification/v1/webResource/*","operation":{"id":"siteVerification.webResource.patch","summary":"Modify the list of owners for your website or domain.","description":"Modify the list of owners for your website or domain. This method supports patch semantics.","class":"write","category":"siteVerification"}},
+{"methods":["PUT"],"path":"/siteVerification/v1/webResource/*","operation":{"id":"siteVerification.webResource.update","summary":"Modify the list of owners for your website or domain.","class":"write","category":"siteVerification"}}
+]

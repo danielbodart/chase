@@ -1,0 +1,4 @@
+[
+{"methods":["POST"],"path":"/google.maps.isochrones.v1.IsochroneService/GenerateIsochrone","operation":{"id":"google.maps.isochrones.v1.IsochroneService.GenerateIsochrone","summary":"Calculates and returns a single isochrone for a given set of parameters.","class":"write","category":"isochrones"}},
+{"methods":["POST"],"path":"/v1/isochrones:generate","operation":{"id":"google.maps.isochrones.v1.IsochroneService.GenerateIsochrone","summary":"Calculates and returns a single isochrone for a given set of parameters.","class":"write","category":"isochrones"}}
+]

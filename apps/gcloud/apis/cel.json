@@ -1,0 +1,5 @@
+[
+{"methods":["POST"],"path":"/google.api.expr.conformance.v1alpha1.ConformanceService/Check","operation":{"id":"google.api.expr.conformance.v1alpha1.ConformanceService.Check","summary":"Runs static checks on a parsed CEL representation and return an annotated representation, or a set of issues.","class":"write","category":"cel"}},
+{"methods":["POST"],"path":"/google.api.expr.conformance.v1alpha1.ConformanceService/Eval","operation":{"id":"google.api.expr.conformance.v1alpha1.ConformanceService.Eval","summary":"Evaluates a parsed or annotation CEL representation given values of external bindings.","class":"write","category":"cel"}},
+{"methods":["POST"],"path":"/google.api.expr.conformance.v1alpha1.ConformanceService/Parse","operation":{"id":"google.api.expr.conformance.v1alpha1.ConformanceService.Parse","summary":"Transforms CEL source text into a parsed representation.","class":"write","category":"cel"}}
+]

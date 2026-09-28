@@ -1,0 +1,4 @@
+[
+{"methods":["POST"],"path":"/google.devtools.remoteworkers.v1test2.Bots/CreateBotSession","operation":{"id":"google.devtools.remoteworkers.v1test2.Bots.CreateBotSession","summary":"CreateBotSession is called when the bot first joins the farm, and establishes a session ID to ensure that multiple machines do not register using the same name accidentally.","class":"write","category":"remoteworkers"}},
+{"methods":["POST"],"path":"/google.devtools.remoteworkers.v1test2.Bots/UpdateBotSession","operation":{"id":"google.devtools.remoteworkers.v1test2.Bots.UpdateBotSession","summary":"UpdateBotSession must be called periodically by the bot (on a schedule determined by the server) to let the server know about its status, and to pick up new lease requests from the server.","class":"write","category":"remoteworkers"}}
+]
