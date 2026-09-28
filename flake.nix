@@ -480,6 +480,19 @@
               refused "a path frisket could not match" '.resources.projects.resources.secrets.methods.get.flatPath = "v2/pro%20jects/{p}"' "a path frisket could not match" discoveries/demo.v2.json
               refused "a version Discovery does not have" '.discovery.versions["demo:v9"] = "x"' "versions not in Discovery's index" app/source.json
               refused "a version with no document" '.discovery.versions["gone:v1"] = "x"' "versions without a document" app/source.json
+
+              # What returns or mints a credential is guarded, in the table as committed.
+              jq -e -s --argjson ids '["apikeys.projects.locations.keys.create", "google.api.apikeys.v2.ApiKeys.CreateKey",
+                  "androidenterprise.enterprises.getServiceAccount", "androidenterprise.serviceaccountkeys.insert",
+                  "notebooks.projects.locations.runtimes.refreshRuntimeTokenInternal", "agentidentitycredentials.projects.locations.authProviders.credentials.retrieve",
+                  "redis.projects.locations.clusters.tokenAuthUsers.authTokens.get", "redis.projects.locations.clusters.tokenAuthUsers.authTokens.list",
+                  "google.cloud.alloydb.v1.AlloyDBAdmin.GenerateClientCertificate", "iap.setIamPolicy", "compute.instances.update"]' \
+                '[.[][] | select(.operation.id as $i | $ids | index($i))] | (map(.operation.id) | unique | length) == ($ids | length) and all(.operation.class == "guarded")' \
+                ${./apps/gcloud/apis}/*.json >/dev/null || fail "the committed table does not guard what returns a credential"
+              jq -e -s 'all(.[][]; .operation.class == "guarded")' ${./apps/gcloud/apis}/iamcredentials.json ${./apps/gcloud/apis}/sts.json >/dev/null \
+                || fail "the committed table does not guard iamcredentials and sts whole"
+              [ "$(jq -r '.[] | select(.path == "/v1/projects/*/locations/*/clusters/*:generateClientCertificate") | .operation.class' ${./apps/gcloud/apis}/alloydb.json)" = guarded ] \
+                || fail "AlloyDB's REST GenerateClientCertificate is not guarded"
               touch $out
             '';
 
