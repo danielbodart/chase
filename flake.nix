@@ -750,6 +750,8 @@
                 touch $out
               '';
 
+          gcloud-session = pkgs.testers.runNixOSTest (import ./tests/gcloud-session.nix { inherit self home-manager; });
+
           # The version script decides what every release is called, so it is
           # gated by the same check that gates the release.
           shellcheck = pkgs.runCommand "shellcheck"
