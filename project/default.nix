@@ -35,6 +35,14 @@ let
   apps = pkgs.writeText "chase-project-apps.json" (builtins.toJSON cfg.internal.projectApps);
   stops = lib.filter (s: s != null) (lib.mapAttrsToList (_: a: a.stop or null) cfg.internal.projectApps);
 
+  # Every tier's pinned checkouts, as the selector holds them: each
+  # owner/repo, lower-cased, and every path any tier pins it at. What names a
+  # checkout's Docker project is held to these both ways (`project`, below).
+  checkouts = pkgs.writeText "chase-checkouts.json" (builtins.toJSON (
+    lib.zipAttrsWith (_: paths: lib.unique (lib.sort lib.lessThan paths))
+      (lib.concatMap (t: lib.concatMap (rule: lib.mapAttrsToList (s: p: { ${lib.toLower s} = p; }) rule.checkouts) t.match)
+        (lib.attrValues cfg.tiers))));
+
   # A flong hook is a command, never shell: one that needs a shell is a
   # script of its own, under the options flong's snippets once ran with. It
   # finds chase-envelope on the PATH flong gives it, from `path`, and reads
@@ -77,14 +85,18 @@ let
 
   envelope = pkgs.writeShellApplication {
     name = "chase-envelope";
-    runtimeInputs = [ copyTracked cfg.internal.lsFiles ] ++ (with pkgs; [ nix jq sops coreutils diffutils gnugrep gnused ]);
+    runtimeInputs = [ copyTracked cfg.internal.lsFiles cfg.internal.origin cfg.internal.dockerAddress ]
+      ++ (with pkgs; [ nix jq sops coreutils diffutils gnugrep gnused util-linux ]);
     text = ''
       uid=${toString cfg.uid}
       home=${lib.escapeShellArg cfg.home}
-      # Where chase keeps what it approved, and where a launch leaves what it
-      # stages: one line each, so a test can put them elsewhere.
+      # Where chase keeps what it approved, where a launch leaves what it
+      # stages, and which of a project's names the host's /etc/hosts carries:
+      # one line each, so a test can put them elsewhere.
       state=$home/.local/state/chase
       runtime=/run/user/$uid
+      hosts=/etc/chase/docker-hosts.json
+      checkouts=${checkouts}
       apps=${apps}
       lists=${./lists.jq}
       merge=${./merge.jq}
@@ -105,12 +117,12 @@ let
       # (\200-\237) a terminal not reading UTF-8 acts on. The raw bytes are
       # also continuations of other UTF-8 characters, which come out
       # mangled: a refusal read wrong is better than one that writes.
-      die() {
+      say() {
         printf 'chase: %s\n' "$*" \
           | LC_ALL=C sed 's/\xc2[\x80-\x9f]/?/g' \
           | LC_ALL=C tr '\000-\011\013-\037\177-\237' '?' >&2
-        exit 1
       }
+      die() { say "$@"; exit 1; }
 
       # ASK, THEN RUN. Nothing of the checkout's is evaluated until a person
       # has approved the bytes that decide what evaluating it reaches: its
@@ -253,13 +265,147 @@ let
       # their own. A machine name never starts with a dot.
       staged() { printf '%s/chase/.envelope/%s.json' "$runtime" "$1"; }
 
+      # A CHECKOUT'S DOCKER PROJECT (docs/docker.md, 3.1): the owner/repo its
+      # origin names on GitHub. It decides which containers, volumes and
+      # networks a session may touch, and at which address, so it is derived
+      # here, from the checkout, and never taken from anything the envelope
+      # says: the session writes that, and would name itself as another
+      # project to reach its database.
+      #
+      # The checkout is chase-checkout's, found from where the directory
+      # is, and its origin read by chase-origin as the selector reads it: git
+      # here never reads a checkout's own config, which its session wrote
+      # and which can name a command for git to run. Its root is that one,
+      # never git's --show-toplevel, which core.worktree moves.
+      #
+      # Held both ways to the checkouts the tiers pin: a pinned project only
+      # at its own path, and a pinned path only as its own project. And, as
+      # the selector's in_checkout holds it, only from the repository kept at
+      # that path itself or in its .bare: a clone nested under the path has
+      # a session of its own, which writes its own .git, origin included. A
+      # project no tier pins is a claim, shown in the approval, which a
+      # person approves.
+      #
+      # TIER is not read yet: it is taken so that a tier can say more of a
+      # project later without the call changing.
+      project() { # WS TIER -> owner/repo on stdout, or die
+        local LC_ALL=C ws=$1 out lines root common kind gitcommon url owner repo slug s p hit=""
+        out=$(chase-origin "$ws" && echo .) || die "$ws: Docker needs a checkout, and this one cannot be sorted: $out"
+        mapfile -t lines < <(printf '%s' "''${out%.}")
+        IFS=$'\t' read -r root common kind gitcommon <<< "''${lines[0]}"
+        [ "''${#lines[@]}" -eq 2 ] \
+          || die "$ws: Docker needs exactly one origin URL, so its project has a name, and it has $((''${#lines[@]} - 1))"
+        url=''${lines[1]%/}
+        url=''${url%.git}
+        if [[ $url =~ ^git@github\.com:([A-Za-z0-9-]+)/([A-Za-z0-9._-]+)$ ]]; then
+          owner=''${BASH_REMATCH[1]} repo=''${BASH_REMATCH[2]}
+        elif [[ $url =~ ^(https://|ssh://git@)github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9._-]+)$ ]]; then
+          owner=''${BASH_REMATCH[2]} repo=''${BASH_REMATCH[3]}
+        else
+          die "$ws: origin $url is not github.com/owner/repo, so it names no project"
+        fi
+        owner=''${owner,,} repo=''${repo,,}
+        case $repo in
+          . | ..) die "$ws: origin $url names no repository" ;;
+        esac
+        slug=$owner/$repo
+        while IFS=$'\t' read -r s p; do
+          p=$(realpath -m -- "$p")
+          case $root in
+            "$p" | "$p"/*) ;;
+            *) continue ;;
+          esac
+          [ "$s" = "$slug" ] || die "$ws: $root is under $p, where $s is pinned, but its origin says $slug"
+          if [ "$common" != "$p" ] && [ "$gitcommon" != "$p/.bare" ]; then
+            die "$ws: $root is under $p, where $slug is pinned, but is a $kind of $common, not of $p"
+          fi
+          hit=1
+        done < <(jq -r 'to_entries[] | .key as $s | .value[] | "\($s)\t\(.)"' "$checkouts")
+        if [ -z "$hit" ] && jq -e --arg s "$slug" 'has($s)' "$checkouts" >/dev/null; then
+          die "$ws: its origin says $slug, which is pinned at $(jq -r --arg s "$slug" '.[$s] | join(", ")' "$checkouts"), not $root"
+        fi
+        chase-docker-address "$slug" >/dev/null || die "$ws: $slug is not a project frisket can route"
+        printf '%s\n' "$slug"
+      }
+
+      # NO TWO PROJECTS AT ONE ADDRESS (I10). The address is a hash of the
+      # project's name, and 24 bits can be searched in seconds for a repo
+      # name that lands on another project's: an approval saying `Docker as
+      # evil/x at 127.1.191.78` would not be compared with data-lab's by
+      # anyone. So an address is first come on this host: the projects
+      # already approved here ($state/docker/addresses.json, which only this
+      # writes, and from which nothing is ever removed but by hand), those
+      # the tiers pin, and those whose names the host's /etc/hosts carries,
+      # read as data. The directory is locked, not the file, since the file
+      # is replaced whole.
+      #
+      # `check` refuses before anyone is asked; `record` checks again, once
+      # the envelope is approved, and remembers the project: one that was
+      # refused approval holds no address.
+      claim() { # WS SLUG ADDRESS check|record
+        local ws=$1 slug=$2 addr=$3 dir=$state/docker file held s a other
+        file=$dir/addresses.json
+        mkdir -p "$dir"
+        exec 9<"$dir"
+        flock 9
+        [ -e "$file" ] || printf '{}\n' > "$file"
+        held=$(jq -r 'to_entries[] | "\(.key)\t\(.value | strings)"' "$file") || die "$ws: $file cannot be read"
+        if [ -e "$hosts" ]; then
+          held+=$'\n'$(jq -r 'to_entries[] | "\(.key)\t\(.value.address | strings)"' "$hosts") || die "$ws: $hosts cannot be read"
+        fi
+        while IFS= read -r s; do
+          a=$(chase-docker-address "$s" 2>/dev/null) || continue
+          held+=$'\n'$s$'\t'$(jq -r .address <<< "$a")
+        done < <(jq -r 'keys[]' "$checkouts")
+        while IFS=$'\t' read -r other a; do
+          if [ -n "$other" ] && [ "''${other,,}" != "$slug" ] && [ "$a" = "$addr" ]; then
+            die "$ws: $slug would be at $addr, which $other already holds"
+          fi
+        done <<< "$held"
+        if [ "$4" = record ] && [ "$(jq -r --arg s "$slug" '.[$s] // empty' "$file")" != "$addr" ]; then
+          jq --arg s "$slug" --arg a "$addr" '. + {($s): $a}' "$file" > "$file.new"
+          mv -- "$file.new" "$file"
+        fi
+        exec 9<&-
+      }
+
+      # What the approval is read beside (3.8): the project, its address,
+      # its names in a session, and its ports. The names are the session's,
+      # which frisket answers. On the host a name is one only where
+      # /etc/chase/docker-hosts.json, which nix-config writes with
+      # /etc/hosts, gives it this project at this address: read as a file,
+      # never looked up, since a name /etc/hosts lacks goes to the upstream
+      # resolver, which a hostile network answers.
+      docker_line() { # WS SLUG ADDRESS-JSON RESULT
+        local ws=$1 slug=$2 who=$3 result=$4 addr names ports host="[]" line
+        addr=$(jq -r .address <<< "$who")
+        names=$(jq -r '.names | if . == [] then "no names" else join(", ") end' <<< "$who")
+        ports=$(jq -r '.bindings.docker.ports // [] | if . == [] then "no ports" else "ports " + (map(tostring) | join(" ")) end' <<< "$result")
+        if [ -e "$hosts" ]; then
+          host=$(jq -c --arg s "$slug" --arg a "$addr" --argjson n "$(jq -c .names <<< "$who")" '
+            (.[$s] // {}) as $e
+            | if ($e | type) == "object" and $e.address == $a then [$n[] | select(. as $x | any($e.names[]?; . == $x))] else [] end
+          ' "$hosts") || die "$ws: $hosts cannot be read"
+        fi
+        line="$ws: Docker as $slug at $addr ($names), $ports"
+        if [ "$host" = "[]" ]; then
+          line+="; on this host, $addr only"
+        elif [ "$host" != "$(jq -c .names <<< "$who")" ]; then
+          line+="; on this host, $addr and $(jq -r 'join(", ")' <<< "$host") only"
+        fi
+        # The workspace is a path, which a session can name: said as die
+        # says it.
+        say "$line"
+      }
+
       # seccompPolicy: snapshot, approve, evaluate, approve, stage. Prints
       # the approved `allow` and `deny` lines, and nothing else, on stdout.
       approve() {
-        local ws=$1 machine=$2 result dir secrets file="" stage out twice
+        local ws=$1 machine=$2 tier=$3 result dir secrets file="" stage out twice slug="" who addr=""
         exec 3>&1 1>&2
         umask 077
         [ -n "$machine" ] || die "no machine: flong names the session before seccompPolicy runs"
+        [ -n "$tier" ] || die "no tier: the tier's seccompPolicy names it"
         [ -d "$runtime" ] || die "$runtime does not exist: log in first"
         # 0700, by the umask.
         [ -d "$runtime/chase/.envelope" ] || mkdir -p "$runtime/chase/.envelope"
@@ -286,6 +432,11 @@ let
           return
         fi
         result=$(jq -c -f "$normal" <<< "$result")
+        # What chase derives and adds below is never the envelope's to say:
+        # a project module can declare options of its own under chase, and
+        # one naming dockerProject would otherwise stand, unchecked, where
+        # there is no Docker binding to derive it.
+        result=$(jq -c 'del(.dockerProject, .secretsSHA256)' <<< "$result")
         # One name in two of an app's lists says two things: refused before
         # anyone is asked to approve it.
         twice=$(jq -r '.bindings | to_entries[] | .key as $app
@@ -301,7 +452,20 @@ let
           esac
           result=$(jq --arg d "$(sha256sum < "$file" | cut -d' ' -f1)" '. + {secretsSHA256: $d}' <<< "$result")
         fi
+        # Docker, as the project the checkout's origin names, which is part
+        # of what is approved: a changed origin is asked about again. An
+        # envelope without Docker gains nothing, so one approved before
+        # there was Docker still is.
+        if jq -e '.bindings.docker != null' <<< "$result" >/dev/null; then
+          slug=$(project "$ws" "$tier")
+          who=$(chase-docker-address "$slug") || die "$ws: $slug has no address"
+          addr=$(jq -r .address <<< "$who")
+          claim "$ws" "$slug" "$addr" check
+          result=$(jq -c --arg p "$slug" '. + {dockerProject: $p}' <<< "$result")
+          docker_line "$ws" "$slug" "$who" "$result"
+        fi
         approve_envelope "$ws" "$result" "$dir"
+        [ -z "$slug" ] || claim "$ws" "$slug" "$addr" record
 
         # What postStart applies is what was approved, with the snapshot's
         # sops file beside it: not the checkout, which a session may be
@@ -406,7 +570,9 @@ let
           printf '%s\n' "$dir"
           ;;
         # seccompPolicy: the approval, and the policy's lines.
-        approve) approve "$2" "''${3:-}" ;;
+        approve) approve "$2" "''${3:-}" "''${4:-}" ;;
+        # A checkout's Docker project, as approve derives it.
+        project) [ $# -eq 3 ] || die "usage: chase-envelope project WS TIER"; project "$2" "$3" ;;
         # postStart: the approved envelope, applied.
         launch) launch "$2" "$3" "$4" ;;
         # frisket steer's -policy: the session's own document, or the tier's.
@@ -417,7 +583,7 @@ let
             printf '%s\n' "/etc/frisket/policies/$2.json"
           fi
           ;;
-        *) die "usage: chase-envelope env-dir WS | approve WS MACHINE | launch TIER WS MACHINE | policy TIER MACHINE" ;;
+        *) die "usage: chase-envelope env-dir WS | approve WS MACHINE TIER | launch TIER WS MACHINE | policy TIER MACHINE | project WS TIER" ;;
       esac
     '';
   };
@@ -465,7 +631,7 @@ in
       # After the guard, before bwrap: the filter is fixed before anything in
       # the session runs, so this is where the envelope is approved.
       seccompPolicy = [ [ (hookScript "agent-${name}-seccomp-policy" ''
-        chase-envelope approve "$workspace" "$machine"
+        chase-envelope approve "$workspace" "$machine" ${name}
       '') ] ];
       postStart = lib.mkOrder 400 [ [ (hookScript "agent-${name}-poststart" ''
         chase-envelope launch ${name} "$workspace" "$machine"

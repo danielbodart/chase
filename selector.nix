@@ -360,6 +360,35 @@ let
     '';
   };
 
+  # WHERE A CHECKOUT SAYS IT CAME FROM, for what names it by its origin
+  # rather than sorts it: chase-envelope, which names a checkout's Docker
+  # project. The checkout is chase-checkout's, found from where the directory
+  # is, and its origin is read as agent-tier reads it, from the config files
+  # alone by gitSafely's git, never by a git that reads the checkout's config
+  # itself. Every URL is printed, not the first, since a checkout with two
+  # names none of them.
+  #
+  # Prints ROOT<TAB>HOLDER<TAB>KIND<TAB>GITCOMMON, as chase-checkout gives
+  # them, then each of origin's URLs on a line of its own, and succeeds; or
+  # prints why the directory cannot be sorted, or its config read, and fails.
+  # A URL git would read with a newline in it is two lines, which is not one
+  # URL either.
+  origin = pkgs.writeShellApplication {
+    name = "chase-origin";
+    runtimeInputs = [ checkout ] ++ (with pkgs; [ coreutils ]);
+    text = ''
+      export LC_ALL=C
+      ${gitSafely}
+      [ $# -eq 1 ] || { echo "usage: chase-origin DIR"; exit 2; }
+      out=$(chase-checkout "$1") || { printf '%s\n' "''${out:-cannot find its checkout}"; exit 1; }
+      IFS=$'\t' read -r root common kind gitcommon gitdir <<< "$out"
+      # The dot keeps a last URL that is empty, which $(...) would drop.
+      urls=$(repo_config remote.origin.url 2>/dev/null && echo .) \
+        || { printf 'the config of %s cannot be read\n' "$root"; exit 1; }
+      printf '%s\t%s\t%s\t%s\n%s' "$root" "$common" "$kind" "$gitcommon" "''${urls%.}"
+    '';
+  };
+
   # WHAT A CHECKOUT TRACKS, for what copies it: chase-envelope's snapshot.
   # `git ls-files` in the checkout would read its config, and with it
   # core.fsmonitor, a command git runs on any read of the index -- on the
@@ -727,12 +756,13 @@ in
   options.chase.internal = {
     agentTier = mkOption { type = types.package; readOnly = true; internal = true; };
     checkout = mkOption { type = types.package; readOnly = true; internal = true; };
+    origin = mkOption { type = types.package; readOnly = true; internal = true; };
     lsFiles = mkOption { type = types.package; readOnly = true; internal = true; };
     mkWrapper = mkOption { type = types.raw; readOnly = true; internal = true; };
   };
 
   config = {
-    chase.internal = { inherit agentTier checkout lsFiles mkWrapper; };
+    chase.internal = { inherit agentTier checkout origin lsFiles mkWrapper; };
 
     # A consistency check, not a gate: the launcher runs as the caller, who
     # could run it with any workspace, or run bwrap without it. It catches

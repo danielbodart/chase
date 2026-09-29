@@ -1698,7 +1698,7 @@
               git -C "$d" add -A
             }
             approve() { # DIR MACHINE ENVELOPE
-              ENVELOPE=$3 bash ./chase-envelope approve "$1" "$2" >/dev/null 2>err
+              ENVELOPE=$3 bash ./chase-envelope approve "$1" "$2" trusted >/dev/null 2>err
             }
             leaked() { grep -rqsF TOPSECRET home state run; }
             # DIR MACHINE PREFIX: refused, naming the link, with nothing
@@ -1887,6 +1887,278 @@
 
             touch $out
           '';
+
+          # A CHECKOUT'S DOCKER PROJECT (docs/docker.md, 3.1 and 3.8), named
+          # by its origin on real repositories, held both ways to the paths
+          # the tiers pin, and approved: with its address and names in front
+          # of the person approving, and never at an address another project
+          # holds. chase-envelope is envelopeHarness's, with the host's map
+          # of names under the build directory too, and the tiers' pins at
+          # paths under a sentinel, put where the build directory is, as the
+          # selector's are.
+          docker-identity =
+            let root = "/chase-docker-identity-test"; in
+            pkgs.runCommand "docker-identity" { nativeBuildInputs = [ pkgs.git pkgs.jq ]; } ''
+              export HOME=$TMPDIR
+              fail() { echo "docker-identity: $*" >&2; exit 1; }
+              ${envelopeHarness {
+                chase = {
+                  tiers.trusted.match = [ { checkouts."triptease/data-lab" = "${root}/p/data-lab"; } ];
+                  tiers.strict.match = [ { checkouts."TripTease/Finance-API" = "${root}/p/finance-api"; } ];
+                };
+                rewrite.hosts = "$PWD/docker-hosts.json";
+              }}
+              r=$(cd "$TMPDIR" && pwd -P)/root
+              mkdir -p "$r"
+
+              # Every tier's pins, lower-cased, in one file, put where the
+              # build directory is.
+              baked=$(sed -n 's/^checkouts=//p' chase-envelope)
+              sed "s|${root}|$r|g" "$baked" > checkouts.json
+              jq -e --arg r "$r" '.["triptease/data-lab"] == [$r + "/p/data-lab"] and .["triptease/finance-api"] == [$r + "/p/finance-api"]
+                and .["alice/nix-config"] == ["/home/alice/Projects/nix-config"]' checkouts.json >/dev/null \
+                || fail "the tiers' checkouts were not baked: $(cat checkouts.json)"
+              sed -i "s|^checkouts=.*|checkouts=$PWD/checkouts.json|" chase-envelope
+              grep -q "^checkouts=$PWD/checkouts.json$" chase-envelope || fail "checkouts is not one line of chase-envelope's"
+
+              repo() { # DIR URL...
+                local d=$1 u
+                shift
+                mkdir -p "$d"
+                git -C "$d" init -q
+                for u in "$@"; do git -C "$d" config --add remote.origin.url "$u"; done
+              }
+              names() { # DIR SLUG
+                local got
+                got=$(bash ./chase-envelope project "$1" trusted 2>err) || fail "$1 was not named $2: $(cat err)"
+                [ "$got" = "$2" ] || fail "$1 is named $got, not $2"
+              }
+              refused() { # DIR NEEDLE
+                local got
+                if got=$(bash ./chase-envelope project "$1" trusted 2>err); then fail "$1 was named $got"; fi
+                grep -qF -- "$2" err || fail "$1: expected '$2' in: $(cat err)"
+              }
+
+              # EACH FORM OF A GITHUB URL names owner/repo, lower-cased.
+              repo "$r/w/scp" git@github.com:acme/app.git
+              names "$r/w/scp" acme/app
+              repo "$r/w/https" https://github.com/acme/app
+              names "$r/w/https" acme/app
+              repo "$r/w/ssh" ssh://git@github.com/acme/app.git/
+              names "$r/w/ssh" acme/app
+              repo "$r/w/upper" git@github.com:AcMe/App.Name.git
+              names "$r/w/upper" acme/app.name
+              mkdir -p "$r/w/scp/deep/er"
+              names "$r/w/scp/deep/er" acme/app
+
+              # A pinned project, at its path, anywhere under it, and from a
+              # worktree of it kept there.
+              repo "$r/p/data-lab" git@github.com:TripTease/Data-Lab.git
+              git -C "$r/p/data-lab" -c user.name=x -c user.email=x@example.com commit -q --allow-empty -m first
+              names "$r/p/data-lab" triptease/data-lab
+              mkdir -p "$r/p/data-lab/sub"
+              names "$r/p/data-lab/sub" triptease/data-lab
+              git -C "$r/p/data-lab" worktree add -q "$r/p/data-lab/.claude/worktrees/feat"
+              names "$r/p/data-lab/.claude/worktrees/feat" triptease/data-lab
+
+              # A pinned project kept bare, in the path's .bare, with its
+              # worktrees beside it, as the selector's in_checkout holds it;
+              # but not a bare repository elsewhere with a worktree under
+              # the pinned path.
+              jq --arg p "$r/p/bare" '. + {"acme/bare": [$p]}' checkouts.json > checkouts.json.new
+              mv checkouts.json.new checkouts.json
+              bared() { # GITDIR URL
+                git init -q --bare "$1"
+                git --git-dir="$1" config remote.origin.url "$2"
+                git --git-dir="$1" update-ref refs/heads/main \
+                  "$(git --git-dir="$1" -c user.name=x -c user.email=x@example.com commit-tree -m first "$(git --git-dir="$1" mktree </dev/null)")"
+              }
+              bared "$r/p/bare/.bare" git@github.com:acme/bare.git
+              git --git-dir="$r/p/bare/.bare" worktree add -q "$r/p/bare/main" main
+              names "$r/p/bare/main" acme/bare
+              bared "$r/elsewhere/bare.git" git@github.com:acme/bare.git
+              git --git-dir="$r/elsewhere/bare.git" worktree add -q "$r/p/bare/other" main
+              refused "$r/p/bare/other" "is under $r/p/bare, where acme/bare is pinned, but is a "
+
+              # NO NAME: two URLs, not GitHub, none, and no repository.
+              repo "$r/w/two" git@github.com:acme/app.git git@github.com:triptease/data-lab.git
+              refused "$r/w/two" "exactly one origin URL"
+              repo "$r/w/gitlab" git@gitlab.com:acme/app.git
+              refused "$r/w/gitlab" "is not github.com/owner/repo"
+              repo "$r/w/lookalike" https://github.com.example/acme/app
+              refused "$r/w/lookalike" "is not github.com/owner/repo"
+              repo "$r/w/none"
+              refused "$r/w/none" "exactly one origin URL, so its project has a name, and it has 0"
+              repo "$r/w/dot" git@github.com:acme/..git
+              refused "$r/w/dot" "origin git@github.com:acme/. names no repository"
+              # GitHub's shape, but not a project frisket routes: an owner
+              # may not begin with a hyphen.
+              repo "$r/w/hyphen" git@github.com:-acme/app.git
+              refused "$r/w/hyphen" "-acme/app is not a project frisket can route"
+              # What a session wrote is said with its control bytes made
+              # plain, never sent to the terminal.
+              repo "$r/w/escape" "$(printf 'x\033]0;TITLE\007y')"
+              refused "$r/w/escape" "origin x?]0;TITLE?y is not github.com/owner/repo"
+              ! LC_ALL=C grep -q "$(printf '[\033\007]')" err || fail "a control byte reached the terminal: $(od -c err)"
+              mkdir -p "$r/w/plain"
+              refused "$r/w/plain" "not a git repository"
+
+              # BOTH WAYS: a pinned project anywhere but its path, and a
+              # pinned path claiming anything but its project.
+              repo "$r/elsewhere/data-lab" git@github.com:triptease/data-lab.git
+              refused "$r/elsewhere/data-lab" "its origin says triptease/data-lab, which is pinned at $r/p/data-lab, not $r/elsewhere/data-lab"
+              repo "$r/p/finance-api" git@github.com:acme/app.git
+              refused "$r/p/finance-api" "is under $r/p/finance-api, where triptease/finance-api is pinned, but its origin says acme/app"
+
+              # WHAT A SESSION COULD WRITE to take the pinned project's name:
+              # its own config's core.worktree, a .git file into the pinned
+              # repository, and a clone of its own inside the pinned path,
+              # whose session writes its origin.
+              repo "$r/forge" git@github.com:triptease/data-lab.git
+              git -C "$r/forge" config core.worktree "$r/p/data-lab"
+              refused "$r/forge" "core.worktree sends git to $r/p/data-lab"
+              mkdir -p "$r/evil"
+              echo "gitdir: $r/p/data-lab/.git" > "$r/evil/.git"
+              refused "$r/evil" "which is not a worktree's"
+              repo "$r/p/data-lab/nested" git@github.com:triptease/data-lab.git
+              refused "$r/p/data-lab/nested" "is a checkout of $r/p/data-lab/nested, not of $r/p/data-lab"
+
+              # APPROVAL. An envelope that binds Docker, as nix would print it.
+              docker='{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}'
+              flake() { # DIR
+                printf '{ outputs = _: { chaseModules.default = { }; }; }\n' > "$1/flake.nix"
+                git -C "$1" add flake.nix
+              }
+              approve() { # DIR MACHINE ENVELOPE
+                ENVELOPE=$3 bash ./chase-envelope approve "$1" "$2" trusted >/dev/null 2>err
+              }
+              asked() { jq -s '[.[] | select(.kind == "envelope")] | length' approvals.jsonl; }
+              staged() { jq -r "$2" "run/chase/.envelope/$1.json"; }
+              line='Docker as triptease/data-lab at 127.1.191.78 (data-lab.internal, data-lab.triptease.internal), ports 64320 64321'
+              said() { grep -F "chase: $r/p/data-lab: $line" err; }
+              ws=$r/p/data-lab
+              flake "$ws"
+
+              # No hosts file: the names are the session's, and the host has
+              # only the address.
+              approve "$ws" m1 "$docker" || fail "data-lab was not approved: $(cat err)"
+              [ "$(said)" = "chase: $ws: $line; on this host, 127.1.191.78 only" ] || fail "the approval did not say where Docker is: $(cat err)"
+              [ "$(staged m1 .result.dockerProject)" = triptease/data-lab ] || fail "the project was not staged: $(cat run/chase/.envelope/m1.json)"
+              [ "$(asked)" = 1 ] || fail "the envelope was not asked about"
+              jq -s -e '[.[] | select(.kind == "envelope")][0].diff | contains("\"dockerProject\": \"triptease/data-lab\"")' approvals.jsonl >/dev/null \
+                || fail "the approval's diff does not show the project: $(cat approvals.jsonl)"
+              [ "$(jq -c . state/docker/addresses.json)" = '{"triptease/data-lab":"127.1.191.78"}' ] \
+                || fail "the address was not recorded: $(cat state/docker/addresses.json)"
+
+              # The host's names, where the hosts file gives this project
+              # them at this address; the address alone where it gives them
+              # elsewhere, and only those it gives. Approved again, the same
+              # project passes, is not asked about, and is held once.
+              printf '{"triptease/data-lab": {"address": "127.1.191.78", "names": ["data-lab.internal", "data-lab.triptease.internal"]}}' > docker-hosts.json
+              approve "$ws" m2 "$docker" || fail "data-lab was not approved again: $(cat err)"
+              [ "$(said)" = "chase: $ws: $line" ] || fail "the host's names were not recognised: $(cat err)"
+              [ "$(asked)" = 1 ] || fail "an unchanged envelope was asked about again"
+              [ "$(jq -c . state/docker/addresses.json)" = '{"triptease/data-lab":"127.1.191.78"}' ] \
+                || fail "the address is not held once: $(cat state/docker/addresses.json)"
+              [ "$(grep -o triptease/data-lab state/docker/addresses.json | wc -l)" = 1 ] || fail "the project is recorded twice"
+              printf '{"triptease/data-lab": {"address": "127.9.9.9", "names": ["data-lab.internal", "data-lab.triptease.internal"]}}' > docker-hosts.json
+              approve "$ws" m3 "$docker" || fail "data-lab was not approved: $(cat err)"
+              [ "$(said)" = "chase: $ws: $line; on this host, 127.1.191.78 only" ] || fail "names at another address were taken as the host's: $(cat err)"
+              printf '{"triptease/data-lab": {"address": "127.1.191.78", "names": ["data-lab.triptease.internal"]}}' > docker-hosts.json
+              approve "$ws" m4 "$docker" || fail "data-lab was not approved: $(cat err)"
+              [ "$(said)" = "chase: $ws: $line; on this host, 127.1.191.78 and data-lab.triptease.internal only" ] \
+                || fail "a name the host lacks was taken as the host's: $(cat err)"
+              rm docker-hosts.json
+
+              # A changed origin is a changed envelope, asked about again.
+              app=$r/w/scp
+              flake "$app"
+              approve "$app" m5 "$docker" || fail "acme/app was not approved: $(cat err)"
+              [ "$(asked)" = 2 ] || fail "acme/app was not asked about"
+              grep -qF "chase: $app: Docker as acme/app at " err || fail "the approval did not say acme/app: $(cat err)"
+              git -C "$app" remote set-url origin git@github.com:acme/app2.git
+              approve "$app" m6 "$docker" || fail "acme/app2 was not approved: $(cat err)"
+              [ "$(asked)" = 3 ] || fail "a changed origin was not asked about"
+              jq -s -e '[.[] | select(.kind == "envelope")][2].diff | contains("-  \"dockerProject\": \"acme/app\"") and contains("+  \"dockerProject\": \"acme/app2\"")' approvals.jsonl >/dev/null \
+                || fail "the diff does not show the origin's change: $(jq -s '.[-1].diff' approvals.jsonl)"
+              [ "$(staged m6 .result.dockerProject)" = acme/app2 ] || fail "the new project was not staged"
+
+              # The workspace is a path a session can name: the line beside
+              # the approval says it with its control bytes made plain.
+              esc=$ws/$(printf 'x\033]0;PWNED\007\033[8m')
+              mkdir -p "$esc"
+              flake "$esc"
+              approve "$esc" m13 "$docker" || fail "a workspace with an escape in its path was not approved: $(cat err)"
+              grep -qF "chase: $ws/x?]0;PWNED??[8m: Docker as triptease/data-lab at 127.1.191.78" err \
+                || fail "the approval did not say where Docker is: $(od -c err)"
+              ! LC_ALL=C grep -q "$(printf '[\033\007]')" err || fail "a control byte reached the terminal: $(od -c err)"
+
+              # A declined approval holds no address, and stages nothing.
+              repo "$r/w/declined" git@github.com:acme/declined.git
+              flake "$r/w/declined"
+              cp bin/approver approver.ok
+              # Its source is approved, so what is declined is the envelope,
+              # the approval the address is recorded after.
+              printf '#!%s\n%s -e %s >/dev/null\n' "$(command -v bash)" "$(command -v jq)" "'.kind != \"envelope\"'" > bin/approver
+              if approve "$r/w/declined" m14 "$docker"; then fail "a declined envelope was applied"; fi
+              grep -qF "chase: $r/w/declined: its envelope was not approved" err || fail "the decline was not said: $(cat err)"
+              [ ! -e run/chase/.envelope/m14.json ] || fail "a declined envelope was staged"
+              jq -e 'has("acme/declined") | not' state/docker/addresses.json >/dev/null \
+                || fail "a declined project holds its address: $(cat state/docker/addresses.json)"
+              mv approver.ok bin/approver
+
+              # AN ADDRESS ANOTHER PROJECT HOLDS: in the approved addresses,
+              # or only in the host's map. Refused, naming both, with nothing
+              # staged or recorded.
+              rm -rf state/docker
+              mkdir -p state/docker
+              printf '{"evil/x": "127.1.191.78"}' > state/docker/addresses.json
+              if approve "$ws" m7 "$docker"; then fail "data-lab was approved at an address evil/x holds"; fi
+              grep -qF "chase: $ws: triptease/data-lab would be at 127.1.191.78, which evil/x already holds" err \
+                || fail "the collision was not said: $(cat err)"
+              [ ! -e run/chase/.envelope/m7.json ] || fail "a collision was staged"
+              [ "$(jq -c . state/docker/addresses.json)" = '{"evil/x":"127.1.191.78"}' ] || fail "a collision was recorded"
+              rm -rf state/docker
+              printf '{"evil/x": {"address": "127.1.191.78", "names": ["x.internal"]}}' > docker-hosts.json
+              if approve "$ws" m8 "$docker"; then fail "data-lab was approved at an address the host gives evil/x"; fi
+              grep -qF "chase: $ws: triptease/data-lab would be at 127.1.191.78, which evil/x already holds" err \
+                || fail "the host's collision was not said: $(cat err)"
+              [ ! -e run/chase/.envelope/m8.json ] || fail "the host's collision was staged"
+              [ "$(jq -c . state/docker/addresses.json)" = '{}' ] || fail "the host's collision was recorded"
+              rm docker-hosts.json
+
+              # No usable origin, and Docker: nothing is applied.
+              flake "$r/w/none"
+              if approve "$r/w/none" m9 "$docker"; then fail "a checkout with no origin was given Docker"; fi
+              grep -qF "exactly one origin URL" err || fail "no origin was not said: $(cat err)"
+              [ ! -e run/chase/.envelope/m9.json ] || fail "a checkout with no origin was staged"
+
+              # Without Docker, no project is named, or needed.
+              approve "$r/w/none" m10 '{"bindings": {"github": {"allow": ["x"]}}}' || fail "an envelope without Docker was refused: $(cat err)"
+              [ "$(staged m10 '.result | has("dockerProject")')" = false ] || fail "an envelope without Docker gained a project"
+              ! grep -q "Docker as" err || fail "an envelope without Docker printed one: $(cat err)"
+
+              # What chase derives is not the envelope's to say: a module's
+              # own dockerProject or secretsSHA256 is dropped, not staged.
+              approve "$r/w/none" m11 '{"dockerProject": "triptease/data-lab", "secretsSHA256": "0", "bindings": {"github": {"allow": ["x"]}}}' \
+                || fail "an envelope naming its own project was refused: $(cat err)"
+              [ "$(staged m11 '.result | has("dockerProject") or has("secretsSHA256")')" = false ] \
+                || fail "an envelope's own dockerProject was staged: $(cat run/chase/.envelope/m11.json)"
+
+              # A PINNED PROJECT HOLDS ITS ADDRESS before it is ever approved:
+              # collide/x33613042, pinned, hashes to acme/app's address
+              # (found once, offline), so acme/app is refused.
+              jq '. + {"collide/x33613042": ["/nowhere/collide"]}' checkouts.json > checkouts.json.new
+              mv checkouts.json.new checkouts.json
+              git -C "$app" remote set-url origin git@github.com:acme/app.git
+              rm -rf state/docker
+              if approve "$app" m12 "$docker"; then fail "acme/app was approved at an address a pinned project holds"; fi
+              grep -qF "chase: $app: acme/app would be at 127.95.137.218, which collide/x33613042 already holds" err \
+                || fail "the pinned project's collision was not said: $(cat err)"
+              [ ! -e run/chase/.envelope/m12.json ] || fail "the pinned project's collision was staged"
+
+              touch $out
+            '';
 
           gcloud-session = pkgs.testers.runNixOSTest (import ./tests/gcloud-session.nix { inherit self home-manager; });
 
