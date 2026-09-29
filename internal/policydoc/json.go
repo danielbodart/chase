@@ -304,3 +304,15 @@ func roundHalfUp(digits string, drop int) string {
 	b[i]++
 	return string(b)
 }
+
+// Number is a JSON number's literal as jq writes one it did not compute, for
+// what else prints an envelope as jq printed it: the approval's diff, and
+// the lines said beside it.
+func Number(lit string) string { return number(lit) }
+
+// Quote is s as jq writes a JSON string, for the same.
+func Quote(s string) string {
+	var b strings.Builder
+	quote(&b, s)
+	return b.String()
+}
