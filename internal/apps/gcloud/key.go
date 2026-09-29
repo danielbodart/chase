@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/danielbodart/chase/internal/files"
 )
 
@@ -46,13 +48,13 @@ func keyPath(envdir, email, project string) string {
 }
 
 // sessionKey is the checkout's key for email in project, made once and kept
-// in envdir, and its public half as PEM. It is made under envdir's lock, so
-// two launches of one checkout make one key between them.
+// in envdir, and its public half as PEM. It is made under the key's own
+// lock, so two launches of one checkout make one key between them.
 func sessionKey(envdir, email, project string) (path, public string, err error) {
 	if err := os.MkdirAll(envdir, 0o700); err != nil {
 		return "", "", err
 	}
-	unlock, err := files.Lock(envdir)
+	unlock, err := lockKeys(envdir)
 	if err != nil {
 		return "", "", err
 	}
@@ -72,6 +74,25 @@ func sessionKey(envdir, email, project string) (path, public string, err error) 
 		return "", "", fmt.Errorf("%s: %w", path, err)
 	}
 	return path, public, nil
+}
+
+// lockKeys holds envdir/.gcloud-key.lock, the script's own lock, until the
+// returned function is called. Not files.Lock's envdir/.lock: envdir is the
+// checkout's environment directory, which the launch writes too, and flock
+// conflicts between two opens of one file in one process as between two
+// processes. A launcher that held envdir's lock around Prepare, for its own
+// read-modify-write of the env file, would wait on itself here forever; a
+// lock of the key's own couples it to nothing else. It follows no link.
+func lockKeys(envdir string) (func(), error) {
+	f, err := os.OpenFile(filepath.Join(envdir, ".gcloud-key.lock"), os.O_WRONLY|os.O_CREATE|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("lock %s: %w", f.Name(), err)
+	}
+	return func() { f.Close() }, nil
 }
 
 // names is whether a key file is for email in project. What else it holds

@@ -10,15 +10,18 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/danielbodart/frisket/policy"
 
 	"github.com/danielbodart/chase/internal/apps"
+	"github.com/danielbodart/chase/internal/files"
 	renew "github.com/danielbodart/chase/internal/gcloud"
 	"github.com/danielbodart/chase/internal/gcloud/gcloudtest"
 )
@@ -372,8 +375,11 @@ func TestTheSessionsKeyFileIsTheScripts(t *testing.T) {
 	if !strings.HasPrefix(public, "-----BEGIN PUBLIC KEY-----\n") || !strings.HasSuffix(public, "-----END PUBLIC KEY-----") {
 		t.Errorf("the public half is not as openssl pkey -pubout gave it: %q", public)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "env", ".lock")); err != nil {
-		t.Errorf("it was not made under the directory's lock: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "env", ".gcloud-key.lock")); err != nil {
+		t.Errorf("it was not made under the script's lock: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "env", ".lock")); err == nil {
+		t.Error("it took envdir's own lock")
 	}
 	// A key of another project is another file; one that names another
 	// account where this one's should be is made again.
@@ -626,6 +632,110 @@ func TestAPrepareMintsTheFirstTokenFromGoogle(t *testing.T) {
 	}
 }
 
+// fixedKey is a throwaway RSA-1024 test key that `openssl genpkey` made,
+// and fixedPublic is what `openssl pkey -pubout` said of it, less the
+// newline a command substitution drops. It guards nothing.
+const (
+	fixedKey = `-----BEGIN PRIVATE KEY-----
+MIICdwIBADANBgkqhkiG9w0BAQEFAASCAmEwggJdAgEAAoGBALrXYiwCe+OAYUVE
+bocUSDSNXyInary9MonXti91pVcbBYzz68XPkZMMPlurv4KlT9iuVaGA/ce7QXGm
+J5Q4mLFNDWy10HQyvhVoFV72n6BAxEGHKpOxVYDpe2Ap3SXhPWp0GEEFtGpQVaCC
+ZsuFFSn4WxNQCGzNAapDRfkgKE4dAgMBAAECgYBULHZw50mTC6JGx3aX6l5BNrN2
+OpXOo9nh2cmdBf5QCL9uafF9M28c9TYerHhhzkHzl07CrM8oLUdlgPpxvzGiYcM4
+3qbM9hYALUFOvh288a4UNFD2U2YRKcrcYiM2v0Z0D1UjKxnlfL0vegEnfo0MIM3M
+2kINcPSyH3YPtJp1rQJBAN5Y/6y6w5VufbOQgBZR1zGXyRaelGMwiBiR1dDEL8ft
+uJnCt6R6EUgwpUBAOyz7HLuYNgWPd59EHrxZnpqgvQ8CQQDXHquRrzuJP1dx6nJp
+aH2I2SoHHo9SMujPsrtfKWkVmTozP+YrsekWsBu8pMcXze9k9XOoANZshe5WBy3W
+DVoTAkEAukJry9KYTPHGM0n1Qr1EO7MfLOei/oSFPa/NIZl3PVASuBu5ovruxz6Y
+7/3elIu3Qh78AiRw3OY/qSCaEIZeWQJAdtLSIh6Q3DbIrnu5xs+Yx8ZsmJIgyF6m
+ilNHfED7cpq4syZQlUIoZgfQylqaPmPaIAIUaHBOAJPaGlrMzreBUQJBAL2kB9um
+s56jCRSQ27Skd++WzczP2E77hzULvGQ20o4scHi1BMZ28WoMl42ANQLAPl+U27Qj
+Y1Dyxk8U0nbifNY=
+-----END PRIVATE KEY-----
+`
+	fixedPublic = `-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC612IsAnvjgGFFRG6HFEg0jV8i
+J2q8vTKJ17YvdaVXGwWM8+vFz5GTDD5bq7+CpU/YrlWhgP3Hu0FxpieUOJixTQ1s
+tdB0Mr4VaBVe9p+gQMRBhyqTsVWA6XtgKd0l4T1qdBhBBbRqUFWggmbLhRUp+FsT
+UAhszQGqQ0X5IChOHQIDAQAB
+-----END PUBLIC KEY-----`
+)
+
+// The route's public half is byte for byte what openssl gave the script:
+// PKIX, its header, its line breaks, and no newline at the end.
+func TestThePublicHalfIsOpensslsForAFixedKey(t *testing.T) {
+	b, _ := json.Marshal(map[string]string{"private_key": fixedKey})
+	got, err := publicHalf(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != fixedPublic {
+		t.Errorf("the public half is not openssl's:\n%q\nnot\n%q", got, fixedPublic)
+	}
+	if openssl := pubout(t, fixedKey); openssl != fixedPublic {
+		t.Errorf("pubout is not openssl's:\n%q", openssl)
+	}
+}
+
+// Nil Units is systemctl, from the module's Config: its path, and the
+// user's runtime directory for XDG_RUNTIME_DIR, as the prepare ran it.
+func TestAPrepareStartsTheRenewerWithTheConfiguredSystemctl(t *testing.T) {
+	l := newLaunch(t)
+	dir := t.TempDir()
+	log := filepath.Join(dir, "systemctl.log")
+	bin := filepath.Join(dir, "systemctl")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$XDG_RUNTIME_DIR $*\" >> "+log+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	l.app.Units = nil
+	l.app.Config.Systemctl = bin
+	l.app.Config.RuntimeDir = "/run/user/1000"
+	l.prepared("trusted", l.session("agent-trusted-1-2", sa), binding(`{}`))
+	b, _ := os.ReadFile(log)
+	if string(b) != "/run/user/1000 --user start chase-gcloud-renew@agent-trusted-1-2.service\n" {
+		t.Errorf("systemctl was asked %q", b)
+	}
+
+	// A Config the module did not fill is said to be one, and ends the
+	// launch as a failed start did.
+	l.app.Config.Systemctl = ""
+	if _, err := l.prepare("trusted", l.session("agent-trusted-1-2", sa), binding(`{}`)); err == nil ||
+		!strings.Contains(err.Error(), "could not start chase-gcloud-renew@agent-trusted-1-2") {
+		t.Errorf("a launch with no systemctl: %v", err)
+	}
+	if !strings.Contains(l.stderr.String(), "chase: gcloud: no systemctl, or no runtime directory, to start chase-gcloud-renew@agent-trusted-1-2.service with") {
+		t.Errorf("said %q", l.stderr.String())
+	}
+}
+
+// The key's lock is its own, as the script's .gcloud-key.lock was: a
+// launcher holding envdir's lock around Prepare does not wait on itself.
+func TestTheKeysLockIsItsOwn(t *testing.T) {
+	env := filepath.Join(t.TempDir(), "env")
+	os.MkdirAll(env, 0o700)
+	unlock, err := files.Lock(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := sessionKey(env, sa, "p")
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the key waited on envdir's lock")
+	}
+	if _, err := os.Stat(filepath.Join(env, ".gcloud-key.lock")); err != nil {
+		t.Errorf("the key was not made under its own lock: %v", err)
+	}
+}
+
 func keysOf(m map[string]any) []string {
 	var k []string
 	for x := range m {
@@ -641,8 +751,22 @@ func keyPEM(k *rsa.PrivateKey) string {
 }
 
 // pubout is `openssl pkey -pubout` of a PEM private key, as a command
-// substitution holds it.
+// substitution holds it: openssl's own where it is at hand, as the flake's
+// check had it, so the route's public half is held to an implementation
+// that is not publicHalf's. Without openssl it is worked out here, and
+// TestThePublicHalfIsOpensslsForAFixedKey still holds publicHalf to
+// openssl's bytes.
 func pubout(t *testing.T, private string) string {
+	t.Helper()
+	if openssl, err := exec.LookPath("openssl"); err == nil {
+		cmd := exec.Command(openssl, "pkey", "-pubout")
+		cmd.Stdin = strings.NewReader(private)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("openssl pkey -pubout: %v", err)
+		}
+		return strings.TrimRight(string(out), "\n")
+	}
 	block, _ := pem.Decode([]byte(private))
 	if block == nil {
 		t.Fatal("no PEM")

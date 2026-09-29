@@ -49,6 +49,15 @@ func (s Systemctl) Start(ctx context.Context, unit string) error { return s.run(
 func (s Systemctl) Stop(ctx context.Context, unit string) error  { return s.run(ctx, "stop", unit) }
 
 func (s Systemctl) run(ctx context.Context, verb, unit string) error {
+	// The module always gives both; a Config that lacks one is a wiring
+	// mistake, said as one rather than as systemctl failing to run.
+	if s.Path == "" || s.RuntimeDir == "" {
+		err := fmt.Errorf("no systemctl, or no runtime directory, to %s %s with", verb, unit)
+		if s.Output != nil {
+			term.Say(s.Output, "gcloud: %v", err)
+		}
+		return err
+	}
 	cmd := exec.CommandContext(ctx, s.Path, "--user", verb, unit)
 	cmd.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+s.RuntimeDir)
 	cmd.Stdout, cmd.Stderr = s.Output, s.Output
