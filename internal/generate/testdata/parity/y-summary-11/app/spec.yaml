@@ -1,0 +1,124 @@
+# A small Engine-API-shaped Swagger 2.0 spec, for the operations check: a
+# basePath, an explicit HEAD beside a GET, a body through #/parameters, and
+# every way a body's schema is walked or not.
+swagger: "2.0"
+basePath: "/v1.2"
+info:
+  title: "Demo"
+  version: "1.2"
+parameters:
+  ThingId:
+    name: id
+    in: path
+    required: true
+    type: string
+  ThingBody:
+    name: body
+    in: body
+    required: true
+    schema:
+      allOf:
+        - $ref: "#/definitions/ThingConfig"
+        - type: object
+          properties:
+            Host:
+              $ref: "#/definitions/HostConfig"
+definitions:
+  MountType:
+    type: string
+    enum: ["volume", "tmpfs"]
+  Mount:
+    type: object
+    properties:
+      Type:
+        allOf:
+          - $ref: "#/definitions/MountType"
+      Source:
+        type: string
+  Health:
+    type: object
+    properties:
+      Test:
+        type: array
+        items:
+          type: string
+  Resources:
+    type: object
+    properties:
+      Memory:
+        type: integer
+  ThingConfig:
+    type: object
+    properties:
+      Name:
+        type: string
+      Labels:
+        type: object
+        additionalProperties:
+          type: object
+          properties:
+            Hidden:
+              type: string
+      Mounts:
+        type: array
+        items:
+          $ref: "#/definitions/Mount"
+      Kind:
+        allOf:
+          - $ref: "#/definitions/MountType"
+      Health:
+        $ref: "#/definitions/Health"
+  HostConfig:
+    allOf:
+      - $ref: "#/definitions/Resources"
+      - type: object
+        properties:
+          Binds:
+            type: array
+            items:
+              type: string
+paths:
+  /_ping:
+    get:
+      summary: -.inf
+      operationId: "Ping"
+      tags: ["System"]
+    head:
+      summary: "Ping, headers only"
+      operationId: "PingHead"
+      tags: ["System"]
+  /version:
+    get:
+      summary: "Version"
+      description: "What the daemon is."
+      operationId: "Version"
+      tags: ["System"]
+  /things/json:
+    get:
+      summary: "List things"
+      operationId: "ThingList"
+      tags: ["Thing"]
+  /things/create:
+    post:
+      summary: "Create a thing"
+      operationId: "ThingCreate"
+      tags: ["Thing"]
+      parameters:
+        - $ref: "#/parameters/ThingBody"
+        - name: name
+          in: query
+          type: string
+  /things/{id}/json:
+    get:
+      summary: "Inspect a thing"
+      operationId: "ThingInspect"
+      tags: ["Thing"]
+      parameters:
+        - $ref: "#/parameters/ThingId"
+  /things/{id}:
+    delete:
+      summary: "Remove a thing"
+      operationId: "ThingDelete"
+      tags: ["Thing"]
+      parameters:
+        - $ref: "#/parameters/ThingId"

@@ -6,6 +6,8 @@ go 1.26.0
 
 require (
 	github.com/danielbodart/frisket v0.85.49-0.20260929212139-5e0b9d5d07ec
+	github.com/vektah/gqlparser/v2 v2.5.58
+	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/sys v0.48.0
 	pgregory.net/rapid v1.3.0
 )

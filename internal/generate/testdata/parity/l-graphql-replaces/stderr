@@ -1,0 +1,2 @@
+operations: l-graphql-replaces: 2 operations: 1 guarded, 1 read.
+operations: l-graphql-replaces: of which GraphQL: 1 queries, 0 mutations, 0 subscriptions.

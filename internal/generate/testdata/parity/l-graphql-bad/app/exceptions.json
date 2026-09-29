@@ -1,0 +1,15 @@
+{
+  "graphql": [
+    {
+      "path": "graphql",
+      "reason": "x",
+      "operation": {
+        "id": "q",
+        "summary": "Q"
+      }
+    },
+    {
+      "reason": "x"
+    }
+  ]
+}

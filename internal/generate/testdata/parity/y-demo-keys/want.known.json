@@ -1,0 +1,21 @@
+{
+"ThingCreate": [
+"Name",
+"true",
+"12",
+"1.5",
+"1e5",
+"null",
+"3",
+"false",
+"=",
+"Labels",
+"Mounts",
+"Kind",
+"Health",
+"Health.Test",
+"Host",
+"Host.Memory",
+"Host.Binds"
+]
+}

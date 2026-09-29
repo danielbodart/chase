@@ -1,0 +1,1 @@
+operations: y-version-float: info.version is 1.2, not 1.2, the top of apiVersions: bump the range with the pin

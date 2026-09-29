@@ -1,0 +1,1 @@
+operations: $APP/source.json gives a key twice in one object, and only the last would count

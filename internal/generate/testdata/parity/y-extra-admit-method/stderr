@@ -1,0 +1,1 @@
+operations: y-extra-admit-method: admit.json gives Version ["GET","POST"], and the spec has it for ["GET","HEAD"]

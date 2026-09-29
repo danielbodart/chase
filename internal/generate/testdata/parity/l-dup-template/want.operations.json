@@ -1,0 +1,6 @@
+[
+{"methods":["GET","HEAD"],"path":"/api/v3/items","operation":{"id":"listItems","summary":"List items","class":"read"}},
+{"methods":["POST"],"path":"/api/v3/items","operation":{"id":"createItem","summary":"Create an item","class":"write"}},
+{"methods":["DELETE"],"path":"/api/v3/items/*","operation":{"id":"deleteItem","summary":"Delete an item","class":"guarded"}},
+{"methods":["GET","HEAD"],"path":"/api/v3/things/*","operation":{"id":"athing","summary":"Thing","class":"read"}}
+]

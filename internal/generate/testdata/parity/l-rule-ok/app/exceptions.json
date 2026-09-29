@@ -1,0 +1,18 @@
+{
+  "rules": [
+    {
+      "methods": [
+        "GET"
+      ],
+      "prefix": "/api/v3/other",
+      "reason": "r",
+      "class": "read",
+      "operation": {
+        "id": "hand",
+        "summary": "Hand",
+        "class": "zzz",
+        "extra": 1
+      }
+    }
+  ]
+}

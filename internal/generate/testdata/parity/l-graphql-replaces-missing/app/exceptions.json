@@ -1,0 +1,12 @@
+{
+  "graphql": [
+    {
+      "path": "/api/v3/items",
+      "reason": "x",
+      "operation": {
+        "id": "q",
+        "summary": "Q"
+      }
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+operations: l-rule-twice: the same method and template twice: ["POST"] /api/v3/items (createItem, aaa)

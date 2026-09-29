@@ -1,0 +1,1 @@
+operations: l-rule-bad: a hand-written rule needs a reason, an operation id and summary, a class, methods, and one of path or prefix: ["hand","?"]

@@ -1,0 +1,13 @@
+{
+"ThingCreate": [
+"Name",
+"Labels",
+"Mounts",
+"Kind",
+"Health",
+"Health.Test",
+"Host",
+"Host.Memory",
+"Host.Binds"
+]
+}

@@ -1,0 +1,16 @@
+{
+  "graphql": [
+    {
+      "path": "/api/v3/items",
+      "reason": "x",
+      "replaces": [
+        "listItems",
+        "createItem"
+      ],
+      "operation": {
+        "id": "listItems",
+        "summary": "Q"
+      }
+    }
+  ]
+}

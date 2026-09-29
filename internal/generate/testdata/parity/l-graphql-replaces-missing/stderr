@@ -1,0 +1,1 @@
+operations: l-graphql-replaces-missing: a GraphQL endpoint names what the spec has at its path, in `replaces`: ["/api/v3/items has [\"createItem\",\"listItems\"], and replaces []"]

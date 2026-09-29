@@ -1,0 +1,99 @@
+{
+ "openapi": "3.0.0",
+ "info": {
+  "title": "Legacy",
+  "version": "1"
+ },
+ "servers": [
+  {
+   "url": "https://api.example.invalid/api/v3"
+  }
+ ],
+ "paths": {
+  "/items": {
+   "get": {
+    "operationId": "listItems",
+    "summary": "List items",
+    "description": "Line <one> \u2028 & \u007f \"q\"\ttab\u0001"
+   },
+   "post": {
+    "operationId": "createItem",
+    "summary": "Create an item"
+   },
+   "x-foo": {
+    "bar": 1
+   }
+  },
+  "/items/{id}": {
+   "parameters": [
+    {
+     "$ref": "#/components/parameters/Id"
+    }
+   ],
+   "delete": {
+    "operationId": "deleteItem",
+    "summary": "Delete an item"
+   }
+  },
+  "/files/{repo}/{path}": {
+   "parameters": [
+    {
+     "name": "path",
+     "in": "path",
+     "schema": {
+      "description": "WILDCARD path parameter"
+     }
+    }
+   ],
+   "get": {
+    "summary": "Get a file. And more",
+    "description": "Gets it.\nMore",
+    "x-github": {
+     "category": "repos"
+    },
+    "tags": [
+     "t"
+    ],
+    "parameters": [
+     {
+      "name": "repo",
+      "in": "path"
+     }
+    ]
+   },
+   "delete": {
+    "summary": "x",
+    "tags": "notarray"
+   },
+   "head": {
+    "summary": "h",
+    "tags": [
+     null,
+     "b"
+    ],
+    "description": ""
+   }
+  },
+  "/ids/{x}.png/y": {
+   "put": {
+    "summary": "noid"
+   },
+   "patch": {
+    "summary": "p",
+    "operationId": "\u00e9 weird/{id}"
+   }
+  }
+ },
+ "components": {
+  "parameters": {
+   "Id": {
+    "name": "id",
+    "in": "path",
+    "required": true,
+    "schema": {
+     "type": "string"
+    }
+   }
+  }
+ }
+}

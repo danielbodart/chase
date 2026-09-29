@@ -1,0 +1,16 @@
+{
+  "rules": [
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/v3/items",
+      "reason": "r",
+      "class": "write",
+      "operation": {
+        "id": "aaa",
+        "summary": "Other"
+      }
+    }
+  ]
+}

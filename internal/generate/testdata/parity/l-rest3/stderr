@@ -1,0 +1,1 @@
+operations: l-rest3: two parameters that are both the rest of the path: ["GET /f2/{a}/{b}"]

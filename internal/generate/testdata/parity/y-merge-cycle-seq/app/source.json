@@ -1,0 +1,10 @@
+{
+  "url": "https://example.invalid/api/swagger.yaml",
+  "sha256": "2aa05cb855a18ff91d2734e59a70c1c23a9b6ca8e8a2afecfa7b065f15ad27e9",
+  "format": "swagger2-yaml",
+  "basePath": "/v1.2",
+  "apiVersions": {
+    "min": "1.1",
+    "max": "1.2"
+  }
+}

@@ -1,0 +1,2 @@
+operations: y-merge-self: 7 operations: 1 guarded, 5 read, 1 write.
+operations: y-merge-self: of which admitted: 4; the rest are refused.

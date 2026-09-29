@@ -1,0 +1,1 @@
+operations: g-undeclared: source.json pins a GraphQL schema for /graphql, which exceptions.json does not declare

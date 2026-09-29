@@ -1,0 +1,16 @@
+{
+  "rules": [
+    {
+      "methods": [
+        "GET"
+      ],
+      "prefix": "/api/v3",
+      "reason": "r",
+      "class": "write",
+      "operation": {
+        "id": "hand",
+        "summary": "Hand"
+      }
+    }
+  ]
+}

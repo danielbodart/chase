@@ -1,0 +1,9 @@
+[
+{"methods":["GET"],"path":"/_ping","operation":{"id":"Ping","summary":"1e5","class":"read","category":"System"}},
+{"methods":["HEAD"],"path":"/_ping","operation":{"id":"PingHead","summary":"Ping, headers only","class":"read","category":"System"}},
+{"methods":["DELETE"],"path":"/things/*","operation":{"id":"ThingDelete","summary":"Remove a thing","class":"guarded","category":"Thing"}},
+{"methods":["GET","HEAD"],"path":"/things/*/json","operation":{"id":"ThingInspect","summary":"Inspect a thing","class":"read","category":"Thing"}},
+{"methods":["POST"],"path":"/things/create","operation":{"id":"ThingCreate","summary":"Create a thing","class":"write","category":"Thing"}},
+{"methods":["GET","HEAD"],"path":"/things/json","operation":{"id":"ThingList","summary":"List things","class":"read","category":"Thing"}},
+{"methods":["GET","HEAD"],"path":"/version","operation":{"id":"Version","summary":"Version","description":"What the daemon is.","class":"read","category":"System"}}
+]

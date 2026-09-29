@@ -1,0 +1,2 @@
+operations: g-schemadef: 12 operations: 2 guarded, 3 read, 7 write.
+operations: g-schemadef: of which GraphQL: 2 queries, 6 mutations, 1 subscriptions.
