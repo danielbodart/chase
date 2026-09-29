@@ -39,11 +39,17 @@ let
   '';
 
   # The checkout's root, so all of it is mounted wherever you start; otherwise
-  # the directory itself, which only a `paths` rule can place. git's
-  # answer and not a walk up to .git: a gitdir file, GIT_DIR, core.worktree
-  # and safe.directory all change it.
+  # the directory itself, which only a `paths` rule can place. The root
+  # chase-checkout finds, the one the selector sorted: git's own answer is
+  # the checkout's to steer, with a core.worktree its session wrote, and
+  # would mount wherever it named. A layout it will not sort is mounted as
+  # the directory alone.
   workspaceSnippet = ''
-    ${lib.getExe pkgs.git} -C "$PWD" rev-parse --show-toplevel 2>/dev/null || pwd
+    if out=$(${lib.getExe cfg.internal.checkout} "$PWD"); then
+      printf '%s\n' "''${out%%$'\t'*}"
+    else
+      pwd
+    fi
   '';
 
   # A flong hook is a command, never shell: one that needs a shell is a
@@ -126,9 +132,25 @@ let
         description = ''
           Repositories keyed by "owner/name", matched against `origin`'s URL,
           and valued by where that checkout lives: the remote has to be one of
-          these AND the checkout's root that path or under it (a worktree
-          kept inside the checkout, say). The same remote anywhere else does
-          not match.
+          these AND the checkout's root that path or under it. The same
+          remote anywhere else does not match. The root is the nearest .git
+          above the directory's resolved path, never git's --show-toplevel,
+          which the checkout's own config can move; a layout that would send
+          git elsewhere (core.worktree, a gitdir file, a linked .git, GIT_DIR),
+          or a config that includes another file, which is never read,
+          is not sorted. The repository has to be the one at the path: a
+          linked worktree of it under the path matches, as .claude/worktrees
+          do, as does one of a bare repository kept at <path>/.bare, and a
+          submodule of it; a repository merely nested under the path (a
+          clone, a `git init`) does not, since its own session writes its
+          .git. Nor does a directory inside a submodule, as .gitmodules lists
+          them, whose .git is gone, a submodule of a linked worktree, or a
+          linked worktree of a submodule. A sandbox is refused a checkout
+          nested in another that would be sorted into a tier other than its
+          own, or the fallback, without its own .git, since its session
+          could delete it. Every other predicate reads
+          the same repository, so a layout not sorted here is not sorted
+          by `repos`, `owners` or `rootAuthorDomains` either.
         '';
       };
       repos = mkOption {
@@ -157,7 +179,9 @@ let
           been authored at one of them. A fork's root commit is upstream's, so
           this is what gives a fork away when its remote looks like yours. A
           shallow clone, whose first commit is only where it was cut, never
-          matches.
+          matches; nor does a repository whose refs are kept as reftable, as
+          HEAD is resolved from files and packed-refs alone, or one whose
+          history cannot be read within the selector's time and memory.
         '';
       };
     };

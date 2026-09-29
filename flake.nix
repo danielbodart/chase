@@ -323,6 +323,7 @@
                       tiers.host.match = lib.mkForce [
                         { paths = [ "${root}/home" ]; }
                         { checkouts."alice/nix-config" = "${root}/p/nix-config"; }
+                        { checkouts."alice/bare" = "${root}/p/bare"; }
                       ];
                       tiers.strict.match = lib.mkForce [ { repos = [ "alice/nix-config" ]; } ];
                       tiers.trusted.match = lib.mkForce [
@@ -333,7 +334,7 @@
                 ];
               }).config;
             in
-            pkgs.runCommand "selector" { nativeBuildInputs = [ pkgs.git ]; } ''
+            pkgs.runCommand "selector" { nativeBuildInputs = [ pkgs.git pkgs.python3 ]; } ''
               export HOME=$TMPDIR
               r=$(cd "$TMPDIR" && pwd -P)/root
               sed "s|${root}|$r|g" ${lib.getExe config.chase.internal.agentTier} > agent-tier
@@ -362,7 +363,9 @@
 
               expect "$r/home" host "path $r/home"
               expect "$r/p/nix-config" host "alice/nix-config at $r/p/nix-config"
-              expect "$r/p/nix-config/nested" host "alice/nix-config at"
+              # A repository nested inside the pinned checkout is not it,
+              # remote or no: its own session writes its .git.
+              expect "$r/p/nix-config/nested" strict "repo alice/nix-config"
               # Its remote, anywhere else: strict, because strict is asked
               # before trusted and lists it.
               expect "$r/elsewhere/nix-config" strict "repo alice/nix-config"
@@ -372,6 +375,365 @@
               expect "$r/plain" strict "not a git repository"
               git -C "$r/p/shallow" remote set-url origin git@github.com:alice/mine.git
               expect "$r/p/shallow" strict "shallow clone"
+
+              # WHAT A SESSION COULD WRITE TO BE RUN ON THE HOST NEXT TIME.
+              # Each claims the pinned checkout's remote, so only the layout
+              # stands between it and host: none of them may get there, and
+              # each says why.
+              forged() { # DIR: a repository claiming the pinned remote
+                repo "$1" git@github.com:alice/nix-config.git a@example.com
+              }
+              # core.worktree, in the repository's own config.
+              forged "$r/forge"
+              git -C "$r/forge" config core.worktree "$r/p/nix-config"
+              expect "$r/forge" strict "core.worktree sends git to $r/p/nix-config"
+              # ... by an include, and by an includeIf on its gitdir: the included
+              # file is never read, so a config that includes one is not sorted.
+              forged "$r/inc"
+              printf '[core]\n\tworktree = %s\n' "$r/p/nix-config" > "$r/inc.cfg"
+              git -C "$r/inc" config include.path "$r/inc.cfg"
+              expect "$r/inc" strict "$r/inc/.git/config includes another file"
+              forged "$r/incif"
+              git -C "$r/incif" config "includeIf.gitdir:$r/incif/.path" "$r/inc.cfg"
+              expect "$r/incif" strict "$r/incif/.git/config includes another file"
+              # A .git file pointing into the pinned checkout from outside it.
+              mkdir -p "$r/evil"
+              echo "gitdir: $r/p/nix-config/.git" > "$r/evil/.git"
+              expect "$r/evil" strict "which is not a worktree's"
+              # A .git that is a link to it.
+              mkdir -p "$r/link"
+              ln -s "$r/p/nix-config/.git" "$r/link/.git"
+              expect "$r/link" strict "is a symbolic link"
+              # The environment.
+              export GIT_DIR=$r/p/nix-config/.git GIT_WORK_TREE=$r/p/nix-config
+              expect "$r/plain" strict "redirected by the environment: GIT_DIR GIT_WORK_TREE"
+              expect "$r/p/nix-config" strict "redirected by the environment"
+              unset GIT_DIR GIT_WORK_TREE
+
+              # WORKTREES, as work inside a checkout is done: one under the
+              # pinned path holds, as Claude Code keeps them and anywhere
+              # else under it, and so does a directory inside one.
+              pinned=$r/p/nix-config
+              git -C "$pinned" worktree add -q "$pinned/.claude/worktrees/feat"
+              git -C "$pinned" worktree add -q "$pinned/tree"
+              mkdir -p "$pinned/.claude/worktrees/feat/deep/er" "$pinned/sub/deep"
+              expect "$pinned/.claude/worktrees/feat" host "alice/nix-config at $pinned, a worktree of $pinned"
+              expect "$pinned/.claude/worktrees/feat/deep/er" host "a worktree of $pinned"
+              expect "$pinned/tree" host "a worktree of $pinned"
+              expect "$pinned/sub/deep" host "alice/nix-config at $pinned"
+              expect "$pinned" host "alice/nix-config at $pinned"
+              # One kept elsewhere is its remote anywhere else.
+              git -C "$pinned" worktree add -q "$r/elsewhere/away"
+              expect "$r/elsewhere/away" strict "repo alice/nix-config"
+              # One inside the pinned path, of a checkout that is not: its remote
+              # anywhere else, too.
+              git -C "$r/elsewhere/nix-config" worktree add -q "$pinned/.claude/worktrees/intruder"
+              expect "$pinned/.claude/worktrees/intruder" strict "repo alice/nix-config"
+              # A .git file naming a genuine worktree's gitdir from outside:
+              # that gitdir names its own worktree back, not this one.
+              mkdir -p "$r/evil2"
+              echo "gitdir: $pinned/.git/worktrees/feat" > "$r/evil2/.git"
+              expect "$r/evil2" strict "belongs to $pinned/.claude/worktrees/feat/.git"
+              # A worktree's own config, which git reads with worktreeConfig.
+              git -C "$pinned" worktree add -q "$pinned/.claude/worktrees/bent"
+              git -C "$pinned" config extensions.worktreeConfig true
+              git -C "$pinned/.claude/worktrees/bent" config --worktree core.worktree "$r/elsewhere"
+              expect "$pinned/.claude/worktrees/bent" strict "core.worktree sends git to $r/elsewhere"
+              expect "$pinned/.claude/worktrees/feat" host "a worktree of $pinned"
+
+              # THE WORKSPACE a launch mounts is the root the selector sorted,
+              # and a layout it would not sort is the directory alone.
+              workspace() { (cd "$1" && ${lib.escapeShellArgs config.flong.agent-strict.workspace}); }
+              [ "$(workspace "$pinned/sub/deep")" = "$pinned" ] || fail "workspace of sub/deep: $(workspace "$pinned/sub/deep")"
+              [ "$(workspace "$pinned/.claude/worktrees/feat/deep")" = "$pinned/.claude/worktrees/feat" ] \
+                || fail "workspace of a worktree: $(workspace "$pinned/.claude/worktrees/feat/deep")"
+              [ "$(workspace "$r/forge")" = "$r/forge" ] || fail "workspace of a forged checkout: $(workspace "$r/forge")"
+              [ "$(workspace "$r/evil")" = "$r/evil" ] || fail "workspace of a gitdir file: $(workspace "$r/evil")"
+
+              # SUBMODULES are sorted as the repositories they are, and a
+              # directory inside one mounts all of it.
+              repo "$r/lib-src" git@github.com:alice/lib.git a@example.com
+              git -C "$r/p/mine" -c protocol.file.allow=always submodule add -q "file://$r/lib-src" vendor/lib
+              sub=$r/p/mine/vendor/lib
+              git -C "$sub" remote set-url origin git@github.com:alice/lib.git
+              mkdir -p "$sub/deep"
+              expect "$sub" trusted "owner alice, first commit by a@example.com"
+              expect "$sub/deep" trusted "owner alice"
+              [ "$(workspace "$sub/deep")" = "$sub" ] || fail "workspace of a submodule: $(workspace "$sub/deep")"
+              # Its gitdir, named from somewhere it is not checked out.
+              mkdir -p "$r/evil3"
+              echo "gitdir: $r/p/mine/.git/modules/vendor/lib" > "$r/evil3/.git"
+              expect "$r/evil3" strict "which is not above it"
+              mkdir -p "$r/p/mine/other"
+              echo "gitdir: $r/p/mine/.git/modules/vendor/lib" > "$r/p/mine/other/.git"
+              expect "$r/p/mine/other" strict "is checked out in"
+              # Its core.worktree, moved, or joined by another from an include.
+              git -C "$sub" config core.worktree "$r/p/mine/other"
+              expect "$sub" strict "is checked out in $r/p/mine/other"
+              git -C "$sub" config core.worktree ../../../../vendor/lib
+              expect "$sub" trusted "owner alice"
+              git -C "$sub" config include.path "$r/inc.cfg"
+              expect "$sub" strict "includes another file"
+              git -C "$sub" config --unset include.path
+              expect "$sub" trusted "owner alice"
+              # A worktree of a submodule: not sorted, and said so.
+              git -C "$sub" worktree add -q "$r/p/mine/libwt"
+              expect "$r/p/mine/libwt" strict "a worktree of a submodule of $r/p/mine"
+
+              # WORKTREES OF A BARE REPOSITORY kept beside it, as some lay a
+              # checkout out: pinned when the bare repository is under the path.
+              git clone -q --bare "file://$r/p/mine" "$r/p/bare/.bare"
+              git -C "$r/p/bare/.bare" remote set-url origin git@github.com:alice/bare.git
+              git -C "$r/p/bare/.bare" worktree add -q "$r/p/bare/trunk"
+              expect "$r/p/bare/trunk" host "alice/bare at $r/p/bare, a worktree of $r/p/bare/.bare"
+              [ "$(workspace "$r/p/bare/trunk")" = "$r/p/bare/trunk" ] || fail "workspace of a bare worktree: $(workspace "$r/p/bare/trunk")"
+              # One whose bare repository is elsewhere is not.
+              git clone -q --bare "file://$r/p/mine" "$r/elsewhere/bare.git"
+              git -C "$r/elsewhere/bare.git" remote set-url origin git@github.com:alice/bare.git
+              git -C "$r/elsewhere/bare.git" worktree add -q "$r/p/bare/intruder"
+              expect "$r/p/bare/intruder" trusted "owner alice"
+              # A directory that says it is bare and is not a repository.
+              mkdir -p "$r/fake/worktrees/w" "$r/fakewt"
+              printf '[core]\n\tbare = true\n' > "$r/fake/config"
+              echo "gitdir: $r/fake/worktrees/w" > "$r/fakewt/.git"
+              expect "$r/fakewt" strict "is not a repository of its own"
+
+              # A REPOSITORY NESTED IN A PINNED CHECKOUT, in a sandbox of its
+              # own, and what its session can make of its .git. Each rewrite
+              # claims the pinned remote; none may reach host.
+              repo "$r/opus-src" https://github.com/xiph/opus.git a@xiph.org
+              git -C "$pinned" -c protocol.file.allow=always submodule add -q "file://$r/opus-src" vendor/opus
+              git -C "$pinned" -c user.name=x -c user.email=a@example.com commit -q -m opus
+              opus=$pinned/vendor/opus
+              git -C "$opus" remote set-url origin https://github.com/xiph/opus.git
+              expect "$opus" strict "owner xiph is not listed"
+              # Swapped for a repository of its own.
+              mv "$opus/.git" "$r/opus.gitfile"
+              git -C "$opus" init -q
+              git -C "$opus" remote add origin git@github.com:alice/nix-config.git
+              expect "$opus" strict "repo alice/nix-config"
+              git -C "$opus" remote set-url origin git@github.com:alice/bare.git
+              mkdir -p "$r/p/bare/opus"
+              git -C "$r/p/bare/opus" init -q
+              git -C "$r/p/bare/opus" remote add origin git@github.com:alice/bare.git
+              expect "$r/p/bare/opus" strict "$r/p/bare/opus is a checkout of its own, not $r/p/bare"
+              # Deleted: a directory inside a submodule, not of the checkout.
+              rm -rf "$opus/.git"
+              expect "$opus" strict "inside $pinned/vendor/opus, a submodule with no .git of its own"
+              mkdir -p "$opus/deep"
+              expect "$opus/deep" strict "a submodule with no .git of its own"
+              [ "$(workspace "$opus/deep")" = "$opus/deep" ] || fail "workspace of a gutted submodule: $(workspace "$opus/deep")"
+              mv "$r/opus.gitfile" "$opus/.git"
+              expect "$opus" strict "owner xiph is not listed"
+              # A clone kept untracked in it, its remote rewritten.
+              git clone -q "file://$r/opus-src" "$pinned/scratch"
+              git -C "$pinned/scratch" remote set-url origin https://github.com/xiph/opus.git
+              expect "$pinned/scratch" strict "owner xiph is not listed"
+              git -C "$pinned/scratch" remote set-url origin git@github.com:alice/nix-config.git
+              expect "$pinned/scratch" strict "repo alice/nix-config"
+
+              # ... and what a deleted .git would leave, which the selector
+              # cannot tell from a directory of the checkout: the guard asks
+              # it before the session starts, and refuses a sandbox there.
+              [ "$(bash ./agent-tier --if-gone "$pinned/scratch")" = host ] || fail "scratch without its .git is not host"
+              [ "$(bash ./agent-tier --if-gone "$opus")" = strict ] || fail "a submodule without its .git is not strict"
+              [ "$(bash ./agent-tier --if-gone "$r/p/other")" = strict ] || fail "p/other without its .git is not strict"
+              mkdir -p bin
+              cp agent-tier bin/agent-tier
+              chmod +x bin/agent-tier
+              guard() { # WORKSPACE: the strict tier's guard, as flong runs it
+                PATH=$PWD/bin:$PATH workspace=$1 binds="" ${lib.escapeShellArgs (lib.head config.flong.agent-strict.guard)}
+              }
+              if guard "$pinned/scratch" 2> guard.err; then fail "the guard let a clone nested in a host checkout into a sandbox"; fi
+              grep -q "would be 'host' without its .git" guard.err || fail "guard: $(cat guard.err)"
+              guard "$opus" 2> guard.err || fail "the guard refused a submodule: $(cat guard.err)"
+              guard "$r/p/other" 2> guard.err || fail "the guard refused p/other: $(cat guard.err)"
+              # A worktree of another checkout, kept in the pinned one.
+              if guard "$pinned/.claude/worktrees/intruder" 2> guard.err; then fail "the guard let a foreign worktree nested in a host checkout into a sandbox"; fi
+              # A strict clone nested in a trusted checkout: deleting its .git
+              # would make it trusted, and mount the checkout above it.
+              git clone -q "file://$r/opus-src" "$r/p/mine/nested"
+              git -C "$r/p/mine/nested" remote set-url origin https://github.com/bob/evil.git
+              expect "$r/p/mine/nested" strict "owner bob is not listed"
+              [ "$(bash ./agent-tier --if-gone "$r/p/mine/nested")" = trusted ] || fail "p/mine/nested without its .git is not trusted"
+              if guard "$r/p/mine/nested" 2> guard.err; then fail "the guard let a strict clone nested in a trusted checkout into a sandbox"; fi
+              grep -q "would be 'trusted' without its .git, not 'strict'" guard.err || fail "guard: $(cat guard.err)"
+              # ... and a worktree of the trusted checkout, which stays trusted.
+              git -C "$r/p/mine" worktree add -q "$r/p/mine/.claude/worktrees/w"
+              guard "$r/p/mine/.claude/worktrees/w" 2> guard.err || fail "the guard refused a worktree of its own checkout: $(cat guard.err)"
+
+              # COMMANDS A SESSION NAMES IN ITS REPOSITORY, which git would run
+              # on the host, as the user, as the selector reads it: every key
+              # git reads as a command, a hooks directory, a filter the
+              # checkout's .gitattributes asks for, set in a checkout, in a
+              # worktree's own config and in a submodule's, and in a file a
+              # repository includes. Each is asked of from the root, a
+              # directory below it, the worktree and the submodule, as the
+              # selector, the workspace and the guard ask. None may run.
+              printf '#!/bin/sh\necho "$0 $*" >> %s\nexit 1\n' "$r/ran" > "$r/cmd"
+              chmod +x "$r/cmd"
+              mkdir -p "$r/hooks"
+              for h in applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-commit \
+                       prepare-commit-msg commit-msg post-commit pre-rebase post-checkout post-merge \
+                       pre-push pre-receive update proc-receive post-receive post-update \
+                       reference-transaction push-to-checkout pre-auto-gc post-rewrite \
+                       sendemail-validate fsmonitor-watchman post-index-change; do
+                ln -s "$r/cmd" "$r/hooks/$h"
+              done
+              arm() { # CONFIG-FILE: every command it can name, the marker
+                for kv in core.fsmonitor="$r/cmd" core.hooksPath="$r/hooks" \
+                    core.pager="$r/cmd" pager.log="$r/cmd" pager.config="$r/cmd" \
+                    pager.ls-files="$r/cmd" pager.rev-parse="$r/cmd" pager.remote="$r/cmd" \
+                    diff.external="$r/cmd" diff.x.textconv="$r/cmd" diff.x.command="$r/cmd" \
+                    filter.x.process="$r/cmd" filter.x.clean="$r/cmd" filter.x.smudge="$r/cmd" \
+                    filter.x.required=true merge.x.driver="$r/cmd" \
+                    core.sshCommand="$r/cmd" core.gitProxy="$r/cmd" core.askPass="$r/cmd" \
+                    credential.helper="!$r/cmd" uploadpack.packObjectsHook="$r/cmd" \
+                    core.alternateRefsCommand="$r/cmd" gc.recentObjectsHook="$r/cmd" \
+                    gpg.program="$r/cmd" gpg.ssh.program="$r/cmd" log.showSignature=true \
+                    core.editor="$r/cmd" sequence.editor="$r/cmd" \
+                    core.untrackedCache=true gc.auto=1 gc.autoDetach=false \
+                    hook.chase.command="$r/cmd" hook.chase.event=post-index-change \
+                    remote.origin.receivepack="$r/cmd" remote.origin.uploadpack="$r/cmd"; do
+                  git config --file "$1" --add "''${kv%%=*}" "''${kv#*=}"
+                done
+                for e in post-checkout reference-transaction pre-auto-gc pre-commit; do
+                  git config --file "$1" --add hook.chase.event "$e"
+                done
+              }
+
+              armed=$r/p/armed
+              repo "$armed" git@github.com:alice/armed.git a@example.com
+              mkdir -p "$armed/sub/deep"
+              touch "$armed/sub/deep/f"
+              printf '* filter=x diff=x merge=x\n' > "$armed/.gitattributes"
+              repo "$r/armlib-src" git@github.com:alice/armlib.git a@example.com
+              git -C "$armed" -c protocol.file.allow=always submodule add -q "file://$r/armlib-src" vendor/lib
+              git -C "$armed" -c protocol.file.allow=always submodule add -q "file://$r/armlib-src" vendor/inc
+              git -C "$armed" add sub/deep/f .gitattributes
+              git -C "$armed" -c user.name=x -c user.email=a@example.com commit -q -m armed
+              armlib=$armed/vendor/lib
+              arminc=$armed/vendor/inc
+              git -C "$armlib" remote set-url origin git@github.com:alice/armlib.git
+              git -C "$arminc" remote set-url origin git@github.com:alice/armlib.git
+              mkdir -p "$armlib/deep"
+              git -C "$armed" worktree add -q "$armed/.claude/worktrees/w"
+              armwt=$armed/.claude/worktrees/w
+              mkdir -p "$armwt/deep"
+              # A root commit that says it is signed, as a session can write,
+              # and every ref packed, so HEAD is read through packed-refs.
+              signed=$(git -C "$armed" cat-file commit "$(git -C "$armed" rev-list --max-parents=0 HEAD)" \
+                | sed '/^committer /a gpgsig -----BEGIN PGP SIGNATURE-----\n \n -----END PGP SIGNATURE-----' \
+                | git -C "$armed" hash-object -t commit -w --stdin)
+              git -C "$armed" replace "$(git -C "$armed" rev-list --max-parents=0 HEAD)" "$signed"
+              git -C "$armed" pack-refs --all
+              git -C "$armed" config extensions.worktreeConfig true
+              arm "$armed/.git/config"
+              arm "$armed/.git/worktrees/w/config.worktree"
+              arm "$armed/.git/modules/vendor/lib/config"
+              for h in "$r"/hooks/*; do ln -s "$r/cmd" "$armed/.git/hooks/$(basename "$h")"; done
+              # ... and a file a repository includes, which names them all.
+              arm "$r/attack.cfg"
+              git -C "$armed/.git/modules/vendor/inc" config include.path "$r/attack.cfg"
+              repo "$r/p/included" git@github.com:alice/included.git a@example.com
+              mkdir -p "$r/p/included/sub/deep"
+              git -C "$r/p/included" worktree add -q "$r/p/included/.claude/worktrees/w"
+              git -C "$r/p/included" config include.path "$r/attack.cfg"
+
+              # They do run, for a git that is not the selector's.
+              git -C "$armed" status >/dev/null 2>&1 || true
+              [ -s "$r/ran" ] || fail "the checkout's commands never run, so their absence proves nothing"
+              rm "$r/ran"
+              git -C "$armwt" status >/dev/null 2>&1 || true
+              [ -s "$r/ran" ] || fail "the worktree's commands never run"
+              rm "$r/ran"
+              git -C "$armlib" status >/dev/null 2>&1 || true
+              [ -s "$r/ran" ] || fail "the submodule's commands never run"
+              rm "$r/ran"
+              git -C "$r/p/included" status >/dev/null 2>&1 || true
+              [ -s "$r/ran" ] || fail "the included commands never run"
+              rm "$r/ran"
+
+              expect "$armed" trusted "owner alice, first commit by a@example.com"
+              expect "$armed/sub/deep" trusted "owner alice, first commit by a@example.com"
+              expect "$armwt" trusted "owner alice, first commit by a@example.com"
+              expect "$armwt/deep" trusted "owner alice, first commit by a@example.com"
+              expect "$armlib" trusted "owner alice, first commit by a@example.com"
+              expect "$armlib/deep" trusted "owner alice, first commit by a@example.com"
+              expect "$arminc" strict "$armed/.git/modules/vendor/inc/config includes another file"
+              expect "$r/p/included" strict "includes another file"
+              expect "$r/p/included/sub/deep" strict "includes another file"
+              expect "$r/p/included/.claude/worktrees/w" strict "includes another file"
+              for d in "$armed/sub/deep" "$armwt/deep" "$armlib/deep" "$arminc" \
+                       "$r/p/included/sub/deep" "$r/p/included/.claude/worktrees/w"; do
+                workspace "$d" >/dev/null
+                bash ./agent-tier --if-gone "$d" >/dev/null
+                guard "$d" 2>/dev/null || true
+              done
+              [ "$(workspace "$armed/sub/deep")" = "$armed" ] || fail "workspace of armed/sub/deep: $(workspace "$armed/sub/deep")"
+              [ "$(workspace "$armlib/deep")" = "$armlib" ] || fail "workspace of an armed submodule: $(workspace "$armlib/deep")"
+              [ ! -e "$r/ran" ] || fail "the selector ran a command the repository named: $(cat "$r/ran")"
+
+              # FILES A SESSION NAMES for git to read, or wait on, in its
+              # stead: a config that is a pipe or a link, objects borrowed
+              # from elsewhere, a HEAD that is a link. None is read.
+              repo "$r/p/piped" git@github.com:alice/piped.git a@example.com
+              rm "$r/p/piped/.git/config"
+              mkfifo "$r/p/piped/.git/config"
+              expect "$r/p/piped" strict "is not a plain file"
+              repo "$r/p/linked" git@github.com:alice/linked.git a@example.com
+              mv "$r/p/linked/.git/config" "$r/linked.cfg"
+              ln -s "$r/linked.cfg" "$r/p/linked/.git/config"
+              expect "$r/p/linked" strict "is not a plain file"
+              git clone -q --shared "$r/p/mine" "$r/p/borrowed"
+              git -C "$r/p/borrowed" remote set-url origin git@github.com:alice/borrowed.git
+              expect "$r/p/borrowed" strict "alternates"
+              repo "$r/p/headlink" git@github.com:alice/headlink.git a@example.com
+              mv "$r/p/headlink/.git/HEAD" "$r/headlink.HEAD"
+              ln -s "$r/headlink.HEAD" "$r/p/headlink/.git/HEAD"
+              expect "$r/p/headlink" strict "$r/p/headlink/.git/HEAD is not a plain file the size of a ref"
+
+              # FILES NO LARGER THAN THEIR KIND, and history read in bounded
+              # time and memory: a sparse gitdir file, config or ref, and a
+              # pack whose objects are deltas of each other.
+              mkdir -p "$r/huge/x"
+              truncate -s 1G "$r/huge/.git"
+              expect "$r/huge/x" strict "is too large to be a gitdir file"
+              repo "$r/p/hugecfg" git@github.com:alice/hugecfg.git a@example.com
+              git -C "$r/p/hugecfg" config extensions.worktreeConfig true
+              truncate -s 1G "$r/p/hugecfg/.git/config.worktree"
+              expect "$r/p/hugecfg" strict "config.worktree is too large to be a config"
+              repo "$r/p/hugeref" git@github.com:alice/hugeref.git a@example.com
+              truncate -s 1G "$r/p/hugeref/.git/$(git -C "$r/p/hugeref" symbolic-ref HEAD)"
+              expect "$r/p/hugeref" strict "is not a plain file the size of a ref"
+              mkdir -p "$r/p/cyclic"
+              git -C "$r/p/cyclic" init -q
+              git -C "$r/p/cyclic" remote add origin git@github.com:alice/cyclic.git
+              python3 ${./tests/selector/cyclic-pack.py} 1111111111111111111111111111111111111111 \
+                2222222222222222222222222222222222222222 "$r/p/cyclic/.git/objects/pack"
+              echo 1111111111111111111111111111111111111111 > "$r/p/cyclic/.git/$(git -C "$r/p/cyclic" symbolic-ref HEAD)"
+              timeout 60 bash ./agent-tier "$r/p/cyclic" >/dev/null || fail "a cyclic pack was not given up on"
+              expect "$r/p/cyclic" strict "the history of 1111111111111111111111111111111111111111 cannot be read"
+
+              # BRANCHES are any name git would give one, whatever the locale;
+              # a name it would not is said to be one.
+              repo "$r/p/branchy" git@github.com:alice/branchy.git a@example.com
+              for b in 'issue#12' 'wip,1' 'fix/ümlaut'; do
+                git -C "$r/p/branchy" checkout -q -b "$b"
+                expect "$r/p/branchy" trusted "owner alice, first commit by a@example.com"
+                LC_ALL=C expect "$r/p/branchy" trusted "owner alice, first commit by a@example.com"
+              done
+              echo 'ref: refs/heads/a..b' > "$r/p/branchy/.git/HEAD"
+              expect "$r/p/branchy" strict "HEAD names refs/heads/a..b, which is not a branch that is read"
+              # Refs kept as reftable, which are not read.
+              mkdir -p "$r/p/reftable"
+              git -C "$r/p/reftable" init -q --ref-format=reftable
+              git -C "$r/p/reftable" -c user.name=x -c user.email=a@example.com commit -q --allow-empty -m first
+              git -C "$r/p/reftable" remote add origin git@github.com:alice/reftable.git
+              expect "$r/p/reftable" strict "refs kept as reftable, which is not read"
+              # A submodule of a worktree: not sorted, and said so.
+              git -C "$armwt" -c protocol.file.allow=always submodule update --init -q vendor/lib
+              expect "$armwt/vendor/lib" strict "a submodule of a worktree of $armed"
               touch $out
             '';
 
