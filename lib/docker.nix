@@ -1,5 +1,5 @@
-# A project's loopback address and its names, from its owner/repo slug (the
-# Docker design, 3.7, with names under .internal), in Nix. chase's
+# A project's loopback address and its names, from its owner/repo slug
+# (docs/docker.md, with names under .internal), in Nix. chase's
 # chase-docker-address prints what these give, and the flake exports them as
 # lib.docker, so a consumer naming projects in /etc/hosts derives them from
 # this one source rather than from a copy. frisket derives both again from the

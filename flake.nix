@@ -1596,7 +1596,7 @@
               touch $out
             '';
 
-          # WHAT AN ENVELOPE MAY NAME FOR DOCKER (docs/docker.md, 3.4): each
+          # WHAT AN ENVELOPE MAY NAME FOR DOCKER (docs/docker.md): each
           # image in the one form frisket compares against, never at a
           # registry the host's loopback or an address would answer for, and
           # ports frisket can listen on in the session. options.nix is
@@ -1894,7 +1894,7 @@
             touch $out
           '';
 
-          # A CHECKOUT'S DOCKER PROJECT (docs/docker.md, 3.1 and 3.8), named
+          # A CHECKOUT'S DOCKER PROJECT (docs/docker.md, decision 9), named
           # by its origin on real repositories, held both ways to the paths
           # the tiers pin, and approved: with its address and names in front
           # of the person approving, and never at an address another project
@@ -2166,7 +2166,7 @@
               touch $out
             '';
 
-          # AN APP WITH NO CREDENTIAL (docs/docker.md, 3.6), launched: its
+          # AN APP WITH NO CREDENTIAL (docs/docker.md), launched: its
           # prepare is run from the binding alone, whenever the binding says
           # anything, with nothing decrypted, and given the Docker project
           # that approve staged -- never one derived again at launch, nor one

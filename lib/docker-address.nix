@@ -1,6 +1,6 @@
 # chase-docker-address OWNER/REPO: a project's loopback address and its
-# names, printed as {project,address,names} (the Docker design, 3.7, with
-# names under .internal). It computes them as ./docker.nix does, and takes its
+# names, printed as {project,address,names} (docs/docker.md, with names
+# under .internal). It computes them as ./docker.nix does, and takes its
 # reserved names from there; the docker-address check holds the two to the
 # same vectors, and to those frisket asserts, since frisket derives both again
 # from the route's project and refuses a route whose address or names differ.

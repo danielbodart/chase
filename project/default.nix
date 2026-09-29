@@ -272,8 +272,8 @@ let
       # their own. A machine name never starts with a dot.
       staged() { printf '%s/chase/.envelope/%s.json' "$runtime" "$1"; }
 
-      # A CHECKOUT'S DOCKER PROJECT (docs/docker.md, 3.1): the owner/repo its
-      # origin names on GitHub. It decides which containers, volumes and
+      # A CHECKOUT'S DOCKER PROJECT (docs/docker.md, decision 9): the
+      # owner/repo its origin names on GitHub. It decides which containers, volumes and
       # networks a session may touch, and at which address, so it is derived
       # here, from the checkout, and never taken from anything the envelope
       # says: the session writes that, and would name itself as another
