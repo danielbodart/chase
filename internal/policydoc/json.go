@@ -194,9 +194,29 @@ func quote(b *strings.Builder, s string) {
 	b.WriteByte('"')
 }
 
+// The exponents jq's decNumber context holds, as jq 1.8.2 showed them: an
+// adjusted exponent above emax overflows, and a coefficient whose exponent is
+// below etiny is rounded, half up, until it is etiny -- to zero if nothing is
+// left of it.
+const (
+	emax  = 999999999
+	etiny = -1147483646
+	// An exponent written with more digits than decNumber reads is this big,
+	// whichever way it points.
+	exponentTooBig = 2 * emax
+)
+
+// overflowed is what jq writes for a literal decNumber could not hold: the
+// double it read instead, which is infinite, and which jq writes as the
+// largest double there is.
+const overflowed = "1.7976931348623157e+308"
+
 // number is a JSON number's literal as jq writes one it did not compute:
 // decNumber's scientific string of it, so 1e2 is 1E+2 and 1.50e1 is 15.0,
-// and the digits written are all kept.
+// and the digits written are all kept -- within decNumber's own limits,
+// beyond which jq writes what decNumber made of it, or, past emax, the
+// double. Nix never writes such a literal, but an envelope approved under jq
+// must read as the same envelope, whatever was in it.
 func number(lit string) string {
 	sign := ""
 	if strings.HasPrefix(lit, "-") {
@@ -205,11 +225,7 @@ func number(lit string) string {
 	mant, exp := lit, 0
 	if i := strings.IndexAny(lit, "eE"); i >= 0 {
 		mant = lit[:i]
-		e, err := strconv.Atoi(strings.TrimPrefix(lit[i+1:], "+"))
-		if err != nil {
-			return sign + lit
-		}
-		exp = e
+		exp = exponent(lit[i+1:])
 	}
 	digits := mant
 	if i := strings.IndexByte(mant, '.'); i >= 0 {
@@ -217,8 +233,14 @@ func number(lit string) string {
 		exp -= len(mant) - i - 1
 	}
 	digits = strings.TrimLeft(digits, "0")
-	if digits == "" {
-		digits = "0"
+	switch {
+	case digits == "":
+		// A zero keeps its exponent, as far as decNumber can hold it.
+		digits, exp = "0", max(etiny, min(exp, emax))
+	case exp+len(digits)-1 > emax:
+		return sign + overflowed
+	case exp < etiny:
+		digits, exp = roundHalfUp(digits, etiny-exp), etiny
 	}
 	n := len(digits)
 	adjusted := exp + n - 1
@@ -240,4 +262,45 @@ func number(lit string) string {
 		return sign + s + "E+" + strconv.Itoa(adjusted)
 	}
 	return sign + s + "E-" + strconv.Itoa(-adjusted)
+}
+
+// exponent is an exponent's digits, and its sign, as decNumber reads them:
+// leading zeros are nothing, and more than ten digits, or ten that begin
+// above 1, are exponentTooBig.
+func exponent(s string) int {
+	neg := strings.HasPrefix(s, "-")
+	s = strings.TrimLeft(strings.TrimLeft(s, "+-"), "0")
+	e := exponentTooBig
+	if len(s) < 10 || len(s) == 10 && s[0] <= '1' {
+		e, _ = strconv.Atoi("0" + s)
+	}
+	if neg {
+		return -e
+	}
+	return e
+}
+
+// roundHalfUp is digits, which has no leading zero, without its last drop
+// digits, and one more if the first of those dropped was 5 or more.
+func roundHalfUp(digits string, drop int) string {
+	if drop > len(digits) {
+		return "0"
+	}
+	kept, first := digits[:len(digits)-drop], digits[len(digits)-drop]
+	if first < '5' {
+		if kept == "" {
+			return "0"
+		}
+		return kept
+	}
+	b := []byte(kept)
+	i := len(b) - 1
+	for ; i >= 0 && b[i] == '9'; i-- {
+		b[i] = '0'
+	}
+	if i < 0 {
+		return "1" + string(b)
+	}
+	b[i]++
+	return string(b)
 }

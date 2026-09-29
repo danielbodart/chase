@@ -138,7 +138,7 @@ func TestMergeDoesWhatMergeJqDid(t *testing.T) {
 // prunes and keeps anywhere in it, and numbers and strings written as a
 // person or Nix might.
 func envelope(t *rapid.T, depth int, label string) string {
-	scalars := []string{`null`, `[]`, `{}`, `false`, `true`, `0`, `""`, `"s.yaml"`, `1e2`, `0.10`, `-0`, `1.50e1`, `5432`, `0.0000001`, `12345678901234567890`, `"x\u001b\u007fé\u2028/<&>\"\\\t"`, `[{}]`, `[null]`, `{"allow": [], "deny": []}`}
+	scalars := []string{`null`, `[]`, `{}`, `false`, `true`, `0`, `""`, `"s.yaml"`, `1e2`, `0.10`, `-0`, `1.50e1`, `5432`, `0.0000001`, `12345678901234567890`, `1e1000000000`, `-1e99999999999`, `25e-1147483647`, `95e-1147483647`, `1e-1000000000000`, `0e5000000000`, `123e-1000000009`, `"x\u001b\u007fé\u2028/<&>\"\\\t"`, `[{}]`, `[null]`, `{"allow": [], "deny": []}`}
 	if depth == 0 || rapid.IntRange(0, 2).Draw(t, label+" leaf") == 0 {
 		return rapid.SampledFrom(scalars).Draw(t, label)
 	}
