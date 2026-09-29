@@ -2748,6 +2748,9 @@
               shellcheck ${./scripts/version.sh} ${./scripts/operations.sh} ${./scripts/gcloud.sh} ${./scripts/gcloud-renew.sh}
               touch $out
             '';
+        } // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          # Only where the pinned postgres:18 runs: the image is amd64's.
+          docker-session = pkgs.testers.runNixOSTest (import ./tests/docker-session.nix { inherit self home-manager; });
         });
 
       # What ./scripts/operations.sh needs: jq and curl for every app, and
