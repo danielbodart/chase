@@ -1,6 +1,7 @@
 package gcloud
 
 import (
+	"errors"
 	"strings"
 )
 
@@ -11,14 +12,20 @@ import (
 // The port adds no YAML library for two top-level keys: a service config is
 // block YAML, its apis a sequence of mappings, and anything else in the
 // file is either another top-level key or indented under one, so a reader
-// of lines is enough. Every service config at the pinned commit reads the
-// same here as PyYAML read it (TestServiceConfigsAsPyYAML checks, given the
-// pinned checkout). What it cannot read -- apis written as a flow
-// sequence, a second document -- it says is not a service config's apis
-// rather than guessing.
-func serviceConfig(text string) (service bool, apis []string) {
+// of lines is enough for what Google writes. TestServiceConfigsAsPyYAML
+// holds it to what PyYAML reads of every YAML file in a googleapis checkout,
+// given one. What it cannot read it refuses rather than guessing: a second
+// document, which PyYAML's safe_load refused too, and, in a service
+// config, apis written as anything but a block sequence of block mappings
+// -- a flow sequence, an item written as a flow mapping (`- {name: X}`),
+// an item that is not a mapping, an anchor, alias or tag. gcloud.py read
+// the first two and failed on the rest; read here as no names, a service's
+// mixins would be lost from the table with nothing said, so each is an
+// error that stops the generator.
+func serviceConfig(text string) (service bool, apis []string, err error) {
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	var typ string
+	var apisErr error
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 		if line == "" || line[0] == ' ' || line[0] == '#' || line[0] == '-' || line[0] == '\t' {
@@ -26,8 +33,7 @@ func serviceConfig(text string) (service bool, apis []string) {
 				continue
 			}
 			if line == "---" || strings.HasPrefix(line, "--- ") {
-				// A second document: PyYAML's safe_load refuses the file.
-				return false, nil
+				return false, nil, errors.New("a second YAML document, which PyYAML's safe_load refuses")
 			}
 			continue
 		}
@@ -36,26 +42,33 @@ func serviceConfig(text string) (service bool, apis []string) {
 			continue
 		}
 		key = scalar(key)
+		raw := strings.TrimSpace(value)
 		value = scalar(value)
 		switch key {
 		case "type":
 			typ = value
 		case "apis":
-			apis = nil
-			if value != "" {
-				// A flow sequence, or apis given as anything but a block
-				// sequence: nothing a service config writes.
-				continue
+			// A key given twice: PyYAML keeps the last.
+			apis, apisErr = nil, nil
+			switch value {
+			case "", "[]", "~", "null", "Null", "NULL":
+				if value == "" && !strings.HasPrefix(raw, "'") && !strings.HasPrefix(raw, `"`) {
+					var n int
+					apis, n, apisErr = sequence(lines[i+1:])
+					i += n
+				}
+			default:
+				apisErr = errors.New("apis is not a block sequence, which this reader does not read")
 			}
-			var n int
-			apis, n = sequence(lines[i+1:])
-			i += n
 		}
 	}
 	if typ != "google.api.Service" {
-		return false, nil
+		return false, nil, nil
 	}
-	return true, apis
+	if apisErr != nil {
+		return true, nil, apisErr
+	}
+	return true, apis, nil
 }
 
 func firstContent(lines []string) int {
@@ -68,12 +81,15 @@ func firstContent(lines []string) int {
 	return -1
 }
 
+// errUnread is a line of apis this reader does not read as PyYAML would.
+var errUnread = errors.New("apis holds what is not a block sequence of block mappings, which this reader does not read")
+
 // sequence reads a block sequence of mappings, from the line after its key
 // to the next top-level key: each item's name, where it has one. It returns
-// how many lines it read.
-func sequence(lines []string) (names []string, read int) {
+// how many lines it read, and errUnread for anything but block mappings.
+func sequence(lines []string) (names []string, read int, err error) {
 	itemIndent, keyIndent := -1, -1
-	named := false
+	named, keyed := false, true
 	for read < len(lines) {
 		line := lines[read]
 		trimmed := strings.TrimLeft(line, " ")
@@ -82,37 +98,60 @@ func sequence(lines []string) (names []string, read int) {
 			read++
 			continue
 		}
+		if strings.HasPrefix(trimmed, "\t") {
+			return nil, read, errUnread
+		}
 		if indent == 0 && !strings.HasPrefix(trimmed, "-") {
 			break
 		}
 		if itemIndent < 0 {
 			if !strings.HasPrefix(trimmed, "-") {
-				break
+				// apis: is a mapping, not a sequence.
+				return nil, read, errUnread
 			}
 			itemIndent = indent
 		}
 		if indent < itemIndent {
-			break
+			// Less indented than the items, but not a top-level key: not
+			// YAML PyYAML reads.
+			return nil, read, errUnread
 		}
 		if indent == itemIndent && (trimmed == "-" || strings.HasPrefix(trimmed, "- ")) {
-			named = false
+			if !keyed {
+				// The item before was empty, which PyYAML reads as None.
+				return nil, read, errUnread
+			}
+			named, keyed = false, false
 			rest := strings.TrimLeft(strings.TrimPrefix(trimmed, "-"), " ")
 			keyIndent = -1
-			if rest != "" {
-				keyIndent = indent + (len(trimmed) - len(rest))
-				trimmed, indent = rest, keyIndent
-			} else {
+			if rest == "" {
 				read++
 				continue
 			}
+			keyIndent = indent + (len(trimmed) - len(rest))
+			trimmed, indent = rest, keyIndent
 		} else if indent == itemIndent {
-			break
+			return nil, read, errUnread
 		}
 		if keyIndent < 0 {
 			keyIndent = indent
 		}
+		if indent == keyIndent && keyed && (trimmed == "-" || strings.HasPrefix(trimmed, "- ")) {
+			// An item of a sequence under the item's last key, which YAML
+			// lets sit at that key's own indent: not the item's key.
+			read++
+			continue
+		}
 		if indent == keyIndent {
-			if key, value, ok := strings.Cut(trimmed, ":"); ok && scalar(key) == "name" {
+			key, value, ok := mappingLine(trimmed)
+			if !ok {
+				return nil, read, errUnread
+			}
+			keyed = true
+			if scalar(key) == "name" {
+				if strings.ContainsAny(value[:min(len(value), 1)], "{[&*!|>") {
+					return nil, read, errUnread
+				}
 				if named {
 					// A key given twice: PyYAML keeps the last.
 					names[len(names)-1] = scalar(value)
@@ -124,7 +163,27 @@ func sequence(lines []string) (names []string, read int) {
 		}
 		read++
 	}
-	return names, read
+	if !keyed {
+		return nil, read, errUnread
+	}
+	return names, read, nil
+}
+
+// mappingLine is a block mapping's `key: value` line: its key, and its
+// value with the space before it trimmed. A line that begins as a flow
+// collection, an anchor, alias or tag, a block scalar, another sequence or
+// a complex key is not one, nor is a line with no `: ` (or a final `:`)
+// after its key.
+func mappingLine(s string) (key, value string, ok bool) {
+	if s == "" || strings.ContainsRune("{[&*!|>-?%@`", rune(s[0])) {
+		return "", "", false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] == ':' && (i+1 == len(s) || s[i+1] == ' ' || s[i+1] == '\t') {
+			return s[:i], strings.TrimSpace(s[i+1:]), true
+		}
+	}
+	return "", "", false
 }
 
 // scalar is a plain or quoted scalar's value: a plain one ends at a comment.

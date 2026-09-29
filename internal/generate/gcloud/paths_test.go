@@ -3,6 +3,10 @@ package gcloud
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -214,12 +218,138 @@ func TestServiceConfig(t *testing.T) {
 		{"no apis", "type: google.api.Service\nname: x\n", true, ""},
 		{"a block scalar", "type: google.api.Service\ndocumentation:\n  summary: |-\n    apis:\n    - name: not.This\napis:\n- name: a.B\n", true, "a.B"},
 		{"an item's name given as a later key", "type: google.api.Service\napis:\n-\n  name: a.B\n", true, "a.B"},
+		{"apis empty as a flow sequence", "type: google.api.Service\napis: []\n", true, ""},
+		{"apis null", "type: google.api.Service\napis: ~\n", true, ""},
+		{"a flow mapping in a codegen config", "type: other\napis:\n- {name: a.B}\n", false, ""},
+		{"a second key after the name", "type: google.api.Service\napis:\n- name: a.B\n  version: v1\n- name: c.D\n", true, "a.B,c.D"},
 	} {
-		service, apis := serviceConfig(c.text)
-		if service != c.service || strings.Join(apis, ",") != c.apis {
-			t.Errorf("%s: %v %q", c.name, service, apis)
+		service, apis, err := serviceConfig(c.text)
+		if err != nil || service != c.service || strings.Join(apis, ",") != c.apis {
+			t.Errorf("%s: %v %q %v", c.name, service, apis, err)
 		}
 	}
+}
+
+// What the reader cannot read as PyYAML would, it refuses, rather than
+// read no names and lose a mixin with nothing said.
+func TestServiceConfigRefuses(t *testing.T) {
+	for _, c := range []struct{ name, text string }{
+		{"an item as a flow mapping", "type: google.api.Service\napis:\n- {name: google.iam.v1.IAMPolicy}\n"},
+		{"apis as a flow sequence", "type: google.api.Service\napis: [{name: google.iam.v1.IAMPolicy}]\n"},
+		{"an item that is not a mapping", "type: google.api.Service\napis:\n- google.iam.v1.IAMPolicy\n"},
+		{"an empty item", "type: google.api.Service\napis:\n-\n- name: a.B\n"},
+		{"an empty last item", "type: google.api.Service\napis:\n- name: a.B\n-\n"},
+		{"apis as a mapping", "type: google.api.Service\napis:\n  name: a.B\n"},
+		{"an alias", "type: google.api.Service\napis:\n- *x\n"},
+		{"a name as an alias", "type: google.api.Service\napis:\n- name: *x\n"},
+		{"a tagged item", "type: google.api.Service\napis:\n- !!map {name: a.B}\n"},
+		{"a second document", "type: google.api.Service\napis:\n- name: a.B\n---\ntype: x\n"},
+		{"a second document in anything", "type: other\n---\ntype: x\n"},
+	} {
+		if _, apis, err := serviceConfig(c.text); err == nil {
+			t.Errorf("%s: read as %q", c.name, apis)
+		}
+	}
+}
+
+// Every YAML file in a googleapis checkout reads here as PyYAML reads it:
+// whether it is a service config and, if so, the names in its apis, or a
+// refusal where gcloud.py failed or read what this does not. Given a
+// checkout, as TestRegeneratesTheCommittedTable is, and a python3 with
+// PyYAML (nix develop has one).
+func TestServiceConfigsAsPyYAML(t *testing.T) {
+	googleapis := os.Getenv("CHASE_GCLOUD_GOOGLEAPIS")
+	if googleapis == "" {
+		t.Skip("set CHASE_GCLOUD_GOOGLEAPIS to a googleapis checkout")
+	}
+	if err := exec.Command("python3", "-c", "import yaml").Run(); err != nil {
+		t.Skip("no python3 with PyYAML")
+	}
+	var paths []string
+	err := filepath.WalkDir(googleapis, func(path string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if e.IsDir() && e.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".yaml") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("no YAML in the checkout")
+	}
+	// For each file a line: "error", "other", or "service" and its apis'
+	// names -- gcloud.py's reading, where an item that is not a mapping
+	// failed it.
+	const script = `
+import json, sys, yaml
+for path in sys.stdin.read().split("\0"):
+    if not path:
+        continue
+    try:
+        with open(path) as fh:
+            doc = yaml.safe_load(fh)
+        if isinstance(doc, dict) and doc.get("type") == "google.api.Service":
+            names = []
+            for a in doc.get("apis") or []:
+                if not isinstance(a, dict):
+                    raise ValueError(a)
+                if "name" in a:
+                    names.append(str(a["name"]))
+            print(json.dumps(["service", names]))
+        else:
+            print(json.dumps(["other", []]))
+    except Exception:
+        print(json.dumps(["error", []]))
+`
+	cmd := exec.Command("python3", "-c", script)
+	cmd.Stdin = strings.NewReader(strings.Join(paths, "\x00"))
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
+	if len(read) != len(paths) {
+		t.Fatalf("PyYAML read %d files of %d", len(read), len(paths))
+	}
+	services := 0
+	for i, path := range paths {
+		var py []any
+		if err := json.Unmarshal([]byte(read[i]), &py); err != nil {
+			t.Fatal(err)
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, apis, rerr := serviceConfig(string(b))
+		var names []string
+		for _, n := range py[1].([]any) {
+			names = append(names, n.(string))
+		}
+		switch py[0] {
+		case "error":
+			if rerr == nil {
+				t.Errorf("%s: PyYAML failed, read here as %v %q", path, service, apis)
+			}
+		case "other":
+			if rerr != nil || service {
+				t.Errorf("%s: not a service config, read here as %v %q %v", path, service, apis, rerr)
+			}
+		case "service":
+			services++
+			if rerr != nil || !service || strings.Join(apis, "\n") != strings.Join(names, "\n") {
+				t.Errorf("%s: a service config with apis %q, read here as %v %q %v", path, names, service, apis, rerr)
+			}
+		}
+	}
+	t.Logf("%d YAML files, %d service configs", len(paths), services)
 }
 
 // A rule's JSON and index.json's are what Python's json.dumps writes, which

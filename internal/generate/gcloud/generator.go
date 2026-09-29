@@ -979,7 +979,13 @@ func (g *generator) serviceYAMLs() (map[string]map[string]bool, error) {
 			if err != nil {
 				return nil, err
 			}
-			service, apis := serviceConfig(string(b))
+			service, apis, err := serviceConfig(string(b))
+			if err != nil {
+				// gcloud.py failed here, on what PyYAML refused or
+				// what it could not take a name from; this refuses
+				// what it cannot read, rather than lose a mixin.
+				return nil, fmt.Errorf("%s: %w", filepath.ToSlash(filepath.Join(d, e.Name())), err)
+			}
 			if !service {
 				continue
 			}

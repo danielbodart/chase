@@ -399,15 +399,12 @@ func TestTheCommittedTable(t *testing.T) {
 			t.Errorf("the committed table does not guard iamcredentials and sts whole: %s", r.Operation["id"])
 		}
 	}
-	for _, r := range load("alloydb.json") {
-		if r.Path != nil && *r.Path == "/v1/projects/*/locations/*/clusters/*:generateClientCertificate" && r.Operation["class"] != "guarded" {
-			t.Errorf("AlloyDB's REST GenerateClientCertificate is not guarded")
-		}
-	}
-	if len(select_(load("alloydb.json"), func(r jsonRule) bool {
+	// The check's jq printed each matching rule's class, a line each, and
+	// compared the whole with "guarded": exactly one rule, guarded.
+	if certs := select_(load("alloydb.json"), func(r jsonRule) bool {
 		return r.Path != nil && *r.Path == "/v1/projects/*/locations/*/clusters/*:generateClientCertificate"
-	})) == 0 {
-		t.Error("AlloyDB's REST GenerateClientCertificate is not in the table")
+	}); len(certs) != 1 || certs[0].Operation["class"] != "guarded" {
+		t.Errorf("AlloyDB's REST GenerateClientCertificate is not one guarded rule: %d rules", len(certs))
 	}
 
 	// An upload's continuing PUT reads; its first request is decided as its

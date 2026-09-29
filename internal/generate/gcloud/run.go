@@ -23,6 +23,7 @@ package gcloud
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -32,10 +33,13 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -78,8 +82,41 @@ func (e *ExitError) Unwrap() error { return e.Err }
 // Main is scripts/gcloud.sh whole: Run, then what the script said and the
 // status it exited with. A command that wires it exits with what it
 // returns.
+//
+// The work directory holds two sparse checkouts and the pinned files copied
+// out of them, thousands of files, and the script's EXIT trap removed it
+// however bash ended, Ctrl-C during the fetch included. Go runs no deferred
+// call when a signal ends the process, so Main takes SIGINT, SIGTERM and
+// SIGHUP itself: git or protoc, whichever is running, is stopped, nothing
+// more is written, Run returns and removes the work directory, and the
+// status is 128 and the signal's number, what a shell reports of a
+// script a signal ended.
 func Main(cfg Config, args []string, stdout, stderr io.Writer) int {
-	return exit(Run(cfg, args, stdout, stderr), stderr)
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigs)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	caught := make(chan syscall.Signal, 1)
+	go func() {
+		select {
+		case s := <-sigs:
+			caught <- s.(syscall.Signal)
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	err := RunContext(ctx, cfg, args, stdout, stderr)
+	cancel()
+	select {
+	case s := <-caught:
+		// What was running was ended by the signal: its words, and the
+		// error it returned, are the signal's, which the shell did not
+		// say either.
+		return 128 + int(s)
+	default:
+	}
+	return exit(err, stderr)
 }
 
 func exit(err error, stderr io.Writer) int {
@@ -106,6 +143,13 @@ func exit(err error, stderr io.Writer) int {
 // status is not 1, or its words are already said); flag.ErrHelp is the
 // usage line, already on stderr, and exit 2. Main says the rest.
 func Run(cfg Config, args []string, stdout, stderr io.Writer) error {
+	return RunContext(context.Background(), cfg, args, stdout, stderr)
+}
+
+// RunContext is Run, stopped when ctx is done: git or protoc is sent
+// SIGTERM, nothing more is written, and the work directory is removed
+// before it returns ctx's error.
+func RunContext(ctx context.Context, cfg Config, args []string, stdout, stderr io.Writer) error {
 	bump := false
 	if len(args) > 0 && args[0] == "--bump" {
 		bump = true
@@ -115,7 +159,7 @@ func Run(cfg Config, args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stderr, usage)
 		return flag.ErrHelp
 	}
-	r := &runner{cfg: cfg, stdout: stdout, stderr: stderr}
+	r := &runner{ctx: ctx, cfg: cfg, stdout: stdout, stderr: stderr}
 	if r.cfg.Git == "" {
 		r.cfg.Git = "git"
 	}
@@ -168,6 +212,7 @@ func Tool(args []string, stdout, stderr io.Writer) int {
 }
 
 type runner struct {
+	ctx               context.Context
 	cfg               Config
 	stdout, stderr    io.Writer
 	app, source, work string
@@ -252,6 +297,9 @@ func (r *runner) run(bump bool, args []string) error {
 	if err := r.compile(filepath.Join(r.work, "pinned", "googleapis"), entries, descriptors); err != nil {
 		return err
 	}
+	if err := r.ctx.Err(); err != nil {
+		return err
+	}
 	return Generate(r.app, filepath.Join(r.work, "pinned", "discovery", "discoveries"), filepath.Join(r.work, "pinned", "googleapis"),
 		descriptors, entriesFile, r.stderr)
 }
@@ -286,9 +334,20 @@ func jqString0(o *object, key string) (string, error) {
 
 // git runs git, its output passed through as the script's was.
 func (r *runner) git(stdin io.Reader, args ...string) error {
-	cmd := exec.Command(r.cfg.Git, args...)
+	cmd := r.command(r.cfg.Git, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, r.stdout, r.stderr
 	return said(cmd.Run(), "git "+args[0])
+}
+
+// command is name run as the script ran it, stopped with SIGTERM when the
+// run is: git removes what it was fetching when told to stop, as it does
+// when a terminal's Ctrl-C reaches it. One that has not stopped a few
+// seconds later is killed.
+func (r *runner) command(name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(r.ctx, name, args...)
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = 5 * time.Second
+	return cmd
 }
 
 // said is a command's failure as the script's set -e ended it: with the
@@ -329,15 +388,23 @@ func (r *runner) checkout(repository, commit, dir string, patterns []string) err
 // when it fails.
 func (r *runner) compile(dir string, entries []string, out string) error {
 	args := append([]string{"-I", ".", "--include_imports", "--include_source_info", "--descriptor_set_out=" + out}, entries...)
-	cmd := exec.Command(r.cfg.Protoc, args...)
+	cmd := r.command(r.cfg.Protoc, args...)
 	cmd.Dir = dir
 	var log bytes.Buffer
 	cmd.Stdout, cmd.Stderr = r.stdout, &log
-	if err := cmd.Run(); err != nil {
-		r.stderr.Write([]byte(term.Clean(log.String())))
+	err := cmd.Run()
+	if err == nil {
+		return nil
+	}
+	r.stderr.Write([]byte(term.Clean(log.String())))
+	// Said only where protoc ran and exited, its log being why. Where it
+	// could not be started, or was killed, the script's log held xargs'
+	// words for it, which this says in its own.
+	var x *exec.ExitError
+	if errors.As(err, &x) && x.ExitCode() > 0 {
 		return &ExitError{Code: 1, Said: true, Err: fmt.Errorf("protoc: %w", err)}
 	}
-	return nil
+	return fmt.Errorf("protoc: %w", err)
 }
 
 // copyPinned copies the pinned files out of a checkout, as the script's
@@ -399,10 +466,11 @@ var hexHash = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
 // and false returned.
 func (r *runner) check(dir string, pins *object) bool {
 	failed, unread, malformed := 0, 0, 0
-	for n, name := range pins.keys {
+	for _, name := range pins.keys {
 		want, _ := pins.vals[name].(string)
 		if !hexHash.MatchString(want) || strings.ContainsAny(name, "\n") {
-			fmt.Fprintf(r.stderr, "sha256sum: -: %d: improperly formatted SHA256 checksum line\n", n+1)
+			// Said only in the count below: sha256sum names a malformed
+			// line only when given --warn, which the script did not give.
 			malformed++
 			continue
 		}
@@ -419,6 +487,12 @@ func (r *runner) check(dir string, pins *object) bool {
 			failed++
 		}
 	}
+	if malformed == len(pins.keys) {
+		// No line to check, which includes no line at all: sha256sum says
+		// only this, and none of the counts.
+		fmt.Fprintln(r.stderr, "sha256sum: 'standard input': no properly formatted checksum lines found")
+		return false
+	}
 	plural := func(n int, one, many string) string {
 		if n == 1 {
 			return one
@@ -433,10 +507,6 @@ func (r *runner) check(dir string, pins *object) bool {
 	}
 	if failed > 0 {
 		fmt.Fprintf(r.stderr, "sha256sum: WARNING: %d computed %s did NOT match\n", failed, plural(failed, "checksum", "checksums"))
-	}
-	if len(pins.keys) == 0 {
-		fmt.Fprintln(r.stderr, "sha256sum: -: no properly formatted checksum lines found")
-		return false
 	}
 	return failed == 0 && unread == 0 && malformed == 0
 }
@@ -456,13 +526,19 @@ func (r *runner) bump(args []string) error {
 	if r.googleapisRepo, err = jqString0(gapi, "repository"); err != nil {
 		return err
 	}
+	// ${1:-...} and ${2:-...}: a commit given empty, as an unset shell
+	// variable gives it, is the repository's head, as one not given is. A
+	// fetch of "" would fetch HEAD and pin no commit.
 	discoveryCommit, googleapisCommit := "", ""
 	if len(args) == 2 {
 		discoveryCommit, googleapisCommit = args[0], args[1]
-	} else {
+	}
+	if discoveryCommit == "" {
 		if discoveryCommit, err = r.head(r.discoveryRepo); err != nil {
 			return err
 		}
+	}
+	if googleapisCommit == "" {
 		if googleapisCommit, err = r.head(r.googleapisRepo); err != nil {
 			return err
 		}
@@ -474,7 +550,7 @@ func (r *runner) bump(args []string) error {
 	if err := r.checkout(r.googleapisRepo, googleapisCommit, googleapis, []string{"/google/", "/grafeas/"}); err != nil {
 		return err
 	}
-	entries, err := protosWithHosts(googleapis, "google", "grafeas")
+	entries, err := protosWithHosts(googleapis, []string{"google", "grafeas"}, r.stderr)
 	if err != nil {
 		return err
 	}
@@ -512,6 +588,9 @@ func (r *runner) bump(args []string) error {
 
 	// The script's jq wrote the new source.json beside the old and moved
 	// it over: a reader sees one or the other, created as the umask allows.
+	if err := r.ctx.Err(); err != nil {
+		return err
+	}
 	mask := unix.Umask(0)
 	unix.Umask(mask)
 	return files.WriteAtomic(r.source, []byte(jqPretty(r.sourceJSON)), os.FileMode(0o666&^mask))
@@ -531,7 +610,7 @@ func (r *runner) member(o *object, key string) *object {
 // head is `git ls-remote REPOSITORY HEAD | cut -f1`: the commit a
 // repository's HEAD is.
 func (r *runner) head(repository string) (string, error) {
-	cmd := exec.Command(r.cfg.Git, "ls-remote", repository, "HEAD")
+	cmd := r.command(r.cfg.Git, "ls-remote", repository, "HEAD")
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, r.stderr
 	if err := said(cmd.Run(), "git ls-remote"); err != nil {
@@ -547,17 +626,30 @@ func (r *runner) head(repository string) (string, error) {
 
 // protosWithHosts is `grep -rl --include='*.proto' google.api.default_host
 // DIR... | sort`: every proto under the directories that names a default
-// host, which is every API's service, sorted. grep -r follows no link it
-// meets, and fails on a directory that is not there or where nothing
-// matches.
-func protosWithHosts(root string, dirs ...string) ([]string, error) {
+// host, which is every API's service, sorted. grep -r follows a link named
+// on its command line, but no link it meets beneath one. Where a directory
+// named is not there it says so and goes on to the others, then fails with
+// 2; where nothing matches it fails with 1, having said nothing.
+func protosWithHosts(root string, dirs []string, stderr io.Writer) ([]string, error) {
 	var out []string
+	gone := false
 	for _, d := range dirs {
-		if _, err := os.Stat(filepath.Join(root, d)); err != nil {
-			// grep's status for a file it cannot read.
-			return nil, &ExitError{Code: 2, Err: fmt.Errorf("grep: %s: No such file or directory", d)}
+		named := filepath.Join(root, d)
+		// Stat, not Lstat: a directory named by a link is searched as the
+		// directory it names, its protos under the name it was given.
+		info, err := os.Stat(named)
+		if err != nil {
+			fmt.Fprint(stderr, term.Clean("grep: "+d+": No such file or directory")+"\n")
+			gone = true
+			continue
 		}
-		err := filepath.WalkDir(filepath.Join(root, d), func(path string, e fs.DirEntry, err error) error {
+		walked := named
+		if info.IsDir() {
+			if walked, err = filepath.EvalSymlinks(named); err != nil {
+				return nil, err
+			}
+		}
+		err = filepath.WalkDir(walked, func(path string, e fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
@@ -569,17 +661,22 @@ func protosWithHosts(root string, dirs ...string) ([]string, error) {
 				return err
 			}
 			if defaultHost.Match(b) {
-				rel, err := filepath.Rel(root, path)
+				rel, err := filepath.Rel(walked, path)
 				if err != nil {
 					return err
 				}
-				out = append(out, filepath.ToSlash(rel))
+				out = append(out, filepath.ToSlash(filepath.Join(d, rel)))
 			}
 			return nil
 		})
 		if err != nil {
 			return nil, err
 		}
+	}
+	if gone {
+		// grep's status where a file named could not be read, having said
+		// which; what it found in the others went to sort, and no further.
+		return nil, &ExitError{Code: 2, Said: true, Err: errors.New("a directory to search is not in the checkout")}
 	}
 	if len(out) == 0 {
 		// grep's status where nothing matched, having said nothing.
