@@ -1605,6 +1605,175 @@
               touch $out
             '';
 
+          # WHAT A DOCKER BODY MAY HOLD (docs/docker.md): the hand-written
+          # tables in apps/docker/fields.json, one per body admit.json names,
+          # each judging every field the pinned spec knows. A field the spec
+          # gained on a bump, and the table does not name, would be refused
+          # at the first request that sets it, so a bump that leaves one out
+          # fails here instead, where a person reads the new row.
+          #
+          # A known path is either a row, or lies under a row whose spec
+          # has no fields of its own -- a zero, such as NetworkCreate's IPAM
+          # -- which judges everything beneath it at once. frisket refuses a
+          # row under such a spec, so those paths cannot be rows; the rows
+          # left, less the `*` rows under a map, which the spec never names,
+          # are exactly the known paths.
+          #
+          # The tables are frisket's internal/docker/testdata/fields.json,
+          # byte for byte, at the frisket this flake locks. frisket's own
+          # tests judge the bodies Compose really sent, and every refusal its
+          # floor makes, against that copy, so the tables chase serves are
+          # the ones those tests passed; a change is made there first and
+          # reaches chase with the input.
+          #
+          # Last, frisket itself loads a session's document built from the
+          # files, with the address and names chase-docker-address gives, so
+          # a table weaker than frisket's floor, or names frisket would not
+          # derive, fails here rather than when a session will not start.
+          docker-fields =
+            let
+              address = (harnessConfig { }).chase.internal.dockerAddress;
+              frisketPackage = frisket.packages.${system}.default;
+            in
+            pkgs.runCommand "docker-fields" { nativeBuildInputs = [ address frisketPackage pkgs.jq ]; } ''
+              fail() { echo "docker-fields: $*" >&2; exit 1; }
+              app=t/apps/docker
+              fresh() { rm -rf t && mkdir -p t/apps && cp -r ${./apps/docker} $app && chmod -R u+w t; }
+              edit() { jq "$2" "$app/$1" > $TMPDIR/edit && mv $TMPDIR/edit "$app/$1"; }
+
+              # What a jq judgement prints is why it refused. A jq that could
+              # not run prints nothing too, so it ends the build rather than
+              # passing as a judgement with nothing to say.
+              said() { [ -z "$1" ] || { echo "$1" >&2; return 1; }; }
+
+              # Each admitted body has a table, and each table is a body
+              # admit.json names: a table nobody names is one nobody reviews
+              # as in use.
+              tables() {
+                local msg
+                msg=$(jq -r -n --slurpfile admit $app/admit.json --slurpfile fields $app/fields.json '
+                  ([$admit[0][] | .docker.body // empty] | unique) as $bodies
+                  | ($bodies - ($fields[0] | keys)) as $none
+                  | (($fields[0] | keys) - $bodies) as $spare
+                  | if $none != [] then "admitted with no table: \($none | join(", "))"
+                    elif $spare != [] then "a table no admitted operation names: \($spare | join(", "))"
+                    else empty end') || fail "admit.json and fields.json could not be read"
+                said "$msg"
+              }
+
+              # Per table, the known paths not under a leaf row are exactly
+              # the rows that are not under a map's `*`.
+              total() {
+                local msg
+                msg=$(jq -r -n --slurpfile known $app/known.json --slurpfile fields $app/fields.json '
+                  [ ($fields[0] | keys[]) as $t
+                    | ($fields[0][$t]) as $rows
+                    | [$rows | to_entries[] | select(.value != "struct" and ((.value | type) != "string" or (.value | startswith("map/") | not))) | .key] as $leaves
+                    | [($known[0][$t] // [])[] | . as $p | select(any($leaves[]; . as $l | $p | startswith($l + ".")) | not)] as $judged
+                    | [$rows | keys[] | select(split(".") | index("*") | not)] as $named
+                    | ($judged - $named | sort) as $missing
+                    | ($named - $judged | sort) as $unknown
+                    | if $missing != [] then "\($t) has no row for \($missing | join(", "))"
+                      elif $unknown != [] then "\($t) has a row the pinned spec does not know: \($unknown | join(", "))"
+                      else empty end
+                  ] | if . == [] then empty else join("; ") end') || fail "known.json and fields.json could not be read"
+                said "$msg"
+              }
+
+              # The route chase-docker-prepare will write, for one project,
+              # with every rule operations.json generates and the table for
+              # each body admit.json names.
+              sample() {
+                local who
+                who=$(chase-docker-address triptease/data-lab) || fail "data-lab was given no address"
+                jq -n --argjson who "$who" \
+                  --slurpfile ops $app/operations.json --slurpfile admit $app/admit.json \
+                  --slurpfile fields $app/fields.json --slurpfile source $app/source.json '{
+                    name: "trusted",
+                    allow: ["docker.frisket.internal"],
+                    routes: [{
+                      name: "docker",
+                      host: "docker.frisket.internal",
+                      upstream: "unix:///run/user/1000/docker.sock",
+                      unmatched: "refuse",
+                      refusal: {contentType: "application/json", body: "{\"message\":\"{{message}}\"}"},
+                      paths: $ops[0],
+                      docker: {
+                        project: $who.project,
+                        apiVersions: $source[0].apiVersions,
+                        images: ["postgres:18", "library/postgres:18", "docker.io/postgres:18", "docker.io/library/postgres:18"],
+                        address: $who.address,
+                        ports: [64320, 64321],
+                        names: $who.names,
+                        maxBody: 262144,
+                        bodies: ([$admit[0][] | .docker.body // empty] | unique | map({key: ., value: $fields[0][.]}) | from_entries)
+                      }
+                    }]
+                  }'
+              }
+              loads() { frisket check "$1" 2>$TMPDIR/err; }
+
+              judge() {
+                tables 2>$TMPDIR/err && total 2>$TMPDIR/err && sample > $TMPDIR/sample.json && loads $TMPDIR/sample.json
+              }
+              refuses() {
+                local why=$1; shift
+                ! judge || fail "judged anyway: $why"
+                grep -qF -- "$1" $TMPDIR/err || fail "$why, refused otherwise: $(cat $TMPDIR/err)"
+              }
+
+              cmp -s ${./apps/docker/fields.json} ${frisket}/internal/docker/testdata/fields.json \
+                || fail "apps/docker/fields.json is not frisket's internal/docker/testdata/fields.json: change it there, and take the input"
+              # A key given twice would be read as its last by jq and by
+              # frisket's decoder of the route, while a reviewer may read the
+              # first; and one row per line is what a bump's diff shows.
+              f=${./apps/docker/fields.json}
+              [ "$(jq -c --stream . $f | wc -l)" = "$(jq -c tostream $f | wc -l)" ] || fail "fields.json gives a key twice in one object"
+              [ "$(grep -cE '^    "[^"]+": ' $f)" = "$(jq '[.[] | length] | add' $f)" ] || fail "fields.json is not one row per line"
+
+              fresh
+              judge || fail "the tables were not judged whole: $(cat $TMPDIR/err)"
+              [ "$(jq -c '.routes[0].docker | [.address, .names]' $TMPDIR/sample.json)" = '["127.1.191.78",["data-lab.internal","data-lab.triptease.internal"]]' ] \
+                || fail "the sample is not data-lab's address and names: $(jq -c '.routes[0].docker' $TMPDIR/sample.json | head -c 300)"
+              [ "$(jq -c '.routes[0].docker.bodies | keys' $TMPDIR/sample.json)" = '["ContainerCreate","ExecCreate","ExecStart","NetworkCreate","VolumeCreate"]' ] \
+                || fail "the sample does not carry every admitted body's table"
+
+              fresh; edit fields.json 'del(.ContainerCreate["HostConfig.Memory"])'
+              refuses "a table missing a field the spec knows" "ContainerCreate has no row for HostConfig.Memory"
+              fresh; edit fields.json 'del(.NetworkCreate.IPAM)'
+              refuses "a table missing the zero that judged the fields under it" "NetworkCreate has no row for IPAM, IPAM.Config, IPAM.Driver, IPAM.Options"
+              fresh; edit fields.json '.ExecStart.Stream = "zero"'
+              refuses "a row the spec does not know" "ExecStart has a row the pinned spec does not know: Stream"
+              fresh; edit known.json '.VolumeCreate += ["Status"]'
+              refuses "a field a bump added that no row judges" "VolumeCreate has no row for Status"
+              fresh; edit fields.json 'del(.ExecStart)'
+              refuses "an admitted body with no table" "admitted with no table: ExecStart"
+              fresh; edit admit.json '.ExecStart.docker.body = "ExecStartConfig"'
+              refuses "an admitted body named for no table" "admitted with no table: ExecStartConfig"
+              fresh; edit fields.json '.ContainerUpdate = {"Memory": "any"}'
+              refuses "a table no admitted operation names" "a table no admitted operation names: ContainerUpdate"
+
+              # frisket loads what chase would write, and not what is weaker
+              # than its floor, or at another project's address or names.
+              fresh; edit fields.json '.VolumeCreate.Name = "any"'
+              refuses "a table weaker than frisket's floor" "table VolumeCreate is weaker than frisket's floor"
+              fresh
+              sample > $TMPDIR/good.json
+              unloaded() {
+                local why=$1 edit=$2 said=$3
+                jq "$edit" $TMPDIR/good.json > $TMPDIR/bad.json
+                ! loads $TMPDIR/bad.json || fail "frisket loaded $why"
+                grep -qF -- "$said" $TMPDIR/err || fail "$why, refused otherwise: $(cat $TMPDIR/err)"
+              }
+              own="are not [\"data-lab.internal\" \"data-lab.triptease.internal\"], the project's own"
+              unloaded "names in another order than it derives" '.routes[0].docker.names |= reverse' "$own"
+              unloaded "names short of what it derives" '.routes[0].docker.names = ["data-lab.internal"]' "$own"
+              unloaded "another project's names" '.routes[0].docker.names = ["finance-api.internal", "finance-api.triptease.internal"]' "$own"
+              unloaded "an address it does not derive" '.routes[0].docker.address = "127.1.191.79"' "is not 127.1.191.78, the project's own"
+
+              touch $out
+            '';
+
           # WHAT AN ENVELOPE MAY NAME FOR DOCKER (docs/docker.md): each
           # image in the one form frisket compares against, never at a
           # registry the host's loopback or an address would answer for, and
