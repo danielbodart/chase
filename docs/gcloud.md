@@ -106,8 +106,7 @@ Google has:
   7), and never anywhere a session can read.
 
 That is the first version: one command to set up, one call to renew, and it
-works wherever keys are allowed, which includes Triptease's organisation
-(checked: key creation is not restricted there). It is what an organisation
+works wherever an organisation allows keys. It is what an organisation
 created since May 2024 forbids by default
 (`iam.managed.disableServiceAccountKeyCreation`, and key upload beside it),
 and a key does not expire unless a policy says so; revoking it is deleting the

@@ -447,15 +447,18 @@ in
         };
       });
     };
-    # chase-docker-address: a project's loopback address and names, from its
-    # owner/repo. Here so that every part of chase that needs them runs the
-    # one derivation.
-    internal.dockerAddress = mkOption { type = types.package; readOnly = true; internal = true; };
+    package = mkOption {
+      type = types.package;
+      default = self.packages.${pkgs.stdenv.hostPlatform.system}.chase;
+      defaultText = lib.literalExpression "chase.packages.\${system}.chase";
+      description = ''
+        The chase binary: what every hook flong is given, and every unit
+        systemd is, runs.
+      '';
+    };
   };
 
   config = {
-    chase.internal.dockerAddress = import ./lib/docker-address.nix { inherit pkgs; inherit (self.inputs.frisket.lib.docker) reserved; };
-
     assertions =
       let
         names = lib.attrNames cfg.tiers;

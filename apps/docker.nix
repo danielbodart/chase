@@ -56,7 +56,7 @@ let
 
   prepare = pkgs.writeShellApplication {
     name = "chase-docker-prepare";
-    runtimeInputs = [ pkgs.jq cfg.internal.dockerAddress ];
+    runtimeInputs = [ pkgs.jq cfg.package ];
     # RUN and ENVDIR are not needed: Docker has no secret, and nothing of
     # the checkout's to keep.
     text = ''
@@ -82,7 +82,7 @@ let
       # answers with whatever local image has it.
       jq -e 'all(.images[]; split("/") | all(.[]; split("@")[0] | split(":")[0] | ascii_downcase | (. == "sha256" or test("^[0-9a-f]{64}$")) | not))' <<< "$binding" >/dev/null \
         || die "an image named by its ID: name it by its repository and a tag or digest"
-      who=$(chase-docker-address "$chase_project") || die "$chase_project has no address"
+      who=$(chase docker-address "$chase_project") || die "$chase_project has no address"
 
       # frisket compares an image as the string a client sends, and the CLI
       # sends what it was given: every spelling that names the same image

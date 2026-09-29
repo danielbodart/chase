@@ -1,8 +1,8 @@
 # A Docker session end to end: chase's launch, flong's session, frisket's
 # route and relay, and alice's rootless Docker daemon, all on one machine.
-# The checkout is data-lab as the machine knows it -- its origin, pinned at
+# The checkout is shop as the machine knows it -- its origin, pinned at
 # its path -- with a flake binding postgres:18 on 64320, and a one-service
-# Compose file shaped like data-lab's own. The session runs Compose as its
+# Compose file shaped like shop's own. The session runs Compose as its
 # scripts do, reaches the database as localhost and by its .internal name,
 # and is refused whatever would reach the host.
 { self, home-manager }:
@@ -10,11 +10,11 @@
 
 let
   pkgs = hostPkgs;
-  project = "triptease/data-lab";
-  address = "127.1.191.78";
-  ws = "/home/alice/data-lab";
+  project = "example/shop";
+  address = "127.101.170.171";
+  ws = "/home/alice/shop";
 
-  # The real postgres:18, pinned, so the daemon runs what data-lab runs.
+  # The real postgres:18, pinned, so the daemon runs what shop runs.
   # Loaded before the session starts: the VM has no registry to pull from,
   # and a pull through the route is frisket's own VM test's to show.
   postgres = pkgs.dockerTools.pullImage {
@@ -65,7 +65,7 @@ let
     done
   '';
 
-  # data-lab as a developer has it: its GitHub origin, a flake giving the
+  # shop as a developer has it: its GitHub origin, a flake giving the
   # envelope its image and port, and the Compose file its scripts run.
   mkProject = pkgs.writeShellScript "mk-project" ''
     set -euo pipefail
@@ -73,7 +73,7 @@ let
     mkdir -p ${ws}
     cd ${ws}
     git init -q -b main
-    git remote add origin git@github.com:triptease/data-lab.git
+    git remote add origin git@github.com:example/shop.git
     cat > flake.nix <<'EOF'
     {
       outputs = { self }: {
@@ -149,7 +149,7 @@ in
         codex.package = pkgs.hello;
       };
       # As trusted is on a desk: direct egress, envelopes, dev servers
-      # forwarded with `auto`, and data-lab pinned where it lives.
+      # forwarded with `auto`, and shop pinned where it lives.
       tiers.trusted = {
         match = [ { checkouts.${project} = ws; } ];
         egress = "direct";
@@ -241,7 +241,7 @@ in
       machine.wait_until_succeeds("test -S /run/user/1000/docker.sock", timeout=120)
       machine.wait_until_succeeds("runuser -u alice -- env DOCKER_HOST=unix:///run/user/1000/docker.sock docker version", timeout=120)
 
-      with subtest("the daemon is alice's, rootless, with the image data-lab runs and a container of nobody's"):
+      with subtest("the daemon is alice's, rootless, with the image shop runs and a container of nobody's"):
           info = json.loads(host_docker("info --format '{{json .}}'"))
           assert "name=rootless" in info["SecurityOptions"], info["SecurityOptions"]
           assert info["Driver"] == "overlay2", info["Driver"]
@@ -250,7 +250,7 @@ in
           # Made on the host, without frisket, so it carries no project's label.
           host_docker("create --name stray postgres:18")
 
-      with subtest("the launch approves data-lab as its origin names it, and routes its Docker"):
+      with subtest("the launch approves shop as its origin names it, and routes its Docker"):
           machine.succeed("runuser -l alice -c ${mkProject}")
           machine.succeed(as_user("cd ${ws} && ${launcher} shell -c 'bash ${runner}'") + " >/tmp/session.out 2>&1 &")
           machine.wait_until_succeeds("test -e ${ws}/cmd/ready", timeout=timedelta(minutes=5))
@@ -263,7 +263,7 @@ in
           [route] = [r for r in policy["routes"] if r["name"] == "docker"]
           d = route["docker"]
           assert d["project"] == "${project}" and d["address"] == "${address}" and d["ports"] == [64320], d
-          assert d["names"] == ["data-lab.internal", "data-lab.triptease.internal"], d["names"]
+          assert d["names"] == ["shop.internal", "shop.example.internal"], d["names"]
           env = dict(l.split("=", 1) for l in machine.succeed("cat ${ws}/cmd/env").splitlines() if "=" in l)
           assert env["DOCKER_HOST"] == "tcp://docker.frisket.internal:2376" and env["DOCKER_TLS_VERIFY"] == "1", env
           assert env["CHASE_DOCKER_ADDRESS"] == "${address}" and env["CHASE_DOCKER_PORTS"] == "64320", env
@@ -273,7 +273,7 @@ in
           assert out.splitlines()[0].startswith("${compose}/"), out
           assert out.splitlines()[1].lstrip("v") == "${pkgs.docker-compose.version}", out
 
-      with subtest("Compose brings the database up, and runs pg_isready and psql in it as data-lab's scripts do"):
+      with subtest("Compose brings the database up, and runs pg_isready and psql in it as shop's scripts do"):
           session_ok("docker compose up -d", timeout=300)
           session_ok("for i in $(seq 120); do docker compose exec -T db pg_isready -U data_lab && exit 0; sleep 1; done; exit 1", timeout=300)
           out = session_ok("printf '%s\\n' 'CREATE TABLE seen (what text);' \"INSERT INTO seen VALUES ('through frisket');\" 'SELECT what FROM seen;' "
@@ -285,19 +285,19 @@ in
           # which the daemon would resolve again at every start. Compose
           # judges drift by its config hash and each network's ID, so the ID
           # where it sent a name moves nothing.
-          netid = host_docker("network inspect data-lab_default --format '{{.Id}}'").strip()
-          assert host_docker("inspect data-lab-db-1 --format '{{.HostConfig.NetworkMode}}'").strip() == netid
-          before = host_docker("ps -q --no-trunc --filter name=data-lab-db-1").strip()
+          netid = host_docker("network inspect shop_default --format '{{.Id}}'").strip()
+          assert host_docker("inspect shop-db-1 --format '{{.HostConfig.NetworkMode}}'").strip() == netid
+          before = host_docker("ps -q --no-trunc --filter name=shop-db-1").strip()
           out = session_ok("docker compose up -d", timeout=300)
           assert "Recreate" not in out and "Created" not in out, out
-          assert host_docker("ps -q --no-trunc --filter name=data-lab-db-1").strip() == before, out
-          assert host_docker("network inspect data-lab_default --format '{{.Id}}'").strip() == netid
+          assert host_docker("ps -q --no-trunc --filter name=shop-db-1").strip() == before, out
+          assert host_docker("network inspect shop_default --format '{{.Id}}'").strip() == netid
 
       with subtest("the session reaches the database as localhost, ::1, its .internal name and its address"):
           # pg_isready inside the container can answer before the server
           # listens on TCP: the image's first start runs one on its socket alone.
           session_ok("for i in $(seq 120); do pg_isready -h 127.0.0.1 -p 64320 && exit 0; sleep 1; done; exit 1", timeout=300)
-          for host in ["localhost", "::1", "data-lab.internal", "data-lab.triptease.internal", "${address}"]:
+          for host in ["localhost", "::1", "shop.internal", "shop.example.internal", "${address}"]:
               out = session_ok(f"PGPASSWORD=data_lab psql -h {host} -p 64320 -U data_lab -d data_lab -tAc 'SELECT what FROM seen'")
               assert out.strip() == "through frisket", (host, out)
           relays = frisket_lines("relay")
@@ -310,17 +310,17 @@ in
           # frisket answers only the session's own names; any other .internal
           # name is an ordinary name, and trusted allows every name, so it is
           # looked up upstream. The VM has no upstream, so it answers nothing.
-          session("getent ahosts finance-api.internal")
+          session("getent ahosts billing.internal")
           dns = frisket_lines("dns")
-          own = [m for m in dns if m.get("name") == "data-lab.internal"]
+          own = [m for m in dns if m.get("name") == "shop.internal"]
           assert own and all(m["decision"] == "local" and m.get("answers") == ["${address}"] for m in own if m["type"] == "A"), own
-          other = [m for m in dns if m.get("name") == "finance-api.internal"]
-          assert other, "no dns line for finance-api.internal"
-          assert all(m["decision"] in ("resolved", "failed") and "127.6.18.253" not in m.get("answers", []) for m in other), other
+          other = [m for m in dns if m.get("name") == "billing.internal"]
+          assert other, "no dns line for billing.internal"
+          assert all(m["decision"] in ("resolved", "failed") and "127.10.146.214" not in m.get("answers", []) for m in other), other
 
       with subtest("on the host, the database is at the project's address and not at 127.0.0.1"):
           ps = host_docker("ps --filter label=frisket.project=${project} --format '{{.Names}} {{.Ports}}'")
-          assert "data-lab-db-1 ${address}:64320->5432/tcp" in ps, ps
+          assert "shop-db-1 ${address}:64320->5432/tcp" in ps, ps
           machine.succeed("pg_isready -h ${address} -p 64320")
           machine.fail("pg_isready -t 3 -h 127.0.0.1 -p 64320")
           # One listener on the port, at the project's address: pasta's
@@ -331,11 +331,11 @@ in
       with subtest("Compose's logs, and a recreate after the file changes, keep the database"):
           out = session_ok("docker compose logs db")
           assert "database system is ready to accept connections" in out, out
-          before = host_docker("ps -q --filter name=data-lab-db-1").strip()
+          before = host_docker("ps -q --filter name=shop-db-1").strip()
           session_ok("sed -i 's/POSTGRES_DB=data_lab/POSTGRES_DB=data_lab\\n      - CHASE_TEST=recreated/' compose.yaml && docker compose up -d", timeout=300)
-          after = host_docker("ps -q --filter name=data-lab-db-1").strip()
+          after = host_docker("ps -q --filter name=shop-db-1").strip()
           assert after and after != before, (before, after)
-          assert "CHASE_TEST=recreated" in host_docker("inspect data-lab-db-1 --format '{{json .Config.Env}}'")
+          assert "CHASE_TEST=recreated" in host_docker("inspect shop-db-1 --format '{{json .Config.Env}}'")
           session_ok("for i in $(seq 120); do PGPASSWORD=data_lab psql -h localhost -p 64320 -U data_lab -d data_lab -tAc 'SELECT what FROM seen' "
                      "| grep -qx 'through frisket' && exit 0; sleep 1; done; exit 1", timeout=300)
 
@@ -350,7 +350,7 @@ in
             wait $pid
             docker compose ps --all --format '{{.State}}'
           """, timeout=300)
-          assert host_docker("inspect data-lab-db-1 --format '{{.State.Status}}'").strip() == "exited"
+          assert host_docker("inspect shop-db-1 --format '{{.State.Status}}'").strip() == "exited"
 
       flows = requests()
 
@@ -379,7 +379,7 @@ in
           ("privileged", service("    privileged: true"), {"ContainerCreate"}, "Privileged"),
           ("the host's network", service("    network_mode: host"), {"ContainerCreate"}, "NetworkMode"),
           ("an explicit HostIp", service("    ports:\n      - '10.0.2.15:64320:5432'"), {"ContainerCreate"}, "hostip not allowed"),
-          ("another project's address", service("    ports:\n      - '127.6.18.253:64320:5432'"), {"ContainerCreate"}, "hostip not allowed"),
+          ("another project's address", service("    ports:\n      - '127.10.146.214:64320:5432'"), {"ContainerCreate"}, "hostip not allowed"),
           ("a port the project does not declare", service("    ports:\n      - '64399:5432'"), {"ContainerCreate"}, "host port this project does not list"),
           ("a label only frisket may set", service("    labels:\n      frisket.project: ${project}"), {"ContainerCreate"}, "only frisket may set"),
           ("an image the project does not declare", service("    image: 'busybox:1.37'").replace("    image: 'postgres:18'\n", ""),
@@ -421,7 +421,7 @@ in
 
       with subtest("nothing refused was made, and the container of nobody's is still there"):
           names = host_docker("ps -a --format '{{.Names}}'").split()
-          assert sorted(names) == ["data-lab-db-1", "stray"], names
+          assert sorted(names) == ["shop-db-1", "stray"], names
           assert host_docker("inspect stray --format '{{index .Config.Labels \"frisket.project\"}}'").strip() == ""
 
       with subtest("down -v takes the project's containers, network and volume, and nothing else"):
@@ -430,8 +430,8 @@ in
           new = requests()[before:]
           assert new and all(flow_line(m) for m in new), new
           assert host_docker("ps -a --format '{{.Names}}'").split() == ["stray"]
-          assert "data-lab" not in host_docker("volume ls --format '{{.Name}}'")
-          assert "data-lab" not in host_docker("network ls --format '{{.Name}}'")
+          assert "shop" not in host_docker("volume ls --format '{{.Name}}'")
+          assert "shop" not in host_docker("network ls --format '{{.Name}}'")
 
       with subtest("every database connection was relayed to the project's address, and no request went unmatched"):
           relays = frisket_lines("relay")

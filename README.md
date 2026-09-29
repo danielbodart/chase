@@ -229,11 +229,11 @@ operations chase lists, and only on what is that project's own: containers,
 volumes and networks it labelled when they were made, the images named, and no
 bind mount, privilege or host namespace. Everything else is refused; nothing
 asks. Each project has its own loopback address, a hash of its name
-(`triptease/data-lab` is `127.1.191.78`), and its ports are published there: a
+(`example/shop` is `127.101.170.171`), and its ports are published there: a
 Compose file's `'64320:5432'`, which would bind every address, is bound to
 that one. A session reaches them as `localhost`, through frisket's relay, and
 by the project's names, `<repo>.internal` and `<repo>.<owner>.internal`
-(`data-lab.internal`), which frisket answers for that session alone. On the
+(`shop.internal`), which frisket answers for that session alone. On the
 host, a name is only reliable where the machine's `/etc/hosts` gives it; any
 other `.internal` name is asked of the upstream resolver, which a hostile
 network can answer, so use the address. A machine that writes those entries derives them from

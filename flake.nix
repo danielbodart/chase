@@ -42,8 +42,56 @@
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
+
+      # ./VERSION is the major version alone. The package is named by it;
+      # scripts/version.sh derives what CI publishes.
+      version = nixpkgs.lib.fileContents ./VERSION;
+
+      # THE BINARY. Everything the module runs rather than evaluates: every
+      # hook flong is given and every unit systemd is. Only the Go sources
+      # are its source, so a change to a doc or a check does not rebuild it.
+      mkChase = pkgs: pkgs.buildGoModule {
+        pname = "chase";
+        inherit version;
+        src = nixpkgs.lib.fileset.toSource {
+          root = ./.;
+          fileset = nixpkgs.lib.fileset.unions [ ./go.mod ./go.sum ./cmd ./internal ];
+        };
+
+        # Pinned rather than null, because there is a dependency: frisket's
+        # public packages, the address and names a project is known by and the
+        # policy document's types, so chase builds what frisket reads with
+        # frisket's own code. The frisket-pin check holds go.mod's frisket to
+        # the one flake.lock pins.
+        vendorHash = "sha256-rmt9A8NY2DZ9/BQSHrU5S/M9JNZuek4T5Q+BYWPGaOM=";
+
+        # A static binary, as frisket's is: cgo would bring glibc's NSS, which
+        # resolves names by whatever the host's nsswitch.conf says.
+        env.CGO_ENABLED = 0;
+
+        ldflags = [ "-s" "-w" "-X" "main.version=${version}" ];
+
+        # buildGoModule runs `go test ./...` here, so the unit tests gate the
+        # build itself.
+        doCheck = true;
+
+        meta = {
+          description = "Which sandbox a checkout gets, and which credential each app is given";
+          homepage = "https://github.com/danielbodart/chase";
+          license = nixpkgs.lib.licenses.mit;
+          mainProgram = "chase";
+          platforms = nixpkgs.lib.platforms.linux;
+        };
+      };
     in
     {
+      packages = forAllSystems (system:
+        let pkgs = nixpkgs.legacyPackages.${system}; in
+        rec {
+          chase = mkChase pkgs;
+          default = chase;
+        });
+
       # Curried on `self` so the module can reach the flake's own inputs --
       # flong's and frisket's modules -- without a consumer having to pass
       # them in or import them first. See ./module.nix.
@@ -51,7 +99,7 @@
       nixosModules.default = self.nixosModules.chase;
 
       # A project's loopback address and names, from its owner/repo, as
-      # chase-docker-address prints them: address, names, reserved and
+      # `chase docker-address` prints them: address, names, reserved and
       # isProject (see ./lib/docker.nix). Pure Nix and the same on every system, so a
       # consumer writing /etc/hosts derives them from here, not from a copy.
       # The reserved names are frisket's, which it exports as the list its Go
@@ -135,6 +183,64 @@
             '';
         in
         {
+          # The binary's build, which is also its unit tests.
+          inherit (self.packages.${system}) chase;
+
+          # Formatting as a gate rather than a habit, as frisket has it.
+          gofmt = pkgs.runCommand "gofmt"
+            { nativeBuildInputs = [ pkgs.go ]; }
+            ''
+              cd ${self.packages.${system}.chase.src}
+              unformatted=$(gofmt -l .)
+              if [ -n "$unformatted" ]; then
+                echo "not gofmt'd:" >&2
+                echo "$unformatted" >&2
+                exit 1
+              fi
+              touch $out
+            '';
+
+          # go vet from inside the package's own build, where the module's
+          # dependencies already are.
+          govet = self.packages.${system}.chase.overrideAttrs (_: {
+            pname = "chase-vet";
+            checkPhase = ''
+              runHook preCheck
+              go vet ./...
+              runHook postCheck
+            '';
+          });
+
+          # The tests again, under the race detector, which needs cgo; the
+          # package is still built static and never ships this.
+          race = self.packages.${system}.chase.overrideAttrs (old: {
+            pname = "chase-race";
+            env = (old.env or { }) // { CGO_ENABLED = 1; };
+            checkPhase = ''
+              runHook preCheck
+              go test -race ./...
+              runHook postCheck
+            '';
+          });
+
+          # ONE FRISKET. The module and the checks take frisket from
+          # flake.lock, and the binary compiles frisket's public packages from
+          # the version go.mod requires. Were they two commits, chase would
+          # build documents and name projects with one frisket's code while
+          # another serves them. go.mod's pseudo-version ends in the commit's
+          # first twelve hex digits, so the two must agree there.
+          frisket-pin =
+            let
+              locked = (builtins.fromJSON (builtins.readFile ./flake.lock)).nodes.frisket.locked.rev;
+              required = builtins.head (builtins.match ".*\n[[:space:]]*github.com/danielbodart/frisket (v[^[:space:]]+).*" (builtins.readFile ./go.mod));
+              commit = builtins.head (builtins.match ".*-([0-9a-f]{12})" required);
+            in
+            assert nixpkgs.lib.assertMsg (builtins.match ".*replace[[:space:]].*" (builtins.readFile ./go.mod) == null)
+              "go.mod replaces a module, so what it builds is not what it requires";
+            assert nixpkgs.lib.assertMsg (nixpkgs.lib.hasPrefix commit locked)
+              "go.mod requires frisket ${required}, but flake.lock pins ${locked}";
+            pkgs.writeText "frisket-pin" locked;
+
           # A refusal happens at evaluation, so it is checked by evaluating.
           # This is also the only thing that proves the module stands alone:
           # it is instantiated here with nothing of nix-config's around it, so
@@ -1497,138 +1603,58 @@
             '';
 
           # The address and names frisket derives again and refuses a route
-          # over, and nix-config derives for /etc/hosts. Every vector in
-          # frisket's TestTheDerivationGivesTheContractsVectors
-          # (internal/docker/docker_test.go, at the frisket this flake locks)
-          # is here, with the same address and names; the rest are chase's
-          # own. frisket exports only its reserved list, not the vectors, so
-          # this check holds lib.docker to that list itself as well. The
-          # script is the module's own chase.internal.dockerAddress, the one a
-          # project's prepare step runs, so the vectors test the reserved
-          # list the module passes it, not one this check chose.
+          # over, and nix-config derives for /etc/hosts. chase gives them
+          # with frisket's own functions, which frisket's tests and chase's
+          # (internal/dockerproject) hold to the contract's vectors. What is
+          # left to hold is lib.docker, the one derivation that is not Go
+          # because nix-config has only Nix to evaluate: for every slug here
+          # it gives what the binary does, and it refuses what the binary
+          # refuses rather than naming a project frisket could never route.
           docker-address =
             let
-              address = (harnessConfig { }).chase.internal.dockerAddress;
               docker = self.lib.docker;
-              as = n: nixpkgs.lib.concatStrings (nixpkgs.lib.replicate n "a");
-              # Every slug below that is given an address, with what lib.docker
-              # makes of it, for the script to be compared against.
+              lib = nixpkgs.lib;
+              as = n: lib.concatStrings (lib.replicate n "a");
               slugs = [
-                "triptease/data-lab" "triptease/finance-api" "danielbodart/frisket"
-                "test/repo-66" "TripTease/Data-Lab" "bodar/bodar.ts" "bodar/bodar-ts"
+                "example/shop" "example/billing" "danielbodart/frisket"
+                "test/repo-66" "Example/Shop" "bodar/bodar.ts" "bodar/bodar-ts"
                 "test/${as 63}" "test/${as 64}" "test/___" "test/..." "test/-x.-" "test/_.._"
-                "frisket/docker" "google/metadata" "google/data-lab" "frisket/foo"
+                "frisket/docker" "google/metadata" "google/shop" "frisket/foo"
                 "frisket/frisket" "google/google" "x/frisket"
               ];
               fromNix = map (slug: { inherit slug; address = docker.address slug; names = docker.names slug; }) slugs;
-              # Slugs frisket refuses, each of which lib.docker must refuse
-              # too; those it gives an address or names to are listed.
               refused = [
-                "triptease" "triptease/data-lab/x" "" "${nixpkgs.lib.concatStrings (nixpkgs.lib.replicate 40 "o")}/repo"
-                "test/.." "test/." "-test/repo" "test/${nixpkgs.lib.concatStrings (nixpkgs.lib.replicate 101 "r")}"
-                "test/a b" "test/repo\nx" "test/ré" "a/b/c" "evil/../data-lab" "a/rép" "/x"
+                "example" "example/shop/x" "" "${lib.concatStrings (lib.replicate 40 "o")}/repo"
+                "test/.." "test/." "-test/repo" "test/${lib.concatStrings (lib.replicate 101 "r")}"
+                "test/a b" "test/repo\nx" "test/ré" "a/b/c" "evil/../shop" "a/rép" "/x"
               ];
               acceptedByNix = builtins.filter
                 (slug: (builtins.tryEval (docker.address slug)).success
                   || (builtins.tryEval (builtins.deepSeq (docker.names slug) true)).success)
                 refused;
             in
-            assert nixpkgs.lib.assertMsg (docker.reserved == frisket.lib.docker.reserved)
+            assert lib.assertMsg (docker.reserved == frisket.lib.docker.reserved)
               "lib.docker reserves ${builtins.toJSON docker.reserved}, but frisket reserves ${builtins.toJSON frisket.lib.docker.reserved}";
+            assert lib.assertMsg (acceptedByNix == [ ])
+              "lib.docker gave an address or names to ${builtins.toJSON acceptedByNix}";
             pkgs.runCommand "docker-address" {
-              nativeBuildInputs = [ address pkgs.jq ];
+              nativeBuildInputs = [ self.packages.${system}.chase pkgs.jq ];
               fromNix = builtins.toJSON fromNix;
-              acceptedByNix = builtins.toJSON acceptedByNix;
-              passAsFile = [ "fromNix" "acceptedByNix" ];
+              refused = builtins.toJSON refused;
+              passAsFile = [ "fromNix" "refused" ];
             } ''
               fail() { echo "docker-address: $*" >&2; exit 1; }
-              as() { printf 'a%.0s' $(seq "$1"); }
-              gives() {
-                local got
-                got=$(chase-docker-address "$1") || fail "$1 was refused"
-                [ "$(jq -r .address <<< "$got")" = "$2" ] || fail "$1 is not at $2: $got"
-                [ "$(jq -c .names <<< "$got")" = "$3" ] || fail "$1 is not named $3: $got"
-                [ "$(jq -r .project <<< "$got")" = "''${1,,}" ] || fail "$1 is not its own project: $got"
-              }
-              refuses() {
-                ! chase-docker-address "$1" 2>$TMPDIR/err || fail "$1 was given an address"
-                [ -s $TMPDIR/err ] || fail "$1 was refused without a reason"
-              }
-
-              gives triptease/data-lab 127.1.191.78 '["data-lab.internal","data-lab.triptease.internal"]'
-              gives triptease/finance-api 127.6.18.253 '["finance-api.internal","finance-api.triptease.internal"]'
-              gives danielbodart/frisket 127.103.202.234 '["frisket.danielbodart.internal"]'
-              gives test/repo-66 127.211.18.75 '["repo-66.internal","repo-66.test.internal"]'
-              gives TripTease/Data-Lab 127.1.191.78 '["data-lab.internal","data-lab.triptease.internal"]'
-
-              # The label folds "." to "-", so two repos of one owner can
-              # share both names, at different addresses.
-              gives bodar/bodar.ts 127.100.84.99 '["bodar-ts.internal","bodar-ts.bodar.internal"]'
-              gives bodar/bodar-ts 127.113.253.232 '["bodar-ts.internal","bodar-ts.bodar.internal"]'
-
-              # A DNS label is at most 63 characters, and a repo that folds
-              # to nothing leaves no label at all.
-              gives "test/$(as 63)" 127.9.96.222 "[\"$(as 63).internal\",\"$(as 63).test.internal\"]"
-              gives "test/$(as 64)" 127.60.34.62 '[]'
-              [ "$(chase-docker-address test/___ | jq -c .names)" = '[]' ] || fail "a repo of only underscores was named"
-              [ "$(chase-docker-address test/... | jq -c .names)" = '[]' ] || fail "a repo of only dots was named"
-              [ "$(chase-docker-address test/-x.- | jq -c .names)" = '["x.internal","x.test.internal"]' ] \
-                || fail "the label's ends were not trimmed"
-
-              # A name that is already something else's is never generated.
-              [ "$(chase-docker-address frisket/docker | jq -c .names)" = '["docker.internal"]' ] \
-                || fail "frisket/docker was given frisket's own route host"
-              [ "$(chase-docker-address google/metadata | jq -c .names)" = '["metadata.internal"]' ] \
-                || fail "google/metadata was given GCE's metadata server"
-
-              # All of frisket.internal and google.internal is reserved, as
-              # frisket and nix-config hold it: an owner frisket or google
-              # keeps only its short name, and repo "frisket" or "google" has
-              # no short name either.
-              [ "$(chase-docker-address google/data-lab | jq -c .names)" = '["data-lab.internal"]' ] \
-                || fail "google/data-lab was given a name under google.internal"
-              [ "$(chase-docker-address frisket/foo | jq -c .names)" = '["foo.internal"]' ] \
-                || fail "frisket/foo was given a name under frisket.internal"
-              [ "$(chase-docker-address frisket/frisket | jq -c .names)" = '[]' ] \
-                || fail "frisket/frisket was given a name under frisket.internal"
-              [ "$(chase-docker-address google/google | jq -c .names)" = '[]' ] \
-                || fail "google/google was given a name under google.internal"
-              [ "$(chase-docker-address x/frisket | jq -c .names)" = '["frisket.x.internal"]' ] \
-                || fail "x/frisket was given frisket.internal"
-              [ "$(chase-docker-address test/_.._ | jq -c .names)" = '[]' ] \
-                || fail "a repo of only punctuation was named"
-
-              # What frisket would refuse as a route's project is refused here.
-              refuses triptease
-              refuses triptease/data-lab/x
-              refuses ""
-              refuses "$(printf 'o%.0s' $(seq 40))/repo"
-              refuses test/..
-              refuses test/.
-              refuses -test/repo
-              refuses "test/$(printf 'r%.0s' $(seq 101))"
-              refuses "test/a b"
-              refuses "$(printf 'test/repo\nx')"
-              refuses test/ré
-              chase-docker-address "$(printf 'o%.0s' $(seq 39))/repo" >/dev/null || fail "a 39-character owner was refused"
-              chase-docker-address "test/$(printf 'r%.0s' $(seq 100))" >/dev/null || fail "a 100-character repo was refused"
-
-              # lib.docker, which a consumer writing /etc/hosts uses, gives
-              # every slug above the address and names this script does.
               [ "$(jq length "$fromNixPath")" -eq ${toString (builtins.length slugs)} ] || fail "the slugs from Nix did not arrive"
               while IFS= read -r want; do
                 slug=$(jq -r .slug <<< "$want")
-                got=$(chase-docker-address "$slug") || fail "$slug was refused"
+                got=$(chase docker-address "$slug") || fail "$slug was refused"
                 [ "$(jq -c '{address, names}' <<< "$got")" = "$(jq -c '{address, names}' <<< "$want")" ] \
-                  || fail "lib.docker gives $slug $want, but chase-docker-address gives $got"
+                  || fail "lib.docker gives $slug $want, but chase docker-address gives $got"
               done < <(jq -c '.[]' "$fromNixPath")
-
-              # And lib.docker refuses what the script refuses, rather than
-              # naming a project frisket could never route.
-              [ "$(jq -c . "$acceptedByNixPath")" = '[]' ] \
-                || fail "lib.docker gave an address or names to $(jq -c . "$acceptedByNixPath")"
-              for slug in a/b/c evil/../data-lab a/rép /x; do refuses "$slug"; done
-
+              # NUL-separated: one of the refused has a newline in it.
+              while IFS= read -r -d "" slug; do
+                ! chase docker-address "$slug" >/dev/null 2>&1 || fail "chase docker-address gave $slug an address"
+              done < <(jq -j '.[] + "\u0000"' "$refusedPath")
               touch $out
             '';
 
@@ -1646,7 +1672,7 @@
           # left, less the `*` rows under a map, which the spec never names,
           # are exactly the known paths.
           #
-          # The tables are frisket's internal/docker/testdata/fields.json,
+          # The tables are frisket's internal/dockerapi/testdata/fields.json,
           # byte for byte, at the frisket this flake locks. frisket's own
           # tests judge the bodies Compose really sent, and every refusal its
           # floor makes, against that copy, so the tables chase serves are
@@ -1654,15 +1680,14 @@
           # reaches chase with the input.
           #
           # Last, frisket itself loads a session's document built from the
-          # files, with the address and names chase-docker-address gives, so
+          # files, with the address and names `chase docker-address` gives, so
           # a table weaker than frisket's floor, or names frisket would not
           # derive, fails here rather than when a session will not start.
           docker-fields =
             let
-              address = (harnessConfig { }).chase.internal.dockerAddress;
               frisketPackage = frisket.packages.${system}.default;
             in
-            pkgs.runCommand "docker-fields" { nativeBuildInputs = [ address frisketPackage pkgs.jq ]; } ''
+            pkgs.runCommand "docker-fields" { nativeBuildInputs = [ self.packages.${system}.chase frisketPackage pkgs.jq ]; } ''
               fail() { echo "docker-fields: $*" >&2; exit 1; }
               app=t/apps/docker
               fresh() { rm -rf t && mkdir -p t/apps && cp -r ${./apps/docker} $app && chmod -R u+w t; }
@@ -1712,7 +1737,7 @@
               # each body admit.json names.
               sample() {
                 local who
-                who=$(chase-docker-address triptease/data-lab) || fail "data-lab was given no address"
+                who=$(chase docker-address example/shop) || fail "shop was given no address"
                 jq -n --argjson who "$who" \
                   --slurpfile ops $app/operations.json --slurpfile admit $app/admit.json \
                   --slurpfile fields $app/fields.json --slurpfile source $app/source.json '{
@@ -1749,8 +1774,8 @@
                 grep -qF -- "$1" $TMPDIR/err || fail "$why, refused otherwise: $(cat $TMPDIR/err)"
               }
 
-              cmp -s ${./apps/docker/fields.json} ${frisket}/internal/docker/testdata/fields.json \
-                || fail "apps/docker/fields.json is not frisket's internal/docker/testdata/fields.json: change it there, and take the input"
+              cmp -s ${./apps/docker/fields.json} ${frisket}/internal/dockerapi/testdata/fields.json \
+                || fail "apps/docker/fields.json is not frisket's internal/dockerapi/testdata/fields.json: change it there, and take the input"
               # A key given twice would be read as its last by jq and by
               # frisket's decoder of the route, while a reviewer may read the
               # first; and one row per line is what a bump's diff shows.
@@ -1760,8 +1785,8 @@
 
               fresh
               judge || fail "the tables were not judged whole: $(cat $TMPDIR/err)"
-              [ "$(jq -c '.routes[0].docker | [.address, .names]' $TMPDIR/sample.json)" = '["127.1.191.78",["data-lab.internal","data-lab.triptease.internal"]]' ] \
-                || fail "the sample is not data-lab's address and names: $(jq -c '.routes[0].docker' $TMPDIR/sample.json | head -c 300)"
+              [ "$(jq -c '.routes[0].docker | [.address, .names]' $TMPDIR/sample.json)" = '["127.101.170.171",["shop.internal","shop.example.internal"]]' ] \
+                || fail "the sample is not shop's address and names: $(jq -c '.routes[0].docker' $TMPDIR/sample.json | head -c 300)"
               [ "$(jq -c '.routes[0].docker.bodies | keys' $TMPDIR/sample.json)" = '["ContainerCreate","ExecCreate","ExecStart","NetworkCreate","VolumeCreate"]' ] \
                 || fail "the sample does not carry every admitted body's table"
 
@@ -1792,11 +1817,11 @@
                 ! loads $TMPDIR/bad.json || fail "frisket loaded $why"
                 grep -qF -- "$said" $TMPDIR/err || fail "$why, refused otherwise: $(cat $TMPDIR/err)"
               }
-              own="are not [\"data-lab.internal\" \"data-lab.triptease.internal\"], the project's own"
+              own="are not [\"shop.internal\" \"shop.example.internal\"], the project's own"
               unloaded "names in another order than it derives" '.routes[0].docker.names |= reverse' "$own"
-              unloaded "names short of what it derives" '.routes[0].docker.names = ["data-lab.internal"]' "$own"
-              unloaded "another project's names" '.routes[0].docker.names = ["finance-api.internal", "finance-api.triptease.internal"]' "$own"
-              unloaded "an address it does not derive" '.routes[0].docker.address = "127.1.191.79"' "is not 127.1.191.78, the project's own"
+              unloaded "names short of what it derives" '.routes[0].docker.names = ["shop.internal"]' "$own"
+              unloaded "another project's names" '.routes[0].docker.names = ["billing.internal", "billing.example.internal"]' "$own"
+              unloaded "an address it does not derive" '.routes[0].docker.address = "127.101.170.172"' "is not 127.101.170.171, the project's own"
 
               touch $out
             '';
@@ -2121,8 +2146,8 @@
               fail() { echo "docker-identity: $*" >&2; exit 1; }
               ${envelopeHarness {
                 chase = {
-                  tiers.trusted.match = [ { checkouts."triptease/data-lab" = "${root}/p/data-lab"; } ];
-                  tiers.strict.match = [ { checkouts."TripTease/Finance-API" = "${root}/p/finance-api"; } ];
+                  tiers.trusted.match = [ { checkouts."example/shop" = "${root}/p/shop"; } ];
+                  tiers.strict.match = [ { checkouts."Example/Billing" = "${root}/p/billing"; } ];
                 };
                 rewrite.hosts = "$PWD/docker-hosts.json";
               }}
@@ -2133,7 +2158,7 @@
               # build directory is.
               baked=$(sed -n 's/^checkouts=//p' chase-envelope)
               sed "s|${root}|$r|g" "$baked" > checkouts.json
-              jq -e --arg r "$r" '.["triptease/data-lab"] == [$r + "/p/data-lab"] and .["triptease/finance-api"] == [$r + "/p/finance-api"]
+              jq -e --arg r "$r" '.["example/shop"] == [$r + "/p/shop"] and .["example/billing"] == [$r + "/p/billing"]
                 and .["alice/nix-config"] == ["/home/alice/Projects/nix-config"]' checkouts.json >/dev/null \
                 || fail "the tiers' checkouts were not baked: $(cat checkouts.json)"
               sed -i "s|^checkouts=.*|checkouts=$PWD/checkouts.json|" chase-envelope
@@ -2171,13 +2196,13 @@
 
               # A pinned project, at its path, anywhere under it, and from a
               # worktree of it kept there.
-              repo "$r/p/data-lab" git@github.com:TripTease/Data-Lab.git
-              git -C "$r/p/data-lab" -c user.name=x -c user.email=x@example.com commit -q --allow-empty -m first
-              names "$r/p/data-lab" triptease/data-lab
-              mkdir -p "$r/p/data-lab/sub"
-              names "$r/p/data-lab/sub" triptease/data-lab
-              git -C "$r/p/data-lab" worktree add -q "$r/p/data-lab/.claude/worktrees/feat"
-              names "$r/p/data-lab/.claude/worktrees/feat" triptease/data-lab
+              repo "$r/p/shop" git@github.com:Example/Shop.git
+              git -C "$r/p/shop" -c user.name=x -c user.email=x@example.com commit -q --allow-empty -m first
+              names "$r/p/shop" example/shop
+              mkdir -p "$r/p/shop/sub"
+              names "$r/p/shop/sub" example/shop
+              git -C "$r/p/shop" worktree add -q "$r/p/shop/.claude/worktrees/feat"
+              names "$r/p/shop/.claude/worktrees/feat" example/shop
 
               # A pinned project kept bare, in the path's .bare, with its
               # worktrees beside it, as the selector's in_checkout holds it;
@@ -2199,7 +2224,7 @@
               refused "$r/p/bare/other" "is under $r/p/bare, where acme/bare is pinned, but is a "
 
               # NO NAME: two URLs, not GitHub, none, and no repository.
-              repo "$r/w/two" git@github.com:acme/app.git git@github.com:triptease/data-lab.git
+              repo "$r/w/two" git@github.com:acme/app.git git@github.com:example/shop.git
               refused "$r/w/two" "exactly one origin URL"
               repo "$r/w/gitlab" git@gitlab.com:acme/app.git
               refused "$r/w/gitlab" "is not github.com/owner/repo"
@@ -2223,23 +2248,23 @@
 
               # BOTH WAYS: a pinned project anywhere but its path, and a
               # pinned path claiming anything but its project.
-              repo "$r/elsewhere/data-lab" git@github.com:triptease/data-lab.git
-              refused "$r/elsewhere/data-lab" "its origin says triptease/data-lab, which is pinned at $r/p/data-lab, not $r/elsewhere/data-lab"
-              repo "$r/p/finance-api" git@github.com:acme/app.git
-              refused "$r/p/finance-api" "is under $r/p/finance-api, where triptease/finance-api is pinned, but its origin says acme/app"
+              repo "$r/elsewhere/shop" git@github.com:example/shop.git
+              refused "$r/elsewhere/shop" "its origin says example/shop, which is pinned at $r/p/shop, not $r/elsewhere/shop"
+              repo "$r/p/billing" git@github.com:acme/app.git
+              refused "$r/p/billing" "is under $r/p/billing, where example/billing is pinned, but its origin says acme/app"
 
               # WHAT A SESSION COULD WRITE to take the pinned project's name:
               # its own config's core.worktree, a .git file into the pinned
               # repository, and a clone of its own inside the pinned path,
               # whose session writes its origin.
-              repo "$r/forge" git@github.com:triptease/data-lab.git
-              git -C "$r/forge" config core.worktree "$r/p/data-lab"
-              refused "$r/forge" "core.worktree sends git to $r/p/data-lab"
+              repo "$r/forge" git@github.com:example/shop.git
+              git -C "$r/forge" config core.worktree "$r/p/shop"
+              refused "$r/forge" "core.worktree sends git to $r/p/shop"
               mkdir -p "$r/evil"
-              echo "gitdir: $r/p/data-lab/.git" > "$r/evil/.git"
+              echo "gitdir: $r/p/shop/.git" > "$r/evil/.git"
               refused "$r/evil" "which is not a worktree's"
-              repo "$r/p/data-lab/nested" git@github.com:triptease/data-lab.git
-              refused "$r/p/data-lab/nested" "is a checkout of $r/p/data-lab/nested, not of $r/p/data-lab"
+              repo "$r/p/shop/nested" git@github.com:example/shop.git
+              refused "$r/p/shop/nested" "is a checkout of $r/p/shop/nested, not of $r/p/shop"
 
               # APPROVAL. An envelope that binds Docker, as nix would print it.
               docker='{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}'
@@ -2252,39 +2277,39 @@
               }
               asked() { jq -s '[.[] | select(.kind == "envelope")] | length' approvals.jsonl; }
               staged() { jq -r "$2" "run/chase/.envelope/$1.json"; }
-              line='Docker as triptease/data-lab at 127.1.191.78 (data-lab.internal, data-lab.triptease.internal), ports 64320 64321'
-              said() { grep -F "chase: $r/p/data-lab: $line" err; }
-              ws=$r/p/data-lab
+              line='Docker as example/shop at 127.101.170.171 (shop.internal, shop.example.internal), ports 64320 64321'
+              said() { grep -F "chase: $r/p/shop: $line" err; }
+              ws=$r/p/shop
               flake "$ws"
 
               # No hosts file: the names are the session's, and the host has
               # only the address.
-              approve "$ws" m1 "$docker" || fail "data-lab was not approved: $(cat err)"
-              [ "$(said)" = "chase: $ws: $line; on this host, 127.1.191.78 only" ] || fail "the approval did not say where Docker is: $(cat err)"
-              [ "$(staged m1 .result.dockerProject)" = triptease/data-lab ] || fail "the project was not staged: $(cat run/chase/.envelope/m1.json)"
+              approve "$ws" m1 "$docker" || fail "shop was not approved: $(cat err)"
+              [ "$(said)" = "chase: $ws: $line; on this host, 127.101.170.171 only" ] || fail "the approval did not say where Docker is: $(cat err)"
+              [ "$(staged m1 .result.dockerProject)" = example/shop ] || fail "the project was not staged: $(cat run/chase/.envelope/m1.json)"
               [ "$(asked)" = 1 ] || fail "the envelope was not asked about"
-              jq -s -e '[.[] | select(.kind == "envelope")][0].diff | contains("\"dockerProject\": \"triptease/data-lab\"")' approvals.jsonl >/dev/null \
+              jq -s -e '[.[] | select(.kind == "envelope")][0].diff | contains("\"dockerProject\": \"example/shop\"")' approvals.jsonl >/dev/null \
                 || fail "the approval's diff does not show the project: $(cat approvals.jsonl)"
-              [ "$(jq -c . state/docker/addresses.json)" = '{"triptease/data-lab":"127.1.191.78"}' ] \
+              [ "$(jq -c . state/docker/addresses.json)" = '{"example/shop":"127.101.170.171"}' ] \
                 || fail "the address was not recorded: $(cat state/docker/addresses.json)"
 
               # The host's names, where the hosts file gives this project
               # them at this address; the address alone where it gives them
               # elsewhere, and only those it gives. Approved again, the same
               # project passes, is not asked about, and is held once.
-              printf '{"triptease/data-lab": {"address": "127.1.191.78", "names": ["data-lab.internal", "data-lab.triptease.internal"]}}' > docker-hosts.json
-              approve "$ws" m2 "$docker" || fail "data-lab was not approved again: $(cat err)"
+              printf '{"example/shop": {"address": "127.101.170.171", "names": ["shop.internal", "shop.example.internal"]}}' > docker-hosts.json
+              approve "$ws" m2 "$docker" || fail "shop was not approved again: $(cat err)"
               [ "$(said)" = "chase: $ws: $line" ] || fail "the host's names were not recognised: $(cat err)"
               [ "$(asked)" = 1 ] || fail "an unchanged envelope was asked about again"
-              [ "$(jq -c . state/docker/addresses.json)" = '{"triptease/data-lab":"127.1.191.78"}' ] \
+              [ "$(jq -c . state/docker/addresses.json)" = '{"example/shop":"127.101.170.171"}' ] \
                 || fail "the address is not held once: $(cat state/docker/addresses.json)"
-              [ "$(grep -o triptease/data-lab state/docker/addresses.json | wc -l)" = 1 ] || fail "the project is recorded twice"
-              printf '{"triptease/data-lab": {"address": "127.9.9.9", "names": ["data-lab.internal", "data-lab.triptease.internal"]}}' > docker-hosts.json
-              approve "$ws" m3 "$docker" || fail "data-lab was not approved: $(cat err)"
-              [ "$(said)" = "chase: $ws: $line; on this host, 127.1.191.78 only" ] || fail "names at another address were taken as the host's: $(cat err)"
-              printf '{"triptease/data-lab": {"address": "127.1.191.78", "names": ["data-lab.triptease.internal"]}}' > docker-hosts.json
-              approve "$ws" m4 "$docker" || fail "data-lab was not approved: $(cat err)"
-              [ "$(said)" = "chase: $ws: $line; on this host, 127.1.191.78 and data-lab.triptease.internal only" ] \
+              [ "$(grep -o example/shop state/docker/addresses.json | wc -l)" = 1 ] || fail "the project is recorded twice"
+              printf '{"example/shop": {"address": "127.9.9.9", "names": ["shop.internal", "shop.example.internal"]}}' > docker-hosts.json
+              approve "$ws" m3 "$docker" || fail "shop was not approved: $(cat err)"
+              [ "$(said)" = "chase: $ws: $line; on this host, 127.101.170.171 only" ] || fail "names at another address were taken as the host's: $(cat err)"
+              printf '{"example/shop": {"address": "127.101.170.171", "names": ["shop.example.internal"]}}' > docker-hosts.json
+              approve "$ws" m4 "$docker" || fail "shop was not approved: $(cat err)"
+              [ "$(said)" = "chase: $ws: $line; on this host, 127.101.170.171 and shop.example.internal only" ] \
                 || fail "a name the host lacks was taken as the host's: $(cat err)"
               rm docker-hosts.json
 
@@ -2307,7 +2332,7 @@
               mkdir -p "$esc"
               flake "$esc"
               approve "$esc" m13 "$docker" || fail "a workspace with an escape in its path was not approved: $(cat err)"
-              grep -qF "chase: $ws/x?]0;PWNED??[8m: Docker as triptease/data-lab at 127.1.191.78" err \
+              grep -qF "chase: $ws/x?]0;PWNED??[8m: Docker as example/shop at 127.101.170.171" err \
                 || fail "the approval did not say where Docker is: $(od -c err)"
               ! LC_ALL=C grep -q "$(printf '[\033\007]')" err || fail "a control byte reached the terminal: $(od -c err)"
 
@@ -2330,16 +2355,16 @@
               # staged or recorded.
               rm -rf state/docker
               mkdir -p state/docker
-              printf '{"evil/x": "127.1.191.78"}' > state/docker/addresses.json
-              if approve "$ws" m7 "$docker"; then fail "data-lab was approved at an address evil/x holds"; fi
-              grep -qF "chase: $ws: triptease/data-lab would be at 127.1.191.78, which evil/x already holds" err \
+              printf '{"evil/x": "127.101.170.171"}' > state/docker/addresses.json
+              if approve "$ws" m7 "$docker"; then fail "shop was approved at an address evil/x holds"; fi
+              grep -qF "chase: $ws: example/shop would be at 127.101.170.171, which evil/x already holds" err \
                 || fail "the collision was not said: $(cat err)"
               [ ! -e run/chase/.envelope/m7.json ] || fail "a collision was staged"
-              [ "$(jq -c . state/docker/addresses.json)" = '{"evil/x":"127.1.191.78"}' ] || fail "a collision was recorded"
+              [ "$(jq -c . state/docker/addresses.json)" = '{"evil/x":"127.101.170.171"}' ] || fail "a collision was recorded"
               rm -rf state/docker
-              printf '{"evil/x": {"address": "127.1.191.78", "names": ["x.internal"]}}' > docker-hosts.json
-              if approve "$ws" m8 "$docker"; then fail "data-lab was approved at an address the host gives evil/x"; fi
-              grep -qF "chase: $ws: triptease/data-lab would be at 127.1.191.78, which evil/x already holds" err \
+              printf '{"evil/x": {"address": "127.101.170.171", "names": ["x.internal"]}}' > docker-hosts.json
+              if approve "$ws" m8 "$docker"; then fail "shop was approved at an address the host gives evil/x"; fi
+              grep -qF "chase: $ws: example/shop would be at 127.101.170.171, which evil/x already holds" err \
                 || fail "the host's collision was not said: $(cat err)"
               [ ! -e run/chase/.envelope/m8.json ] || fail "the host's collision was staged"
               [ "$(jq -c . state/docker/addresses.json)" = '{}' ] || fail "the host's collision was recorded"
@@ -2358,7 +2383,7 @@
 
               # What chase derives is not the envelope's to say: a module's
               # own dockerProject or secretsSHA256 is dropped, not staged.
-              approve "$r/w/none" m11 '{"dockerProject": "triptease/data-lab", "secretsSHA256": "0", "bindings": {"github": {"allow": ["x"]}}}' \
+              approve "$r/w/none" m11 '{"dockerProject": "example/shop", "secretsSHA256": "0", "bindings": {"github": {"allow": ["x"]}}}' \
                 || fail "an envelope naming its own project was refused: $(cat err)"
               [ "$(staged m11 '.result | has("dockerProject") or has("secretsSHA256")')" = false ] \
                 || fail "an envelope's own dockerProject was staged: $(cat run/chase/.envelope/m11.json)"
@@ -2403,7 +2428,7 @@
               fail() { echo "project-launch: $*" >&2; exit 1; }
               ${envelopeHarness {
                 chase = {
-                  tiers.trusted.match = [ { checkouts."triptease/data-lab" = "${root}/p/data-lab"; } ];
+                  tiers.trusted.match = [ { checkouts."example/shop" = "${root}/p/shop"; } ];
                   internal.projectApps.probe = { credential = false; prepare = "${probe}"; };
                 };
                 rewrite = { hosts = "$PWD/docker-hosts.json"; policies = "$PWD/policies"; };
@@ -2425,9 +2450,9 @@
               mkdir policies
               printf '{"name": "trusted", "allow": [], "routes": []}\n' > policies/trusted.json
 
-              ws=$r/p/data-lab
+              ws=$r/p/shop
               git init -q "$ws"
-              git -C "$ws" config remote.origin.url git@github.com:triptease/data-lab.git
+              git -C "$ws" config remote.origin.url git@github.com:example/shop.git
               printf '{ outputs = _: { chaseModules.default = { }; }; }\n' > "$ws/flake.nix"
               git -C "$ws" add flake.nix
               envfile=state/env/$(printf '%s' "$ws" | sha256sum | cut -c1-32)/env
@@ -2443,7 +2468,7 @@
               launched m1 '{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320]}, "probe": {"x": 1}, "gcloud": {"serviceAccount": "a@p.iam.gserviceaccount.com"}}}'
               m=run/chase/m1
               [ "$(jq -c . "$m/probe.stdin")" = '{"x":1}' ] || fail "prepare was not given the binding: $(cat "$m/probe.stdin")"
-              [ "$(cat "$m/probe.project")" = set:triptease/data-lab ] || fail "prepare was not given the approved project: $(cat "$m/probe.project")"
+              [ "$(cat "$m/probe.project")" = set:example/shop ] || fail "prepare was not given the approved project: $(cat "$m/probe.project")"
               jq -e '.allow == ["probe.example"] and .routes == []' "$m/policy.json" >/dev/null || fail "probe's patch was not merged: $(cat "$m/policy.json")"
               grep -qx "export PROBE='1'" "$envfile" || fail "probe's env was not exported: $(cat "$envfile")"
               ! grep -q chase_project "$envfile" || fail "the session was given chase_project: $(cat "$envfile")"
@@ -2484,7 +2509,7 @@
               ${envelopeHarness {
                 chase = {
                   tiers.trusted = {
-                    match = [ { checkouts."triptease/data-lab" = "${root}/p/data-lab"; } ];
+                    match = [ { checkouts."example/shop" = "${root}/p/shop"; } ];
                     apps.docker.enable = true;
                   };
                   tiers.plain = { egress = "direct"; envelope = true; };
@@ -2504,9 +2529,9 @@
                 printf '{"name": "%s", "allow": ["github.com"], "routes": []}\n' "$t" > "policies/$t.json"
               done
 
-              ws=$r/p/data-lab
+              ws=$r/p/shop
               git init -q "$ws"
-              git -C "$ws" config remote.origin.url git@github.com:TripTease/Data-Lab.git
+              git -C "$ws" config remote.origin.url git@github.com:Example/Shop.git
               printf '{ outputs = _: { chaseModules.default = { }; }; }\n' > "$ws/flake.nix"
               git -C "$ws" add flake.nix
               envfile=state/env/$(printf '%s' "$ws" | sha256sum | cut -c1-32)/env
@@ -2518,11 +2543,11 @@
               }
               docker='{"bindings": {"docker": {"images": ["postgres:18", "bitnami/redis:7", "ghcr.io/o/x:1"], "ports": [64320, 64321]}}}'
 
-              # THE ROUTE, as data-lab was approved: its address and names
+              # THE ROUTE, as shop was approved: its address and names
               # are the project's, never the envelope's, and every spelling
               # the CLI could send of each image is there.
               launched trusted m1 "$docker"
-              [ "$(cat staged.m1)" = triptease/data-lab ] || fail "approve did not stage the project: $(cat staged.m1)"
+              [ "$(cat staged.m1)" = example/shop ] || fail "approve did not stage the project: $(cat staged.m1)"
               grep -qxF "chase: $ws: docker from no credential" err || fail "where docker came from was not said: $(cat err)"
               policy=run/chase/m1/policy.json
               [ "$(jq '[.routes[] | select(.name == "docker")] | length' $policy)" = 1 ] || fail "there is not one docker route: $(jq -c '[.routes[].name]' $policy)"
@@ -2530,9 +2555,9 @@
               jq -e --argjson admit "$(cat ${./apps/docker/admit.json})" --argjson fields "$(cat ${./apps/docker/fields.json})" '
                 .host == "docker.frisket.internal" and .upstream == "unix:///run/user/1000/docker.sock"
                 and .unmatched == "refuse" and (has("credentialFile") | not)
-                and .docker.project == "triptease/data-lab"
-                and .docker.address == "127.1.191.78"
-                and .docker.names == ["data-lab.internal", "data-lab.triptease.internal"]
+                and .docker.project == "example/shop"
+                and .docker.address == "127.101.170.171"
+                and .docker.names == ["shop.internal", "shop.example.internal"]
                 and .docker.images == ["postgres:18", "library/postgres:18", "docker.io/postgres:18", "docker.io/library/postgres:18",
                                        "bitnami/redis:7", "docker.io/bitnami/redis:7", "ghcr.io/o/x:1"]
                 and .docker.ports == [64320, 64321]
@@ -2544,7 +2569,7 @@
                 and ([.paths[] | select(.refuse | not) | {key: .operation.id, value: {methods, docker}}] | from_entries) == $admit
                 and ([.paths[] | select(.refuse | not)] | length) == ($admit | length)
                 and all(.paths[]; (.ask // false) | not)' <<< "$route" >/dev/null \
-                || fail "the route is not data-lab's: $(jq -c 'del(.paths, .docker.bodies)' <<< "$route")"
+                || fail "the route is not shop's: $(jq -c 'del(.paths, .docker.bodies)' <<< "$route")"
               jq -e '.allow == ["docker.frisket.internal", "github.com"]' $policy >/dev/null || fail "docker.frisket.internal was not allowed: $(jq -c .allow $policy)"
               frisket check $policy || fail "frisket refused the document"
 
@@ -2554,9 +2579,9 @@
                 "export DOCKER_HOST='tcp://docker.frisket.internal:2376'" \
                 "export DOCKER_TLS_VERIFY='1'" \
                 "export DOCKER_CERT_PATH='/etc/chase/docker'" \
-                "export CHASE_DOCKER_PROJECT='triptease/data-lab'" \
-                "export CHASE_DOCKER_ADDRESS='127.1.191.78'" \
-                "export CHASE_DOCKER_NAMES='data-lab.internal data-lab.triptease.internal'" \
+                "export CHASE_DOCKER_PROJECT='example/shop'" \
+                "export CHASE_DOCKER_ADDRESS='127.101.170.171'" \
+                "export CHASE_DOCKER_NAMES='shop.internal shop.example.internal'" \
                 "export CHASE_DOCKER_PORTS='64320 64321'"; do
                 grep -qxF "$line" "$envfile" || fail "the env file has no $line: $(cat "$envfile")"
               done
@@ -2599,7 +2624,7 @@
               # gets is made from what reaches it.
               for img in "sha256:${nixpkgs.lib.concatStrings (nixpkgs.lib.replicate 8 "0123abcd")}" sha256:0123abcd \
                          "${nixpkgs.lib.concatStrings (nixpkgs.lib.replicate 8 "0123ABCD")}:1" o/sha256:1; do
-                if printf '{"images": ["%s"]}' "$img" | chase_project=triptease/data-lab "$prepare" trusted "$ws" run envdir > out 2>err; then
+                if printf '{"images": ["%s"]}' "$img" | chase_project=example/shop "$prepare" trusted "$ws" run envdir > out 2>err; then
                   fail "a route was prepared for $img: $(cat out)"
                 fi
                 grep -qF "chase: $ws: docker: an image named by its ID" err || fail "$img was not refused as an ID: $(cat err)"
@@ -2620,7 +2645,7 @@
               root = "/chase-docker-show-test";
               chase = {
                 tiers.trusted = {
-                  match = [ { checkouts."triptease/data-lab" = "${root}/p/data-lab"; } ];
+                  match = [ { checkouts."example/shop" = "${root}/p/shop"; } ];
                   apps.docker.enable = true;
                 };
                 tiers.plain = { egress = "direct"; envelope = true; };
@@ -2643,9 +2668,9 @@
               sed -i "s|^checkouts=.*|checkouts=$PWD/checkouts.json|" chase-envelope
               grep -q "^checkouts=$PWD/checkouts.json$" chase-envelope || fail "checkouts is not one line of chase-envelope's"
 
-              ws=$r/p/data-lab
+              ws=$r/p/shop
               git init -q "$ws"
-              git -C "$ws" config remote.origin.url git@github.com:TripTease/Data-Lab.git
+              git -C "$ws" config remote.origin.url git@github.com:Example/Shop.git
               printf '{ outputs = _: { chaseModules.default = { }; }; }\n' > "$ws/flake.nix"
               git -C "$ws" add flake.nix
               mkdir -p "$ws/sub"
@@ -2659,14 +2684,14 @@
               $3"
               }
               block() { # HOST PORTS
-                printf '%s\n' triptease/data-lab \
-                  "  address  127.1.191.78" \
-                  "  session  data-lab.internal data-lab.triptease.internal" \
+                printf '%s\n' example/shop \
+                  "  address  127.101.170.171" \
+                  "  session  shop.internal shop.example.internal" \
                   "  host     $1" \
                   "  ports    $2"
               }
               only="(address only; not in this host's /etc/hosts)"
-              both="data-lab.internal data-lab.triptease.internal"
+              both="shop.internal shop.example.internal"
               ports="64320 64321   (approved)"
 
               # Nothing approved, and no map of the host's names: the names
@@ -2676,27 +2701,27 @@
               # Approved, its ports are the project's, from anywhere in the
               # checkout, which is keyed by its root as the launch keys it.
               ENVELOPE='{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}' \
-                bash ./chase-envelope approve "$ws" m1 trusted >/dev/null 2>err || fail "data-lab was not approved: $(cat err)"
+                bash ./chase-envelope approve "$ws" m1 trusted >/dev/null 2>err || fail "shop was not approved: $(cat err)"
               shown "$ws" trusted "$(block "$only" "$ports")"
               shown "$ws/sub" trusted "$(block "$only" "$ports")"
 
               # The host's names are those its map gives this project at
               # this address, and no others.
-              printf '{"triptease/data-lab": {"address": "127.1.191.78", "names": ["data-lab.internal", "data-lab.triptease.internal"]}}' > docker-hosts.json
+              printf '{"example/shop": {"address": "127.101.170.171", "names": ["shop.internal", "shop.example.internal"]}}' > docker-hosts.json
               shown "$ws" trusted "$(block "$both" "$ports")"
-              printf '{"triptease/data-lab": {"address": "127.1.191.78", "names": ["data-lab.triptease.internal", "other.internal"]}}' > docker-hosts.json
-              shown "$ws" trusted "$(block data-lab.triptease.internal "$ports")"
-              printf '{"triptease/data-lab": {"address": "127.9.9.9", "names": ["data-lab.internal", "data-lab.triptease.internal"]}}' > docker-hosts.json
+              printf '{"example/shop": {"address": "127.101.170.171", "names": ["shop.example.internal", "other.internal"]}}' > docker-hosts.json
+              shown "$ws" trusted "$(block shop.example.internal "$ports")"
+              printf '{"example/shop": {"address": "127.9.9.9", "names": ["shop.internal", "shop.example.internal"]}}' > docker-hosts.json
               shown "$ws" trusted "$(block "$only" "$ports")"
-              printf '{"triptease/data-lab": {"address": "127.1.191.78", "names": []}}' > docker-hosts.json
+              printf '{"example/shop": {"address": "127.101.170.171", "names": []}}' > docker-hosts.json
               shown "$ws" trusted "$(block "$only" "$ports")"
-              printf '{"evil/x": {"address": "127.1.191.78", "names": ["data-lab.internal"]}}' > docker-hosts.json
+              printf '{"evil/x": {"address": "127.101.170.171", "names": ["shop.internal"]}}' > docker-hosts.json
               shown "$ws" trusted "$(block "$only" "$ports")"
               rm docker-hosts.json
               shown "$ws" trusted "$(block "$only" "$ports")"
 
               # A tier without Docker still has the address, and says so.
-              shown "$ws" plain "$(printf '%s\n' triptease/data-lab "  address  127.1.191.78" "  (no Docker on plain)")"
+              shown "$ws" plain "$(printf '%s\n' example/shop "  address  127.101.170.171" "  (no Docker on plain)")"
 
               # An approval of the checkout as another project approved
               # none of this one's ports.
@@ -2735,23 +2760,23 @@
               sed "s|^export PATH=\"|export PATH=\"$PWD/tbin:|" ${chaseCommand}/bin/chase > tbin/chase
               grep -q "^export PATH=\"$PWD/tbin:" tbin/chase || fail "PATH is not one line of chase's"
               chmod +x tbin/*
-              [ "$(bash ./tbin/agent-tier "$ws")" = trusted ] || fail "data-lab is not trusted to agent-tier"
+              [ "$(bash ./tbin/agent-tier "$ws")" = trusted ] || fail "shop is not trusted to agent-tier"
               [ "$(bash ./tbin/agent-tier "$r/elsewhere")" = strict ] || fail "elsewhere is not strict to agent-tier"
               got=$(cd "$r/elsewhere" && bash "$OLDPWD/tbin/chase" docker "$ws" 2>err) || fail "chase docker $ws failed: $(cat err)"
               [ "$got" = "$(block "$only" "$ports")" ] || fail "chase docker $ws from elsewhere said: $got"
-              (cd "$ws" && bash "$OLDPWD/tbin/chase" docker "$app") > out 2>err || fail "chase docker $app from data-lab failed: $(cat err)"
-              grep -qxF "  (no Docker on strict)" out || fail "chase docker $app from data-lab said: $(cat out)"
+              (cd "$ws" && bash "$OLDPWD/tbin/chase" docker "$app") > out 2>err || fail "chase docker $app from shop failed: $(cat err)"
+              grep -qxF "  (no Docker on strict)" out || fail "chase docker $app from shop said: $(cat out)"
               got=$(cd "$ws/sub" && bash "$OLDPWD/tbin/chase" docker 2>err) || fail "chase docker with no DIR failed: $(cat err)"
-              [ "$got" = "$(block "$only" "$ports")" ] || fail "chase docker in data-lab said: $got"
+              [ "$got" = "$(block "$only" "$ports")" ] || fail "chase docker in shop said: $got"
 
               # THE SHELL'S BANNER, only when the launch exported Docker.
               banner() { env -u CHASE_DOCKER_ADDRESS -u CHASE_DOCKER_NAMES -u CHASE_DOCKER_PORTS "$@" ${command} shell -c 'echo ran' 2>err; }
               [ "$(banner)" = ran ] || fail "the shell did not run"
               ! grep -q docker err || fail "a shell without Docker said: $(cat err)"
-              [ "$(banner CHASE_DOCKER_ADDRESS=127.1.191.78 CHASE_DOCKER_NAMES="$both" CHASE_DOCKER_PORTS="64320 64321")" = ran ] || fail "the shell did not run with Docker"
-              grep -qxF "docker: data-lab.internal → 127.1.191.78, ports 64320 64321; localhost works too" err || fail "the banner was not said: $(cat err)"
-              [ "$(banner CHASE_DOCKER_ADDRESS=127.1.191.78 CHASE_DOCKER_NAMES="" CHASE_DOCKER_PORTS="")" = ran ] || fail "the shell did not run with no ports"
-              grep -qxF "docker: 127.1.191.78, no ports" err || fail "the banner with no names or ports was not said: $(cat err)"
+              [ "$(banner CHASE_DOCKER_ADDRESS=127.101.170.171 CHASE_DOCKER_NAMES="$both" CHASE_DOCKER_PORTS="64320 64321")" = ran ] || fail "the shell did not run with Docker"
+              grep -qxF "docker: shop.internal → 127.101.170.171, ports 64320 64321; localhost works too" err || fail "the banner was not said: $(cat err)"
+              [ "$(banner CHASE_DOCKER_ADDRESS=127.101.170.171 CHASE_DOCKER_NAMES="" CHASE_DOCKER_PORTS="")" = ran ] || fail "the shell did not run with no ports"
+              grep -qxF "docker: 127.101.170.171, no ports" err || fail "the banner with no names or ports was not said: $(cat err)"
 
               touch $out
             '';
@@ -2771,14 +2796,18 @@
           docker-session = pkgs.testers.runNixOSTest (import ./tests/docker-session.nix { inherit self home-manager; });
         });
 
-      # What ./scripts/operations.sh needs: jq and curl for every app, and
+      # Go for the binary, built as the flake builds it. What
+      # ./scripts/operations.sh needs: jq and curl for every app, and
       # graphql-core for a GraphQL schema. ./scripts/gcloud.sh needs git,
       # protoc, protobuf to read what protoc compiles, and pyyaml.
       devShells = forAllSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system}; in
         {
           default = pkgs.mkShell {
-            packages = [ pkgs.jq pkgs.curl pkgs.git pkgs.protobuf pkgs.shellcheck (pkgs.python3.withPackages (p: [ p.graphql-core p.protobuf p.pyyaml ])) ];
+            packages = [ pkgs.go pkgs.gopls pkgs.jq pkgs.curl pkgs.git pkgs.protobuf pkgs.shellcheck (pkgs.python3.withPackages (p: [ p.graphql-core p.protobuf p.pyyaml ])) ];
+            # The setting the package builds with, so a `go build` here gives
+            # the binary the flake does.
+            CGO_ENABLED = "0";
           };
         });
 

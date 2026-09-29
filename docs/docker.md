@@ -14,7 +14,7 @@ asks, does not hold here (decision 7).
 ## Goal
 
 A project whose tests start their services with Docker Compose runs them,
-unchanged, in a trusted session. The first such project is `data-lab`: every
+unchanged, in a trusted session. The first such project is `shop`: every
 `./run test_only` there does `docker compose up -d` for a `postgres:18`, and
 its scripts also use `docker compose down -v` and
 `docker compose exec -T <service> pg_isready|psql`. With:
@@ -33,7 +33,7 @@ its scripts also use `docker compose down -v` and
 Measured first against a recording fake of the Engine API, then against the
 real rootless daemon through a recording proxy, with Docker CLI 29.8.0 (API
 1.56) and Compose 5.4.0 running `up -d`, `exec -T pg_isready`, `exec -T psql`
-and `down -v` on a two-service Compose file shaped like data-lab's: 60
+and `down -v` on a two-service Compose file shaped like shop's: 60
 requests, kept as the fixture the rules are written against.
 
 - **The client never names the daemon it means.** Over a Unix socket the
@@ -274,7 +274,7 @@ on; a volume or network named by name is held, across frisket's sessions,
 from its check until the daemon answers. Lists and `/events` are answered
 only with the project's objects: frisket merges its label into their filter.
 
-By project, because data-lab's volume is meant to outlive a session, and
+By project, because shop's volume is meant to outlive a session, and
 every worktree of a repository shares one set of names and ports anyway.
 *Rejected:* adopting objects without the label. A volume the host user made
 by hand is his, and a session given it could delete it; `up` fails with a
@@ -337,7 +337,7 @@ with `forwardPorts = "auto"`, pasta republishes the listener as the host's
 `*:P`, and then the daemon cannot bind the project's address (Findings).
 *Rejected:* refusing an empty `HostIp` and asking projects to write the
 address. Rewriting changes nothing for the project; refusing changes
-data-lab's Compose files for everyone.
+shop's Compose files for everyone.
 
 **13. frisket changes the request on this route, and says so.** Its
 decision 13 — what goes upstream is what was read — gets a written
@@ -355,18 +355,18 @@ its SHA-256 as 64 lower-case hex digits. The address is `127.b1.b2.b3`, from
 the first three bytes. If `b1` is 0 (`127.0.0.0/16`, where `127.0.0.1`
 and the host's resolvers are), or the address would be `127.255.255.255`,
 hash the 64 hex digits again and take bytes from that result. Repeat until
-the address is allowed. chase does this twice: in Nix as `lib.docker`
-(`lib/docker.nix`, `builtins.hashString` and `lib.fromHexString`), and in
-bash as `chase-docker-address` (`lib/docker-address.nix`, `sha256sum` and
-`$((16#…))`); its `docker-address` check holds the two to frisket's
-vectors. nix-config derives the address and names through chase's
-`lib.docker`, not a rule of its own. frisket does it in Go, and refuses a
-route whose address is not the one the project gives.
+the address is allowed. frisket does it in Go, in its public `docker`
+package, and refuses a route whose address is not the one the project gives.
+chase calls those same functions (`chase docker-address`), so there is
+nothing of its own to drift. What has only Nix to evaluate cannot call them:
+nix-config derives the address and names through chase's `lib.docker`
+(`lib/docker.nix`, `builtins.hashString` and `lib.fromHexString`), and
+chase's `docker-address` check holds it to what the binary gives.
 
 | project | first bytes | address |
 |---|---|---|
-| `triptease/data-lab` | `01 bf 4e` | `127.1.191.78` |
-| `triptease/finance-api` | `06 12 fd` | `127.6.18.253` |
+| `example/shop` | `65 aa ab` | `127.101.170.171` |
+| `example/billing` | `0a 92 d6` | `127.10.146.214` |
 | `danielbodart/frisket` | `67 ca ea` | `127.103.202.234` |
 | `test/repo-66` | `00 80 2f`, then `d3 12 4b` | `127.211.18.75` |
 | `bodar/bodar.ts` | `64 54 63` | `127.100.84.99` |
@@ -375,18 +375,18 @@ The names come from the repo part. It is lower-cased; every character
 outside `[a-z0-9-]` becomes `-`; and leading and trailing `-` are trimmed.
 A repo that leaves nothing, or more than 63 characters (the longest a DNS
 label may be), has no names; its address still works. The short name is
-`<repo>.internal`, `data-lab.internal`; the long one is
+`<repo>.internal`, `shop.internal`; the long one is
 `<repo>.<owner>.internal`. A name that equals or falls under a reserved apex,
 `frisket.internal` or `google.internal`, is never given: frisket's route host
 `docker.frisket.internal` and `metadata.google.internal` are names of their
 own. So `frisket/frisket` and `google/google` have no names,
 `danielbodart/frisket` has only `frisket.danielbodart.internal`, and
-`frisket/foo` has `foo.internal`, and `google/data-lab` has
-`data-lab.internal`. frisket owns that list: `internal/docker/reserved.json`,
-which its Go code embeds and its flake exports as `lib.docker.reserved`.
-chase reads it from its frisket input into its own `lib.docker`
-(`lib/docker.nix`), and its `docker-address` check holds that, and the
-`chase-docker-address` the prepare step runs, to frisket's vectors.
+`frisket/foo` has `foo.internal`, and `google/shop` has
+`shop.internal`. frisket owns that list: `docker/reserved.json`, which its Go code embeds
+and its flake exports as `lib.docker.reserved`. chase's binary has it
+through frisket's `docker` package, and its `lib.docker` (`lib/docker.nix`)
+reads it from its frisket input; the `docker-address` check holds the two
+to the same answers.
 nix-config derives its names through chase's `lib.docker` rather than
 a copy of the rule.
 Neither is unique: two owners can share a short name, and because `.` and
@@ -397,7 +397,7 @@ for the session's own project, and before the allowlist rather than by
 adding to it, so neither name is looked up upstream or reaches egress's
 resolved set. frisket does not fence `.internal`: any other name under it,
 another project's included, is an ordinary name and goes wherever the
-tier's allowlist sends it. On a tier that allows `*`, `finance-api.internal`
+tier's allowlist sends it. On a tier that allows `*`, `billing.internal`
 is looked up upstream, and on the host's resolver `/etc/hosts` may answer
 it; on a tier that does not allow it, it is `NXDOMAIN` and never leaves the
 host. That is no reach into another project: the address it gives is not
@@ -417,7 +417,7 @@ hostile network answers.
 No two projects on one host share an address. By accident, among 30
 projects, the odds are about one in 40,000, and nix-config asserts that the
 projects it knows do not. On purpose it takes seconds: 24 bits can be
-searched for a repo name that lands on data-lab's address. So an address
+searched for a repo name that lands on shop's address. So an address
 is first come, first served on each host. `approve` keeps
 `~/.local/state/chase/docker/addresses.json`, which project was first
 approved at each address, written by nothing else and pruned only by hand.
@@ -467,7 +467,7 @@ since dropped a port refuses connections to it.
    upstream; every other name, `.internal` or not, follows the allowlist as
    before. A route whose address or names are not the ones its project
    gives, or whose names equal or fall under a reserved apex, is refused.
-   The reserved apexes are `internal/docker/reserved.json`, exported as
+   The reserved apexes are `docker/reserved.json`, exported as
    `lib.docker.reserved`.
 4. **chase: the generator reads Swagger 2.0 YAML**, and writes every body
    field the spec knows (`apps/docker/known.json`); the hand-written tables
@@ -477,8 +477,8 @@ since dropped a port refuses connections to it.
    `chase-origin`, never by a git that reads its config, bound both ways to
    the tiers' pins, approved as `dockerProject`, and first come, first
    served for its address (decisions 9 and 14). Its address and names are
-   `lib.docker`, from frisket's reserved list, printed by
-   `chase-docker-address`.
+   frisket's own `docker.Address` and `docker.Names`, printed by
+   `chase docker-address`, and `lib.docker` in Nix.
 6. **chase: `apps/docker.nix`** — `chase.tiers.<tier>.apps.docker.enable`,
    only on a direct-egress tier that takes envelopes;
    `chase.bindings.docker.images` and `.ports` in the envelope; the route,
@@ -512,15 +512,15 @@ file changes; attached `up`; and a cold pull. An empty, `0.0.0.0` and
 `127.0.0.1` `HostIp` each reach the daemon as the project's address.
 
 In a session: `psql -h localhost -p 64320`, `-h ::1` and `-h
-data-lab.internal` all reach the container, and each is one `relay` line.
+shop.internal` all reach the container, and each is one `relay` line.
 `127.0.0.1:64330`, a port the project does not name, reaches nothing and is
-not steered. With data-lab's container down and a host listener on
+not steered. With shop's container down and a host listener on
 `0.0.0.0:64320`, `127.0.0.1:64320` in the session reaches nothing, and the
 line says `no owned container publishes it`; the same for a container of
 another project, or one not running. A relayed connection left idle for more
-than ten minutes is still open. `finance-api.internal` is not answered by
+than ten minutes is still open. `billing.internal` is not answered by
 frisket itself: its line records the allowlist's decision, and it never
-resolves to data-lab's address. `approve` refuses a project whose address
+resolves to shop's address. `approve` refuses a project whose address
 `addresses.json` gives another, and frisket refuses to open a session at an
 address another project's live session holds. `approve` gives no Docker to a
 checkout with no origin, or two, or one not on GitHub; to a pinned path
@@ -528,13 +528,13 @@ whose origin names another project, a pinned project found at another path,
 or a clone nested under a pinned path; and runs no command the checkout's
 config names while it looks. The names are frisket's vectors:
 `danielbodart/frisket` has only `frisket.danielbodart.internal`,
-`google/data-lab` only `data-lab.internal`, `frisket/frisket` and
+`google/shop` only `shop.internal`, `frisket/frisket` and
 `google/google` none, and `frisket/foo` has `foo.internal`. A second
-session, of another project, cannot reach `127.1.191.78:64320`: nothing
+session, of another project, cannot reach `127.101.170.171:64320`: nothing
 steers it there, and the session's own loopback has nothing on it. On a tier
 with `forwardPorts = "auto"`, the host has no `*:64320` while the session
-runs, and `docker compose up` binds `127.1.191.78:64320`. On the host,
-`data-lab.internal` resolves to `127.1.191.78`, and `chase docker` lists it
+runs, and `docker compose up` binds `127.101.170.171:64320`. On the host,
+`shop.internal` resolves to `127.101.170.171`, and `chase docker` lists it
 as a host name; for a project nix-config does not know, it says to use the
 address.
 
@@ -551,9 +551,9 @@ address.
   sessions started later. A host process bound to every address on P does
   the same. A session's own listener on P is also never reached from inside
   it, because P is steered to frisket.
-- **On the host, that is interception.** While data-lab's container is down
+- **On the host, that is interception.** While shop's container is down
   (before `up`, or during a recreate or `down`/`up`), a host tool that dials
-  `data-lab.internal:P` reaches whichever auto-tier session listens on P, so a
+  `shop.internal:P` reaches whichever auto-tier session listens on P, so a
   host `psql` would send its login and queries to another project's server.
   Sessions are safe, since the relay checks ownership; the host's own tools
   do not go through frisket. The fixes are to forbid `forwardPorts = "auto"`
@@ -601,7 +601,7 @@ address.
   `*:15001`. rootlesskit's pasta driver does not close it: it gives the
   namespace `10.0.2.100`, not the host's address, so the same probe still
   connected, and its only port driver, `implicit`, publishes
-  `127.1.191.78:P` as the host's `0.0.0.0:P`, which would undo each
+  `127.101.170.171:P` as the host's `0.0.0.0:P`, which would undo each
   project's address. A firewall rule for the daemon's traffic has nothing
   stable to match: its cgroup's ID changes on every restart, and
   `IPAddressDeny=` and `NFTSet=` do nothing in a user unit (measured:
@@ -615,7 +615,7 @@ address.
 - **Compose's labels are not checked.** A session can make a container
   carrying another Compose project's name, which dan's own `docker compose`
   outside a session would then take for its own.
-- **What data-lab does that is refused.** Every `test_ci` and `docker run`
+- **What shop does that is refused.** Every `test_ci` and `docker run`
   of a locally built image needs `docker build`; `docker cp` needs archive.
   Neither is planned.
 - **Only a session's own names are answered by frisket,** and the host's

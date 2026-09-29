@@ -93,7 +93,7 @@ let
 
   envelope = pkgs.writeShellApplication {
     name = "chase-envelope";
-    runtimeInputs = [ copyTracked cfg.internal.lsFiles cfg.internal.origin cfg.internal.dockerAddress ]
+    runtimeInputs = [ copyTracked cfg.internal.lsFiles cfg.internal.origin cfg.package ]
       ++ (with pkgs; [ nix jq sops coreutils diffutils gnugrep gnused util-linux ]);
     text = ''
       uid=${toString cfg.uid}
@@ -336,14 +336,14 @@ let
         if [ -z "$hit" ] && jq -e --arg s "$slug" 'has($s)' "$checkouts" >/dev/null; then
           die "$ws: its origin says $slug, which is pinned at $(jq -r --arg s "$slug" '.[$s] | join(", ")' "$checkouts"), not $root"
         fi
-        chase-docker-address "$slug" >/dev/null || die "$ws: $slug is not a project frisket can route"
+        chase docker-address "$slug" >/dev/null || die "$ws: $slug is not a project frisket can route"
         printf '%s\n' "$slug"
       }
 
       # NO TWO PROJECTS AT ONE ADDRESS (I10). The address is a hash of the
       # project's name, and 24 bits can be searched in seconds for a repo
       # name that lands on another project's: an approval saying `Docker as
-      # evil/x at 127.1.191.78` would not be compared with data-lab's by
+      # evil/x at 127.101.170.171` would not be compared with shop's by
       # anyone. So an address is first come on this host: the projects
       # already approved here ($state/docker/addresses.json, which only this
       # writes, and from which nothing is ever removed but by hand), those
@@ -366,7 +366,7 @@ let
           held+=$'\n'$(jq -r 'to_entries[] | "\(.key)\t\(.value.address | strings)"' "$hosts") || die "$ws: $hosts cannot be read"
         fi
         while IFS= read -r s; do
-          a=$(chase-docker-address "$s" 2>/dev/null) || continue
+          a=$(chase docker-address "$s" 2>/dev/null) || continue
           held+=$'\n'$s$'\t'$(jq -r .address <<< "$a")
         done < <(jq -r 'keys[]' "$checkouts")
         while IFS=$'\t' read -r other a; do
@@ -427,7 +427,7 @@ let
       docker() { # WS TIER
         local ws=$1 tier=$2 slug who addr root result host
         slug=$(project "$ws" "$tier") || exit 1
-        who=$(chase-docker-address "$slug") || die "$ws: $slug has no address"
+        who=$(chase docker-address "$slug") || die "$ws: $slug has no address"
         addr=$(jq -r .address <<< "$who")
         printf '%s\n  address  %s\n' "$slug" "$addr"
         case " $docker_tiers " in
@@ -508,7 +508,7 @@ let
         # there was Docker still is.
         if jq -e '.bindings.docker != null' <<< "$result" >/dev/null; then
           slug=$(project "$ws" "$tier")
-          who=$(chase-docker-address "$slug") || die "$ws: $slug has no address"
+          who=$(chase docker-address "$slug") || die "$ws: $slug has no address"
           addr=$(jq -r .address <<< "$who")
           claim "$ws" "$slug" "$addr" check
           result=$(jq -c --arg p "$slug" '. + {dockerProject: $p}' <<< "$result")

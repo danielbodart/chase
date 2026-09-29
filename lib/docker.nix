@@ -1,16 +1,15 @@
 # A project's loopback address and its names, from its owner/repo slug
-# (docs/docker.md, with names under .internal), in Nix. chase's
-# chase-docker-address prints what these give, and the flake exports them as
-# lib.docker, so a consumer naming projects in /etc/hosts derives them from
-# this one source rather than from a copy. frisket derives both again from the
-# route's project and refuses a route whose address or names differ; the
-# docker-address check holds this, and chase-docker-address, to the vectors
-# frisket asserts.
+# (docs/docker.md, with names under .internal), in Nix. frisket derives both
+# in Go, and refuses a route whose address or names differ; chase calls
+# those same functions. This is for what has only Nix to evaluate, and the
+# flake exports it as lib.docker, so a consumer naming projects in /etc/hosts
+# derives them here rather than from a copy; the docker-address check holds
+# it to what `chase docker-address` gives.
 #
 # reserved is the list of names that already mean something else under
 # .internal, which a project's name must never equal or fall under: all of
 # frisket.internal, frisket's route hosts, and all of google.internal, the
-# cloud's. frisket owns it (internal/docker/reserved.json, which its Go code
+# cloud's. frisket owns it (docker/reserved.json, which its Go code
 # embeds and its flake exports as lib.docker.reserved), and the caller passes
 # it in, so chase never holds a copy that could drift from what frisket
 # refuses a route over.
@@ -22,11 +21,11 @@ rec {
   isReserved = name:
     lib.any (r: name == r || lib.hasSuffix ".${r}" name) reserved;
 
-  # Whether the slug is a project as frisket accepts one, and
-  # chase-docker-address with it: owner/repo, of this shape once lower-cased,
-  # and a repo that is neither "." nor "..". address and names refuse any
-  # other slug, since frisket could never route it, and a name made from it
-  # could only stand in /etc/hosts for nothing, or crowd out a real one.
+  # Whether the slug is a project as frisket accepts one (docker.ValidProject):
+  # owner/repo, of this shape once lower-cased, and a repo that is neither
+  # "." nor "..". address and names refuse any other slug, since frisket could
+  # never route it, and a name made from it could only stand in /etc/hosts
+  # for nothing, or crowd out a real one.
   isProject = slug:
     let s = lib.toLower slug; in
     builtins.match "[a-z0-9][a-z0-9-]{0,38}/[a-z0-9._-]{1,100}" s != null

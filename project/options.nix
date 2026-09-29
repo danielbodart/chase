@@ -49,7 +49,7 @@ let
   # (registry.localhost, localhost.localdomain, anything.nip.io, a project's
   # .internal name in /etc/hosts), or by an address as inet_aton reads it
   # (127.1, 0x7f.1). So a registry is one of frisket's fixed public ones
-  # (internal/docker/image.go), whose names no project controls, and nothing
+  # (docker/image.go), whose names no project controls, and nothing
   # else; frisket refuses any other when a session opens. `localhost` with
   # no dot, which the pattern reads as a Docker Hub user, the daemon reads
   # as a registry, and it is refused too.

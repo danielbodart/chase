@@ -119,7 +119,7 @@ Data Access logs were not enabled (project auditConfigs null); enabled DATA_READ
   `identityDelegationChain = [SA]`.
 - storage.objects.get, path A: `principalSubject = principal://…/subject/project:danbodart-sandbox-test`, no email.
 - storage.objects.get, path B: `principalEmail = frisket-spike@…`, `serviceAccountDelegationInfo[0].principalSubject = principal://…/subject/…`.
-- path C: `principalEmail = SA`, delegation `firstPartyPrincipal.principalEmail = dan.bodart@triptease.com`.
+- path C: `principalEmail = SA`, delegation `firstPartyPrincipal.principalEmail = <the user's own email>`.
 - Admin Activity: Create/Update/Delete WorkloadIdentityPoolProvider logged under the user.
 So the sub is visible in every hop; path B attributes the call to the SA with the federated subject as delegator.
 
