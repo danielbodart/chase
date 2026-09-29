@@ -1,0 +1,136 @@
+# 2026/09/29 23:02:54.634477 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw entries: 12
+# 2026/09/29 23:02:54.634490 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw entry: []string{"a", "a"}
+# 2026/09/29 23:02:54.634509 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw kind: 3
+# 2026/09/29 23:02:54.634510 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw target: []string{"a"}
+# 2026/09/29 23:02:54.634515 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw entry: []string{"a"}
+# 2026/09/29 23:02:54.634517 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw kind: 0
+# 2026/09/29 23:02:54.634518 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw entry: []string{"a"}
+# 2026/09/29 23:02:54.634519 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw kind: 0
+# 2026/09/29 23:02:54.634520 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw entry: []string{"a"}
+# 2026/09/29 23:02:54.634522 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw kind: 0
+# 2026/09/29 23:02:54.634522 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw entry: []string{"a"}
+# 2026/09/29 23:02:54.634524 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw kind: 0
+# 2026/09/29 23:02:54.634524 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw entry: []string{"a"}
+# 2026/09/29 23:02:54.634526 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw kind: 0
+# 2026/09/29 23:02:54.634526 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw entry: []string{"a"}
+# 2026/09/29 23:02:54.634527 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw kind: 0
+# 2026/09/29 23:02:54.634528 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw entry: []string{"a"}
+# 2026/09/29 23:02:54.634529 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw kind: 0
+# 2026/09/29 23:02:54.634530 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw entry: []string{"a"}
+# 2026/09/29 23:02:54.634533 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw kind: 0
+# 2026/09/29 23:02:54.634534 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw entry: []string{"a"}
+# 2026/09/29 23:02:54.634537 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw kind: 0
+# 2026/09/29 23:02:54.634538 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw entry: []string{"a"}
+# 2026/09/29 23:02:54.634539 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw kind: 0
+# 2026/09/29 23:02:54.634540 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw entry: []string{"a"}
+# 2026/09/29 23:02:54.634541 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw kind: 0
+# 2026/09/29 23:02:54.634544 [TestNothingOutsideTheCheckoutIsEverCopied] [rapid] draw list: []string{"a/a/a"}
+# 2026/09/29 23:02:54.634585 [TestNothingOutsideTheCheckoutIsEverCopied] a/a was made for a link
+# 
+v0.4.8#6598346010031845328
+0x0
+0x9867f1f40f739
+0xc
+0x0
+0x0
+0x0
+0x10000000000000
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x3
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x6666666666666
+0x0
+0x0
+0x0
+0xccccccccccccd
+0x0
+0x0
+0xccccccccccccd
+0x0
+0x0
+0x0
+0x0
