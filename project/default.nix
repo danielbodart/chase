@@ -77,7 +77,7 @@ let
 
   envelope = pkgs.writeShellApplication {
     name = "chase-envelope";
-    runtimeInputs = [ copyTracked ] ++ (with pkgs; [ nix jq sops coreutils diffutils git gnugrep gnused ]);
+    runtimeInputs = [ copyTracked cfg.internal.lsFiles ] ++ (with pkgs; [ nix jq sops coreutils diffutils gnugrep gnused ]);
     text = ''
       uid=${toString cfg.uid}
       home=${lib.escapeShellArg cfg.home}
@@ -135,19 +135,6 @@ let
           || die "$ws: its $kind was not approved"
       }
 
-      # git, asked of the checkout WS, with none of the commands its config
-      # could name: that config is the session's to write, and git runs
-      # what core.fsmonitor says as it reads the index -- here as the user,
-      # unsandboxed, before anyone is asked. Given on the command line,
-      # these outrank the checkout's config and anything it includes.
-      ws_git() {
-        git -C "$ws" -c core.fsmonitor=false -c core.untrackedCache=false \
-          -c core.hooksPath=/dev/null -c core.pager=cat -c core.editor=false \
-          -c core.askPass= -c credential.helper= -c core.sshCommand=false \
-          -c core.gitProxy= -c diff.external= -c gc.auto=0 -c maintenance.auto=false \
-          --no-pager "$@"
-      }
-
       # The checkout's tracked files, as they are now, in a directory of the
       # user's own that no session sees. Copied by chase-copy-tracked, which
       # follows no link at any component: anything that opens WS/dir/f by
@@ -156,12 +143,24 @@ let
       # copy that host's f into what is evaluated and decrypted. A check for
       # such a link before and after the copy is no better, since another
       # live session of the same checkout can swap it in and back between.
+      #
+      # Which files are tracked is read by chase-ls-files, from the index
+      # alone: never by a git in the checkout, whose config a session
+      # writes, and which runs what core.fsmonitor names on any read of the
+      # index -- here as the user, unsandboxed, before anyone is asked.
       snapshot() {
-        local ws=$1 src=$2 why
-        ws_git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-          || die "$ws: an envelope needs a git checkout, so what is evaluated is what git tracks"
-        why=$(ws_git ls-files -z --cached | chase-copy-tracked "$ws" "$src") \
-          || die "$ws: ''${why:-its tracked files could not be copied}"
+        local ws=$1 src=$2 list why
+        list=$(mktemp)
+        if ! chase-ls-files "$ws" > "$list"; then
+          why=$(tr -d '\0' < "$list")
+          rm -f -- "$list"
+          die "$ws: an envelope needs a git checkout, so what is evaluated is what git tracks: $why"
+        fi
+        why=$(chase-copy-tracked "$ws" "$src" < "$list") || {
+          rm -f -- "$list"
+          die "$ws: ''${why:-its tracked files could not be copied}"
+        }
+        rm -f -- "$list"
         [ -f "$src/flake.nix" ] && [ ! -L "$src/flake.nix" ] \
           || die "$ws: flake.nix is not a tracked file"
         [ ! -L "$src/flake.lock" ] || die "$ws: flake.lock is a link"

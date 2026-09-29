@@ -1670,7 +1670,9 @@
           # a copy through it would put the host's file where the project's
           # was. Refused, naming the link, with nothing staged and no host
           # byte anywhere chase keeps things; the tracked link a project
-          # has is copied as a link, never read through.
+          # has is copied as a link, never read through. And which files
+          # are tracked is read from the index alone, so nothing the
+          # checkout's git config names is run on the host to find out.
           envelope-snapshot = pkgs.runCommand "envelope-snapshot" { nativeBuildInputs = [ pkgs.git pkgs.jq ]; } ''
             export HOME=$TMPDIR
             fail() { echo "envelope-snapshot: $*" >&2; exit 1; }
@@ -1801,15 +1803,75 @@
             ! LC_ALL=C grep -q "$(printf '[\200-\237]')" err || fail "a C1 control reached the terminal: $(od -c err)"
 
             # (f) The checkout's git config is the session's: a command it
-            # names is never run by approve. The same config does run it
-            # when git is asked plainly, so the test would see it.
-            checkout "$r/f"
-            git -C "$r/f" config core.fsmonitor "touch $PWD/fsmonitor-ran; false"
+            # names, as core.fsmonitor or a hook under core.hooksPath, is
+            # never run by approve. The same config does run each when git
+            # is asked plainly, so the test would see it.
+            checkout "$r/f" tracked root-only
+            git -C "$r/f" config core.fsmonitor "touch $TMPDIR/PWNED; false"
             git -C "$r/f" ls-files >/dev/null 2>&1 || true
-            [ -e fsmonitor-ran ] || fail "core.fsmonitor is not run by a plain git ls-files, so (f) proves nothing"
-            rm fsmonitor-ran
-            approve "$r/f" m9 '{"bindings": {}}' || fail "a checkout with core.fsmonitor set was refused: $(cat err)"
-            [ ! -e fsmonitor-ran ] || fail "approve ran the checkout's core.fsmonitor"
+            [ -e "$TMPDIR/PWNED" ] || fail "core.fsmonitor is not run by a plain git ls-files, so (f) proves nothing"
+            rm "$TMPDIR/PWNED"
+            mkdir -p hooks
+            printf '#!/bin/sh\ntouch %s/PWNED\n' "$TMPDIR" > hooks/post-index-change
+            chmod +x hooks/post-index-change
+            git -C "$r/f" config core.hooksPath "$PWD/hooks"
+            # A stat that no longer matches the index has git status write
+            # it, which runs post-index-change from core.hooksPath.
+            touch -d 2020-01-01 "$r/f/tracked"
+            git -C "$r/f" -c core.fsmonitor=false status >/dev/null 2>&1 || true
+            [ -e "$TMPDIR/PWNED" ] || fail "core.hooksPath is not run by a git status that refreshes the index, so (f) proves nothing of hooks"
+            rm "$TMPDIR/PWNED"
+            touch -d 2021-01-01 "$r/f/tracked"
+            approve "$r/f" m9 '{"secrets": "tracked", "bindings": {}}' || fail "a checkout with core.fsmonitor set was refused: $(cat err)"
+            [ ! -e "$TMPDIR/PWNED" ] || fail "approve ran the checkout's core.fsmonitor or core.hooksPath"
+            [ "$(jq -r .secrets.text run/chase/.envelope/m9.json)" = "the project's own" ] \
+              || fail "the checkout with core.fsmonitor set was not staged: $(cat run/chase/.envelope/m9.json)"
+
+            # An untracked flake.nix is not the checkout's: the index, not
+            # the directory, says what is tracked.
+            git init -q "$r/untracked"
+            printf '{ outputs = _: { chaseModules.default = { }; }; }\n' > "$r/untracked/flake.nix"
+            git -C "$r/untracked" config core.fsmonitor "touch $TMPDIR/PWNED; false"
+            if approve "$r/untracked" m10 '{"bindings": {}}'; then fail "an untracked flake.nix was approved"; fi
+            grep -qF "chase: $r/untracked: flake.nix is not a tracked file" err || fail "an untracked flake.nix was not said: $(cat err)"
+            [ ! -e "$TMPDIR/PWNED" ] || fail "approve ran the untracked checkout's core.fsmonitor"
+            [ ! -e run/chase/.envelope/m10.json ] || fail "an untracked flake.nix was staged"
+
+            # A workspace below its checkout's root copies what is tracked
+            # there, relative to itself, and nothing of the root's.
+            mkdir -p "$r/f/sub"
+            printf '{ outputs = _: { chaseModules.default = { }; }; }\n' > "$r/f/sub/flake.nix"
+            echo "the sub's own" > "$r/f/sub/tracked"
+            git -C "$r/f" -c core.fsmonitor=false -c core.hooksPath=/dev/null add sub
+            rm -f "$TMPDIR/PWNED"
+            approve "$r/f/sub" m11 '{"secrets": "tracked", "bindings": {}}' || fail "a workspace below its root was refused: $(cat err)"
+            [ ! -e "$TMPDIR/PWNED" ] || fail "approve ran core.fsmonitor for a workspace below its root"
+            [ "$(jq -r .secrets.text run/chase/.envelope/m11.json)" = "the sub's own" ] \
+              || fail "a workspace below its root did not copy its own tracked files: $(cat run/chase/.envelope/m11.json)"
+
+            # A directory in no git checkout has nothing tracked to snapshot.
+            mkdir -p "$r/nogit"
+            printf '{ outputs = _: { chaseModules.default = { }; }; }\n' > "$r/nogit/flake.nix"
+            if approve "$r/nogit" m12 '{"bindings": {}}'; then fail "a directory outside git was approved"; fi
+            grep -qF "chase: $r/nogit: an envelope needs a git checkout" err || fail "a directory outside git was not said: $(cat err)"
+            [ ! -e run/chase/.envelope/m12.json ] || fail "a directory outside git was staged"
+
+            # An index that needs more than itself is not read: a split
+            # index's shared part would be read from beside the index, which
+            # the session writes, and a sparse index would leave out what is
+            # under its sparse directories without a word.
+            checkout "$r/split" f
+            git -C "$r/split" update-index --split-index
+            ls "$r/split/.git" | grep -q '^sharedindex\.' || fail "the split index has no shared part, so it proves nothing"
+            if approve "$r/split" m13 '{"bindings": {}}'; then fail "a split index was approved"; fi
+            grep -qF "chase: $r/split: an envelope needs a git checkout, so what is evaluated is what git tracks: the index of $r/split cannot be read on its own" err \
+              || fail "a split index was not said: $(cat err)"
+            checkout "$r/sparse" keep/f away/f
+            git -C "$r/sparse" commit -qm x
+            git -C "$r/sparse" sparse-checkout set --cone --sparse-index keep
+            if approve "$r/sparse" m14 '{"bindings": {}}'; then fail "a sparse index was approved"; fi
+            grep -qF "chase: $r/sparse: an envelope needs a git checkout, so what is evaluated is what git tracks: the index of $r/sparse is sparse, or cannot be read on its own" err \
+              || fail "a sparse index was not said: $(cat err)"
 
             # WHAT THE INDEX LISTS is the session's to write, so a path
             # that would leave the checkout is refused, whatever it is.

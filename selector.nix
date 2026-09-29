@@ -78,9 +78,9 @@ let
     printf '[core]\n\trepositoryformatversion = 1\n\tbare = true\n[extensions]\n\tobjectFormat = %s\n' ${format} > $out/config
   '';
   gitSafely = ''
-    git() { # [GIT_DIR=D] [GIT_OBJECT_DIRECTORY=D] ARG...
+    git() { # [GIT_DIR=D] [GIT_OBJECT_DIRECTORY=D] [GIT_INDEX_FILE=F] ARG...
       local set=()
-      while [[ ''${1-} == GIT_DIR=* || ''${1-} == GIT_OBJECT_DIRECTORY=* ]]; do set+=("$1"); shift; done
+      while [[ ''${1-} == GIT_DIR=* || ''${1-} == GIT_OBJECT_DIRECTORY=* || ''${1-} == GIT_INDEX_FILE=* ]]; do set+=("$1"); shift; done
       # A hard limit already lower than this one cannot be raised, and
       # bounds git as well: failing to set it is not failing open.
       (ulimit -v 1048576 2>/dev/null || true
@@ -357,6 +357,70 @@ let
       fi
 
       printf '%s\t%s\t%s\t%s\t%s\n' "$root" "$common" "$kind" "$gitcommon" "$gitdir"
+    '';
+  };
+
+  # WHAT A CHECKOUT TRACKS, for what copies it: chase-envelope's snapshot.
+  # `git ls-files` in the checkout would read its config, and with it
+  # core.fsmonitor, a command git runs on any read of the index -- on the
+  # host, as the user, before anything is approved. So the checkout is
+  # chase-checkout's, found from where the directory is, and its index is
+  # read by gitSafely's git in the empty repository of the checkout's
+  # object format, GIT_INDEX_FILE naming a copy of the index and nothing
+  # else of the checkout named at all: no config, no hooks, no work tree.
+  # A copy, taken once without following a link or waiting on a pipe,
+  # because git reads a split index's shared part from beside the index
+  # it is given, which a session could make anything. An index that needs
+  # more than itself -- that shared part, or a sparse index's trees, whose
+  # directories git would otherwise drop from the list without a word --
+  # fails.
+  #
+  # Prints the tracked paths at or below DIR, relative to DIR, each ended
+  # by a NUL, and succeeds; or prints why they cannot be read and fails. A
+  # checkout with no index yet tracks nothing.
+  lsFiles = pkgs.writeShellApplication {
+    name = "chase-ls-files";
+    runtimeInputs = [ checkout ] ++ (with pkgs; [ coreutils ]);
+    text = ''
+      export LC_ALL=C
+      ${gitSafely}
+      [ $# -eq 1 ] || { echo "usage: chase-ls-files DIR"; exit 2; }
+      out=$(chase-checkout "$1") || { printf '%s\n' "''${out:-cannot find its checkout}"; exit 1; }
+      IFS=$'\t' read -r root _ _ gitcommon gitdir <<< "$out"
+      abs=$(realpath -e -- "$1")
+      if [ "$abs" = "$root" ]; then prefix=""; else prefix=''${abs#"''${root%/}"/}/; fi
+      index=$gitdir/index
+      if [ ! -e "$index" ] && [ ! -L "$index" ]; then exit 0; fi
+      # An index is some hundred bytes a tracked file; 256MiB is well over
+      # a million of them.
+      small "$index" 268435456 || { printf '%s is not a plain file of an index'"'"'s size\n' "$index"; exit 1; }
+      format=$(repo_config extensions.objectFormat 2>/dev/null) \
+        || { printf 'the config of %s cannot be read\n' "$root"; exit 1; }
+      case ''${format:-sha1} in
+        sha1) empty=${emptyGit "sha1"} ;;
+        sha256) empty=${emptyGit "sha256"} ;;
+        *) printf '%s has an object format of %s\n' "$root" "$format"; exit 1 ;;
+      esac
+      tmp=$(mktemp -d)
+      trap 'rm -rf -- "$tmp"' EXIT
+      # Swapped since it was looked at, a link is not followed and a pipe
+      # not waited on; grown since, it is cut short, and git refuses what
+      # is left.
+      timeout 20 dd if="$index" of="$tmp/index" iflag=nofollow,nonblock bs=1M count=257 status=none 2>/dev/null \
+        && [ "$(stat -c %s -- "$tmp/index")" -le 268435456 ] \
+        || { printf '%s cannot be copied\n' "$index"; exit 1; }
+      # The empty repository never sets index.sparse, so git always
+      # expands a sparse index to list it, from trees that repository does
+      # not have: it says so on stderr, drops what is under them, and
+      # succeeds. Anything it says is therefore the guard, and a failure.
+      git GIT_DIR="$empty" GIT_INDEX_FILE="$tmp/index" ls-files -z --cached > "$tmp/list" 2> "$tmp/said" \
+        || { printf 'the index of %s cannot be read on its own, as a split index cannot\n' "$root"; exit 1; }
+      [ ! -s "$tmp/said" ] || { printf 'the index of %s is sparse, or cannot be read on its own\n' "$root"; exit 1; }
+      while IFS= read -r -d "" p; do
+        case $p in
+          "$prefix"*) printf '%s\0' "''${p#"$prefix"}" ;;
+        esac
+      done < "$tmp/list"
     '';
   };
 
@@ -663,11 +727,12 @@ in
   options.chase.internal = {
     agentTier = mkOption { type = types.package; readOnly = true; internal = true; };
     checkout = mkOption { type = types.package; readOnly = true; internal = true; };
+    lsFiles = mkOption { type = types.package; readOnly = true; internal = true; };
     mkWrapper = mkOption { type = types.raw; readOnly = true; internal = true; };
   };
 
   config = {
-    chase.internal = { inherit agentTier checkout mkWrapper; };
+    chase.internal = { inherit agentTier checkout lsFiles mkWrapper; };
 
     # A consistency check, not a gate: the launcher runs as the caller, who
     # could run it with any workspace, or run bwrap without it. It catches
