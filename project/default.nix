@@ -48,6 +48,9 @@ let
       (lib.concatMap (t: lib.concatMap (rule: lib.mapAttrsToList (s: p: { ${lib.toLower s} = p; }) rule.checkouts) t.match)
         (lib.attrValues cfg.tiers))));
 
+  # The tiers apps/docker.nix gives Docker, which it asserts take envelopes.
+  dockerTiers = lib.attrNames (lib.filterAttrs (_: t: !t.bare && (t.apps.docker.enable or false)) tiers);
+
   # A flong hook is a command, never shell: one that needs a shell is a
   # script of its own, under the options flong's snippets once ran with. It
   # finds chase-envelope on the PATH flong gives it, from `path`, and reads
@@ -103,6 +106,8 @@ let
       runtime=/run/user/$uid
       hosts=/etc/chase/docker-hosts.json
       policies=/etc/frisket/policies
+      # The tiers a project's Docker is routed in.
+      docker_tiers=${lib.escapeShellArg (toString dockerTiers)}
       checkouts=${checkouts}
       apps=${apps}
       lists=${./lists.jq}
@@ -383,17 +388,24 @@ let
       # /etc/hosts, gives it this project at this address: read as a file,
       # never looked up, since a name /etc/hosts lacks goes to the upstream
       # resolver, which a hostile network answers.
+      host_names() { # WS SLUG ADDRESS-JSON -> the names the host has, as JSON
+        local ws=$1 slug=$2 who=$3
+        if [ -e "$hosts" ]; then
+          jq -c --arg s "$slug" --argjson who "$who" '
+            (.[$s] // {}) as $e
+            | if ($e | type) == "object" and $e.address == $who.address then [$who.names[] | select(. as $x | any($e.names[]?; . == $x))] else [] end
+          ' "$hosts" || die "$ws: $hosts cannot be read"
+        else
+          printf '[]\n'
+        fi
+      }
+
       docker_line() { # WS SLUG ADDRESS-JSON RESULT
-        local ws=$1 slug=$2 who=$3 result=$4 addr names ports host="[]" line
+        local ws=$1 slug=$2 who=$3 result=$4 addr names ports host line
         addr=$(jq -r .address <<< "$who")
         names=$(jq -r '.names | if . == [] then "no names" else join(", ") end' <<< "$who")
         ports=$(jq -r '.bindings.docker.ports // [] | if . == [] then "no ports" else "ports " + (map(tostring) | join(" ")) end' <<< "$result")
-        if [ -e "$hosts" ]; then
-          host=$(jq -c --arg s "$slug" --arg a "$addr" --argjson n "$(jq -c .names <<< "$who")" '
-            (.[$s] // {}) as $e
-            | if ($e | type) == "object" and $e.address == $a then [$n[] | select(. as $x | any($e.names[]?; . == $x))] else [] end
-          ' "$hosts") || die "$ws: $hosts cannot be read"
-        fi
+        host=$(host_names "$ws" "$slug" "$who") || exit 1
         line="$ws: Docker as $slug at $addr ($names), $ports"
         if [ "$host" = "[]" ]; then
           line+="; on this host, $addr only"
@@ -403,6 +415,37 @@ let
         # The workspace is a path, which a session can name: said as die
         # says it.
         say "$line"
+      }
+
+      # `chase docker`: where a checkout's containers are, for a person to
+      # read on the host. Its project and address, the names a session
+      # answers, which of them this host's /etc/hosts carries (as
+      # docker_line reads it), and the ports last approved for this project:
+      # an approval of the checkout as another project, before its origin
+      # changed, approved none of this one's. A tier without Docker still
+      # has the address, since nix-config names it whatever the tier.
+      docker() { # WS TIER
+        local ws=$1 tier=$2 slug who addr root result host
+        slug=$(project "$ws" "$tier") || exit 1
+        who=$(chase-docker-address "$slug") || die "$ws: $slug has no address"
+        addr=$(jq -r .address <<< "$who")
+        printf '%s\n  address  %s\n' "$slug" "$addr"
+        case " $docker_tiers " in
+          *" $tier "*) ;;
+          *) printf '  (no Docker on %s)\n' "$tier"; return ;;
+        esac
+        printf '  session  %s\n' "$(jq -r '.names | if . == [] then "(none)" else join(" ") end' <<< "$who")"
+        host=$(host_names "$ws" "$slug" "$who") || exit 1
+        printf '  host     %s\n' "$(jq -r 'if . == [] then "(address only; not in this host'"'"'s /etc/hosts)" else join(" ") end' <<< "$host")"
+        root=$(chase-origin "$ws") || die "$ws: its checkout cannot be sorted: $root"
+        root=''${root%%$'\t'*}
+        result=null
+        if [ -f "$state/approved/$(key "$root")/envelope.json" ]; then
+          result=$(jq -c . "$state/approved/$(key "$root")/envelope.json") || die "$ws: its approved envelope cannot be read"
+        fi
+        printf '  ports    %s\n' "$(jq -r --arg s "$slug" '
+          [if .dockerProject? == $s then .bindings.docker.ports // [] | .[] | numbers else empty end]
+          | if . == [] then "(none approved)" else "\(map(tostring) | join(" "))   (approved)" end' <<< "$result")"
       }
 
       # seccompPolicy: snapshot, approve, evaluate, approve, stage. Prints
@@ -597,6 +640,8 @@ let
         approve) approve "$2" "''${3:-}" "''${4:-}" ;;
         # A checkout's Docker project, as approve derives it.
         project) [ $# -eq 3 ] || die "usage: chase-envelope project WS TIER"; project "$2" "$3" ;;
+        # `chase docker`: the checkout's project, address, names and ports.
+        docker) [ $# -eq 3 ] || die "usage: chase-envelope docker WS TIER"; docker "$2" "$3" ;;
         # postStart: the approved envelope, applied.
         launch) launch "$2" "$3" "$4" ;;
         # frisket steer's -policy: the session's own document, or the tier's.
@@ -607,7 +652,7 @@ let
             printf '%s\n' "$policies/$2.json"
           fi
           ;;
-        *) die "usage: chase-envelope env-dir WS | approve WS MACHINE TIER | launch TIER WS MACHINE | policy TIER MACHINE | project WS TIER" ;;
+        *) die "usage: chase-envelope env-dir WS | approve WS MACHINE TIER | launch TIER WS MACHINE | policy TIER MACHINE | project WS TIER | docker WS TIER" ;;
       esac
     '';
   };
@@ -627,6 +672,9 @@ in
         approves; anything else ends the launch. Null: nothing is approved.
       '';
     };
+
+    # chase-envelope, for `chase docker` on the host.
+    internal.envelope = mkOption { type = types.package; readOnly = true; internal = true; };
 
     internal.projectApps = mkOption {
       internal = true;
@@ -683,6 +731,8 @@ in
 
     # Where a session's own document is written, which frisket reads from.
     services.frisket.policyRoots = lib.mkIf (tiers != { }) [ "/run/user/${toString cfg.uid}/chase" ];
+
+    chase.internal.envelope = envelope;
 
     chase.internal.tiers = lib.mapAttrs (name: _: {
       bindLines = [ ''${lib.getExe envelope} env-dir "$workspace"'' ];

@@ -2591,6 +2591,153 @@
               touch $out
             '';
 
+          # WHERE A PROJECT'S DOCKER IS, SAID (docs/docker.md): `chase docker`
+          # prints a checkout's project, address, session names and approved
+          # ports, and calls a name the host's only where the host's map gives
+          # it this project at this address; `chase shell` says the session's
+          # name and ports when the launch exported them, and nothing else
+          # otherwise.
+          docker-show =
+            let
+              root = "/chase-docker-show-test";
+              chase = {
+                tiers.trusted = {
+                  match = [ { checkouts."triptease/data-lab" = "${root}/p/data-lab"; } ];
+                  apps.docker.enable = true;
+                };
+                tiers.plain = { egress = "direct"; envelope = true; };
+              };
+              config = harnessConfig chase;
+              command = builtins.head config.flong.agent-plain.command;
+              chaseCommand = nixpkgs.lib.findFirst (p: nixpkgs.lib.getName p == "chase")
+                (throw "docker-show: alice has no chase") config.home-manager.users.alice.home.packages;
+            in
+            pkgs.runCommand "docker-show" { nativeBuildInputs = [ pkgs.git pkgs.jq ]; } ''
+              export HOME=$TMPDIR
+              fail() { echo "docker-show: $*" >&2; exit 1; }
+              ${envelopeHarness {
+                inherit chase;
+                rewrite.hosts = "$PWD/docker-hosts.json";
+              }}
+              r=$(cd "$TMPDIR" && pwd -P)/root
+              baked=$(sed -n 's/^checkouts=//p' chase-envelope)
+              sed "s|${root}|$r|g" "$baked" > checkouts.json
+              sed -i "s|^checkouts=.*|checkouts=$PWD/checkouts.json|" chase-envelope
+              grep -q "^checkouts=$PWD/checkouts.json$" chase-envelope || fail "checkouts is not one line of chase-envelope's"
+
+              ws=$r/p/data-lab
+              git init -q "$ws"
+              git -C "$ws" config remote.origin.url git@github.com:TripTease/Data-Lab.git
+              printf '{ outputs = _: { chaseModules.default = { }; }; }\n' > "$ws/flake.nix"
+              git -C "$ws" add flake.nix
+              mkdir -p "$ws/sub"
+
+              shown() { # DIR TIER EXPECTED
+                local got
+                got=$(bash ./chase-envelope docker "$1" "$2" 2>err) || fail "$1 in $2 was not shown: $(cat err)"
+                [ "$got" = "$3" ] || fail "$1 in $2 was shown as:
+              $got
+              not:
+              $3"
+              }
+              block() { # HOST PORTS
+                printf '%s\n' triptease/data-lab \
+                  "  address  127.1.191.78" \
+                  "  session  data-lab.internal data-lab.triptease.internal" \
+                  "  host     $1" \
+                  "  ports    $2"
+              }
+              only="(address only; not in this host's /etc/hosts)"
+              both="data-lab.internal data-lab.triptease.internal"
+              ports="64320 64321   (approved)"
+
+              # Nothing approved, and no map of the host's names: the names
+              # are the session's alone, and no port is the project's yet.
+              shown "$ws" trusted "$(block "$only" "(none approved)")"
+
+              # Approved, its ports are the project's, from anywhere in the
+              # checkout, which is keyed by its root as the launch keys it.
+              ENVELOPE='{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}' \
+                bash ./chase-envelope approve "$ws" m1 trusted >/dev/null 2>err || fail "data-lab was not approved: $(cat err)"
+              shown "$ws" trusted "$(block "$only" "$ports")"
+              shown "$ws/sub" trusted "$(block "$only" "$ports")"
+
+              # The host's names are those its map gives this project at
+              # this address, and no others.
+              printf '{"triptease/data-lab": {"address": "127.1.191.78", "names": ["data-lab.internal", "data-lab.triptease.internal"]}}' > docker-hosts.json
+              shown "$ws" trusted "$(block "$both" "$ports")"
+              printf '{"triptease/data-lab": {"address": "127.1.191.78", "names": ["data-lab.triptease.internal", "other.internal"]}}' > docker-hosts.json
+              shown "$ws" trusted "$(block data-lab.triptease.internal "$ports")"
+              printf '{"triptease/data-lab": {"address": "127.9.9.9", "names": ["data-lab.internal", "data-lab.triptease.internal"]}}' > docker-hosts.json
+              shown "$ws" trusted "$(block "$only" "$ports")"
+              printf '{"triptease/data-lab": {"address": "127.1.191.78", "names": []}}' > docker-hosts.json
+              shown "$ws" trusted "$(block "$only" "$ports")"
+              printf '{"evil/x": {"address": "127.1.191.78", "names": ["data-lab.internal"]}}' > docker-hosts.json
+              shown "$ws" trusted "$(block "$only" "$ports")"
+              rm docker-hosts.json
+              shown "$ws" trusted "$(block "$only" "$ports")"
+
+              # A tier without Docker still has the address, and says so.
+              shown "$ws" plain "$(printf '%s\n' triptease/data-lab "  address  127.1.191.78" "  (no Docker on plain)")"
+
+              # An approval of the checkout as another project approved
+              # none of this one's ports.
+              app=$r/w/app
+              git init -q "$app"
+              git -C "$app" config remote.origin.url git@github.com:acme/app.git
+              printf '{ outputs = _: { chaseModules.default = { }; }; }\n' > "$app/flake.nix"
+              git -C "$app" add flake.nix
+              ENVELOPE='{"bindings": {"docker": {"images": ["postgres:18"], "ports": [5432]}}}' \
+                bash ./chase-envelope approve "$app" m2 trusted >/dev/null 2>err || fail "acme/app was not approved: $(cat err)"
+              bash ./chase-envelope docker "$app" trusted > out 2>err || fail "acme/app was not shown: $(cat err)"
+              grep -qxF "  ports    5432   (approved)" out || fail "acme/app's ports were not shown: $(cat out)"
+              git -C "$app" remote set-url origin git@github.com:acme/app2.git
+              bash ./chase-envelope docker "$app" trusted > out 2>err || fail "acme/app2 was not shown: $(cat err)"
+              head -n 1 out | grep -qxF acme/app2 || fail "the new origin was not shown: $(cat out)"
+              grep -qxF "  ports    (none approved)" out || fail "another project's ports were shown as approved: $(cat out)"
+
+              # NO USABLE ORIGIN: why, and exit 1, with nothing on stdout.
+              none=$r/w/none
+              git init -q "$none"
+              if bash ./chase-envelope docker "$none" trusted > out 2>err; then fail "a checkout with no origin was shown: $(cat out)"; fi
+              grep -qF "chase: $none: Docker needs exactly one origin URL" err || fail "no origin was not said: $(cat err)"
+              [ ! -s out ] || fail "a checkout with no origin printed: $(cat out)"
+
+              # `chase` knows the subcommand.
+              if ${chaseCommand}/bin/chase 2>err; then fail "chase with nothing ran"; fi
+              grep -qF "chase docker [DIR]" err || fail "chase's usage does not say docker: $(cat err)"
+              if ${chaseCommand}/bin/chase docker a b 2>err; then fail "chase docker took two directories"; fi
+
+              # `chase docker DIR` sorts DIR, not where it is run from: with
+              # its agent-tier and chase-envelope those of this build
+              # directory, DIR's tier is the one shown from anywhere else.
+              mkdir -p tbin "$r/elsewhere"
+              sed "s|${root}|$r|g" ${nixpkgs.lib.getExe config.chase.internal.agentTier} > tbin/agent-tier
+              cp chase-envelope tbin/chase-envelope
+              sed "s|^export PATH=\"|export PATH=\"$PWD/tbin:|" ${chaseCommand}/bin/chase > tbin/chase
+              grep -q "^export PATH=\"$PWD/tbin:" tbin/chase || fail "PATH is not one line of chase's"
+              chmod +x tbin/*
+              [ "$(bash ./tbin/agent-tier "$ws")" = trusted ] || fail "data-lab is not trusted to agent-tier"
+              [ "$(bash ./tbin/agent-tier "$r/elsewhere")" = strict ] || fail "elsewhere is not strict to agent-tier"
+              got=$(cd "$r/elsewhere" && bash "$OLDPWD/tbin/chase" docker "$ws" 2>err) || fail "chase docker $ws failed: $(cat err)"
+              [ "$got" = "$(block "$only" "$ports")" ] || fail "chase docker $ws from elsewhere said: $got"
+              (cd "$ws" && bash "$OLDPWD/tbin/chase" docker "$app") > out 2>err || fail "chase docker $app from data-lab failed: $(cat err)"
+              grep -qxF "  (no Docker on strict)" out || fail "chase docker $app from data-lab said: $(cat out)"
+              got=$(cd "$ws/sub" && bash "$OLDPWD/tbin/chase" docker 2>err) || fail "chase docker with no DIR failed: $(cat err)"
+              [ "$got" = "$(block "$only" "$ports")" ] || fail "chase docker in data-lab said: $got"
+
+              # THE SHELL'S BANNER, only when the launch exported Docker.
+              banner() { env -u CHASE_DOCKER_ADDRESS -u CHASE_DOCKER_NAMES -u CHASE_DOCKER_PORTS "$@" ${command} shell -c 'echo ran' 2>err; }
+              [ "$(banner)" = ran ] || fail "the shell did not run"
+              ! grep -q docker err || fail "a shell without Docker said: $(cat err)"
+              [ "$(banner CHASE_DOCKER_ADDRESS=127.1.191.78 CHASE_DOCKER_NAMES="$both" CHASE_DOCKER_PORTS="64320 64321")" = ran ] || fail "the shell did not run with Docker"
+              grep -qxF "docker: data-lab.internal → 127.1.191.78, ports 64320 64321; localhost works too" err || fail "the banner was not said: $(cat err)"
+              [ "$(banner CHASE_DOCKER_ADDRESS=127.1.191.78 CHASE_DOCKER_NAMES="" CHASE_DOCKER_PORTS="")" = ran ] || fail "the shell did not run with no ports"
+              grep -qxF "docker: 127.1.191.78, no ports" err || fail "the banner with no names or ports was not said: $(cat err)"
+
+              touch $out
+            '';
+
           gcloud-session = pkgs.testers.runNixOSTest (import ./tests/gcloud-session.nix { inherit self home-manager; });
 
           # The version script decides what every release is called, so it is

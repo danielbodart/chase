@@ -731,11 +731,16 @@ let
   # `chase shell`: a shell where `claude` would run, so a session can be
   # looked at, or used, with nothing in between. A subcommand rather than a
   # wrapper of its own, so the next thing like it has somewhere to go.
+  #
+  # `chase docker`: where a checkout's containers are published, as the
+  # tier it would run in has them, for use from the host.
   chase = pkgs.writeShellApplication {
     name = "chase";
+    runtimeInputs = [ agentTier cfg.internal.envelope ];
     text = ''
       usage() {
         echo "usage: chase shell [ARG...]   a shell where an agent would run in this checkout" >&2
+        echo "       chase docker [DIR]     where this checkout's Docker containers are reached" >&2
         exit 2
       }
       [ $# -gt 0 ] || usage
@@ -747,6 +752,12 @@ let
           agent = "shell";
           hostCommand = ''"''${SHELL:-bash}"'';
         })} "$@" ;;
+        docker)
+          [ $# -le 1 ] || usage
+          dir=''${1-$PWD}
+          tier=$(agent-tier "$dir" 2>/dev/null) || tier=${q fallback}
+          exec chase-envelope docker "$dir" "$tier"
+          ;;
         *) usage ;;
       esac
     '';

@@ -88,7 +88,19 @@ let
       # A closed list, so this cannot exec anything else on the container's PATH.
       case $agent in
         # `chase shell`: the session as an agent gets it, with no agent.
+        # A project with Docker is told where its containers' ports are,
+        # from what its prepare exported: the names are the session's own,
+        # which frisket answers, and a port relayed to 127.0.0.1 too.
         shell)
+          if [ -n "''${CHASE_DOCKER_ADDRESS:-}" ]; then
+            docker_name=''${CHASE_DOCKER_NAMES:-}
+            docker_name=''${docker_name%% *}
+            if [ -n "''${CHASE_DOCKER_PORTS:-}" ]; then
+              echo "docker: ''${docker_name:+$docker_name → }$CHASE_DOCKER_ADDRESS, ports $CHASE_DOCKER_PORTS; localhost works too" >&2
+            else
+              echo "docker: ''${docker_name:+$docker_name → }$CHASE_DOCKER_ADDRESS, no ports" >&2
+            fi
+          fi
           set -- bash -l "$@"
           ;;
       ${indent (lines (map chomp (lib.attrValues contributions.launchers)))}
