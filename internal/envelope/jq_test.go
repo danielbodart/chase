@@ -1,35 +1,111 @@
 package envelope
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
-// jqBin is jq, which the script ran, for comparing what is shown with what
-// it showed: skipped without one, unless CHASE_REQUIRE_JQ is set.
-func jqBin(t *testing.T) string {
-	t.Helper()
-	p, err := exec.LookPath("jq")
-	if err != nil {
-		if os.Getenv("CHASE_REQUIRE_JQ") != "" {
-			t.Fatalf("jq is not on PATH, and CHASE_REQUIRE_JQ is set: %v", err)
-		}
-		t.Skip("jq is not on PATH, so what it wrote is not compared")
-	}
-	return p
+// goldenFile is what jq wrote for each call below, kept so that the
+// comparison is made where there is no jq -- a gated build, whose check
+// inputs have none -- rather than skipped there, as it was. Where jq is on
+// PATH it is run as well, and must still write what was kept: a jq that
+// writes something else is a difference to look at, not a file to refresh.
+// CHASE_UPDATE_JQ=1, with jq on PATH, writes the file from it.
+const goldenFile = "testdata/jq.json"
+
+type golden struct {
+	// What is the call, for a person reading the file.
+	What   string `json:"what"`
+	Output string `json:"output"`
 }
 
+// goldenKey is one call, its arguments and its input, as a file name is:
+// both may hold bytes that are not UTF-8, which JSON cannot keep.
+func goldenKey(input string, args []string) string {
+	h := sha256.New()
+	for _, a := range args {
+		h.Write([]byte(a))
+		h.Write([]byte{0})
+	}
+	h.Write([]byte{0})
+	h.Write([]byte(input))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func readGolden(t *testing.T) map[string]golden {
+	t.Helper()
+	g := map[string]golden{}
+	b, err := os.ReadFile(goldenFile)
+	if errors.Is(err, os.ErrNotExist) {
+		return g
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &g); err != nil {
+		t.Fatalf("%s: %v", goldenFile, err)
+	}
+	return g
+}
+
+// jq is what jq, which the script ran, writes of input with args: as it
+// was kept, and, where jq is on PATH, as it writes it now.
 func jq(t *testing.T, input string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command(jqBin(t), args...)
+	k := goldenKey(input, args)
+	kept, have := readGolden(t)[k]
+	p, err := exec.LookPath("jq")
+	if err != nil {
+		if !have {
+			t.Fatalf("jq %q of %q was never kept in %s, and jq is not on PATH to run it", args, input, goldenFile)
+		}
+		return kept.Output
+	}
+	cmd := exec.Command(p, args...)
 	cmd.Stdin = strings.NewReader(input)
-	out, err := cmd.Output()
+	b, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("jq %q: %v", args, err)
 	}
-	return string(out)
+	out := string(b)
+	if os.Getenv("CHASE_UPDATE_JQ") != "" {
+		if !utf8.ValidString(out) {
+			t.Fatalf("jq %q of %q wrote bytes that are not UTF-8, which %s cannot keep", args, input, goldenFile)
+		}
+		g := readGolden(t)
+		g[k] = golden{What: fmt.Sprintf("jq %q of %q", args, input), Output: out}
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(g); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(goldenFile), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(goldenFile, buf.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	switch {
+	case !have:
+		t.Errorf("jq %q of %q is not kept in %s: run the tests with CHASE_UPDATE_JQ=1", args, input, goldenFile)
+	case kept.Output != out:
+		t.Errorf("jq %q of %q writes %q, and %s kept %q", args, input, out, goldenFile, kept.Output)
+	}
+	return out
 }
 
 var envelopes = []string{

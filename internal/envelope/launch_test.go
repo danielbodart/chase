@@ -3,9 +3,11 @@ package envelope_test
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -145,7 +147,9 @@ func TestAnAppWithNoCredentialIsMadeFromItsBinding(t *testing.T) {
 // An app with neither a credential nor code is refused when the system is
 // built, and, were it not, at the launch.
 func TestAnAppWithNoCredentialAndNoCodeIsRefused(t *testing.T) {
-	c := envelope.Config{Apps: map[string]envelope.App{"bad": {Credential: no()}, "fine": {}}}
+	h, _, ws := newProjectLaunch(t)
+	c := h.cfg
+	c.Apps = map[string]envelope.App{"bad": {Credential: no()}, "fine": {}}
 	err := envelope.Validate(c, nil)
 	if err == nil || err.Error() != "chase.internal.projectApps.bad has no credential and no prepare, so nothing could be made of its binding" {
 		t.Errorf("an app with no credential and no prepare was built: %v", err)
@@ -154,13 +158,57 @@ func TestAnAppWithNoCredentialAndNoCodeIsRefused(t *testing.T) {
 		t.Errorf("an app with code was refused: %v", err)
 	}
 
-	h, _, ws := newProjectLaunch(t)
 	h.cfg.Apps["bad"] = envelope.App{Credential: no()}
 	h.approved(ws, "m1", "trusted", `{"bindings": {"bad": {"x": 1}}}`)
 	if h.run("launch", "trusted", ws, "m1") == 0 {
 		t.Error("an app with no credential and no prepare was launched")
 	}
 	h.mustSay("chase: " + ws + ": bad has no credential and no prepare")
+}
+
+// Every path the script had spliced in is an absolute one: a tool named
+// without a slash would be looked up on the caller's PATH, and a path left
+// out would be "", which is a Hosts never there and a flake ref of nothing.
+// Empty is a default only where there is one, and no approver.
+func TestAConfigsPathsAreAbsolute(t *testing.T) {
+	h := newHarness(t)
+	if err := envelope.Validate(h.cfg, nil); err != nil {
+		t.Fatalf("the harness's Config was refused: %v", err)
+	}
+	for _, c := range []struct {
+		name string
+		set  func(*envelope.Config)
+		want string
+	}{
+		{"nix", func(c *envelope.Config) { c.Nix = "nix" }, `nix is "nix", which is not an absolute path`},
+		{"sops", func(c *envelope.Config) { c.Sops = "" }, `sops is "", which is not an absolute path`},
+		{"diff", func(c *envelope.Config) { c.Diff = "bin/diff" }, `diff is "bin/diff", which is not an absolute path`},
+		{"hosts", func(c *envelope.Config) { c.Hosts = "" }, `hosts is "", which is not an absolute path`},
+		{"evaluator", func(c *envelope.Config) { c.Evaluator = "" }, `evaluator is "", which is not an absolute path`},
+		{"policies", func(c *envelope.Config) { c.Policies = "policies" }, `policies is "policies", which is not an absolute path`},
+		{"home", func(c *envelope.Config) { c.Home = "" }, `home is "", which is not an absolute path`},
+		{"approver", func(c *envelope.Config) { c.Approver = "approver" }, `approver is "approver", which is neither empty nor an absolute path`},
+		{"state", func(c *envelope.Config) { c.State = "state" }, `state is "state", which is neither empty nor an absolute path`},
+	} {
+		cfg := h.cfg
+		c.set(&cfg)
+		if err := envelope.Validate(cfg, nil); err == nil || err.Error() != c.want {
+			t.Errorf("%s: %v, not %s", c.name, err, c.want)
+		}
+		b, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(t, h.dir+"/config.json", string(b))
+		if _, err := envelope.LoadConfig(h.dir + "/config.json"); err == nil || err.Error() != c.want {
+			t.Errorf("%s, loaded: %v, not %s", c.name, err, c.want)
+		}
+	}
+	cfg := h.cfg
+	cfg.Approver, cfg.State, cfg.Runtime = "", "", ""
+	if err := envelope.Validate(cfg, nil); err != nil {
+		t.Errorf("no approver, and the default state and runtime, were refused: %v", err)
+	}
 }
 
 // dockerTemplate is the route apps/docker.nix builds for a tier, from the
@@ -214,6 +262,100 @@ func dockerTemplate(t *testing.T) policy.Route {
 		t.Fatal(err)
 	}
 	return r
+}
+
+// dockerRouteIsTheTemplates is the rest of docker-launch's judgement of the
+// route, made of policy.json as it was written rather than as frisket's
+// Document reads it back: the document is encoded from a policy.Document
+// now, so a field lost on the way through Merge or the encoding shows here,
+// and not only if `frisket check` happens to mind. The API versions and the
+// admitted bodies' tables are the files', every path keeps its operation but
+// not the operation's description, the paths not refused are admit.json's,
+// exactly, none asks, and the route has no credentialFile at all.
+func dockerRouteIsTheTemplates(t *testing.T, path string) {
+	t.Helper()
+	dir := filepath.Join("..", "..", "apps", "docker")
+	readJSON := func(p string) any {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var v any
+		if err := json.Unmarshal(b, &v); err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
+		return v
+	}
+	admit := readJSON(filepath.Join(dir, "admit.json")).(map[string]any)
+	fields := readJSON(filepath.Join(dir, "fields.json")).(map[string]any)
+	doc := readJSON(path).(map[string]any)
+	var route map[string]any
+	for _, r := range doc["routes"].([]any) {
+		if r := r.(map[string]any); r["name"] == "docker" {
+			route = r
+		}
+	}
+	if route == nil {
+		t.Fatalf("%s has no docker route", path)
+	}
+	if _, has := route["credentialFile"]; has {
+		t.Errorf("the docker route has a credentialFile: %v", route["credentialFile"])
+	}
+	d, _ := route["docker"].(map[string]any)
+	want := map[string]any{"min": "1.55", "max": "1.56", "unversioned": []any{"/_ping"}}
+	if !reflect.DeepEqual(d["apiVersions"], want) {
+		t.Errorf("the route's apiVersions are %v, not %v", d["apiVersions"], want)
+	}
+	bodies := map[string]any{}
+	for _, a := range admit {
+		if b, ok := a.(map[string]any)["docker"].(map[string]any)["body"].(string); ok {
+			bodies[b] = fields[b]
+		}
+	}
+	if !reflect.DeepEqual(d["bodies"], bodies) {
+		t.Error("the route's bodies are not the tables of the bodies admit.json names")
+	}
+	got, _ := d["bodies"].(map[string]any)
+	if keys := slices.Sorted(maps.Keys(got)); !slices.Equal(keys, []string{"ContainerCreate", "ExecCreate", "ExecStart", "NetworkCreate", "VolumeCreate"}) {
+		t.Errorf("the route's bodies are %q", keys)
+	}
+	admitted := map[string]any{}
+	n := 0
+	for _, p := range route["paths"].([]any) {
+		p := p.(map[string]any)
+		op, ok := p["operation"].(map[string]any)
+		if !ok {
+			t.Errorf("a path has no operation: %v", p)
+			continue
+		}
+		if _, has := op["description"]; has {
+			t.Errorf("%v kept its description", op["id"])
+		}
+		if ask, _ := p["ask"].(bool); ask {
+			t.Errorf("%v asks", op["id"])
+		}
+		if refuse, _ := p["refuse"].(bool); refuse {
+			continue
+		}
+		n++
+		// `{methods, docker}`: each, or null when it is not there.
+		admitted[op["id"].(string)] = map[string]any{"methods": p["methods"], "docker": p["docker"]}
+	}
+	if !reflect.DeepEqual(admitted, admit) {
+		for id := range admit {
+			if !reflect.DeepEqual(admitted[id], admit[id]) {
+				t.Errorf("%s is admitted as %v, not as admit.json has it: %v", id, admitted[id], admit[id])
+			}
+		}
+		for id := range admitted {
+			if _, ok := admit[id]; !ok {
+				t.Errorf("%s is admitted, and admit.json does not name it", id)
+			}
+		}
+	}
+	if n != len(admit) {
+		t.Errorf("%d paths are not refused, and admit.json names %d", n, len(admit))
+	}
 }
 
 // frisketCheck is `frisket check` of a session's document, as the checks
@@ -293,6 +435,7 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 	if !slices.Equal(d.Allow, []string{"docker.frisket.internal", "github.com"}) {
 		t.Errorf("docker.frisket.internal was not allowed: %q", d.Allow)
 	}
+	dockerRouteIsTheTemplates(t, h.dir+"/run/chase/m1/policy.json")
 	frisketCheck(t, h.dir+"/run/chase/m1/policy.json")
 	env := lines(read(t, h.envfile(ws)))
 	for _, line := range []string{
@@ -484,6 +627,15 @@ func TestListsOfAnAppTheTierLacksOrHasAnonymouslyAreIgnored(t *testing.T) {
 	}
 	if !h.said("chase: " + ws + ": huggingface's lists ignored: trusted has no huggingface") {
 		t.Errorf("an absent app's lists were not said to be ignored: %s", h.err)
+	}
+
+	// An empty credentialFile is none: the route is written without one,
+	// so it is anonymous in what frisket loads (a change from jq, whose
+	// `.credentialFile` was true of "").
+	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["github.com"], "routes": [{"name": "github", "host": "api.github.com", "upstream": "https://api.github.com", "credentialFile": ""}]}`)
+	h.launched(ws, "m2", "trusted", `{"bindings": {"github": {"allow": ["repos/delete"]}}}`)
+	if !h.said("chase: " + ws + ": github's lists ignored: github is anonymous in trusted") {
+		t.Errorf("an empty credentialFile's lists were not said to be ignored: %s", h.err)
 	}
 }
 

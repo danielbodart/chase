@@ -22,6 +22,7 @@ import (
 	"github.com/danielbodart/chase/internal/gitsafe"
 	"github.com/danielbodart/chase/internal/policydoc"
 	"github.com/danielbodart/chase/internal/snapshot"
+	"github.com/danielbodart/chase/internal/term"
 )
 
 // Result is what an approval gives flong: the syscalls the approved envelope
@@ -236,13 +237,47 @@ func Approve(ctx context.Context, c Config, ws, machine, tier string, stderr io.
 
 // saysChaseModules is `[ -f F ] && grep -q chaseModules F`: read through a
 // link, as the script read it, since it only decides whether the checkout is
-// looked at, and everything looked at is the snapshot's.
+// looked at, and everything looked at is the snapshot's -- which refuses a
+// flake.nix that is a link, so one is let through to be refused there,
+// not taken here for a checkout with no envelope.
+//
+// It runs on the live checkout, before anything is approved, so it reads as
+// grep did and no more: opened without waiting on a pipe, and held to a
+// plain file by what was opened, not by a look before, which a session could
+// swap; and streamed, a chunk at a time, so a flake.nix made a link to any
+// large file of the user's costs time, as it did grep, and not its size in
+// memory.
 func saysChaseModules(f string) bool {
-	if !regular(f) {
+	fd, err := os.OpenFile(f, os.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
 		return false
 	}
-	b, err := os.ReadFile(f)
-	return err == nil && bytes.Contains(b, []byte("chaseModules"))
+	defer fd.Close()
+	if fi, err := fd.Stat(); err != nil || !fi.Mode().IsRegular() {
+		return false
+	}
+	return contains(fd, []byte("chaseModules"))
+}
+
+// contains is whether r holds needle, read a chunk at a time, each chunk
+// kept with the end of the one before, so a needle across two is found.
+func contains(r io.Reader, needle []byte) bool {
+	buf := make([]byte, 64<<10)
+	keep := 0
+	for {
+		n, err := r.Read(buf[keep:])
+		if bytes.Contains(buf[:keep+n], needle) {
+			return true
+		}
+		if err != nil {
+			return false
+		}
+		if tail := len(needle) - 1; keep+n > tail {
+			keep = copy(buf, buf[keep+n-tail:keep+n])
+		} else {
+			keep += n
+		}
+	}
 }
 
 // takeSnapshot is the checkout's tracked files, as they are now, in a
@@ -413,11 +448,12 @@ func approveSource(ctx context.Context, c Config, ws, src, dir string, stderr io
 		if err != nil {
 			return err
 		}
-		// cp's mode: the source's, under the umask.
-		if err := os.WriteFile(d+".new", b, fi.Mode().Perm()); err != nil {
-			return err
-		}
-		if err := os.Rename(d+".new", d); err != nil {
+		// cp's mode: the source's, under Approve's umask of 077. Written
+		// under a name of its own and renamed over, not through the script's
+		// fixed $f.new, which two launches of the checkout at once shared:
+		// one could truncate what the other was renaming into place, and
+		// what is kept as approved be half of each.
+		if err := files.WriteAtomic(d, b, fi.Mode().Perm()&0o700); err != nil {
 			return err
 		}
 	}
@@ -462,7 +498,10 @@ func evaluate(ctx context.Context, c Config, src string, stderr io.Writer) (stri
 	if err := cmd.Run(); err != nil {
 		stderr.Write(log.Bytes())
 		if _, exited := err.(*exec.ExitError); !exited {
-			fmt.Fprintf(stderr, "%v\n", err)
+			// The shell said why it could not run nix, into the log it
+			// printed; this says it as chase says anything, as the
+			// approver's, diff's and sops's are said.
+			term.Say(stderr, "%v", err)
 		}
 		return "", false
 	}
@@ -502,10 +541,9 @@ func approveEnvelope(ctx context.Context, c Config, ws string, result *value, te
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return err
 	}
-	if err := os.WriteFile(dir+"/envelope.json.new", []byte(text+"\n"), 0o666); err != nil {
-		return err
-	}
-	return os.Rename(dir+"/envelope.json.new", dir+"/envelope.json")
+	// 0600, as the umask made it; under a name of its own, as the flake's
+	// files are.
+	return files.WriteAtomic(dir+"/envelope.json", []byte(text+"\n"), 0o600)
 }
 
 // namedTwice is each name an app's lists give twice, as `"<app>: <name as

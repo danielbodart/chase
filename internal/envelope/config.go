@@ -34,6 +34,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 
@@ -78,9 +79,11 @@ type Config struct {
 	// apps.docker.enable, which it asserts take envelopes.
 	DockerTiers []string `json:"dockerTiers"`
 	// Checkouts is every tier's pinned checkouts, as the selector holds
-	// them: each owner/repo, lower-cased, and every path any tier pins it
-	// at, sorted. What names a checkout's Docker project is held to these
-	// both ways.
+	// them: each owner/repo, and every path any tier pins it at. What names
+	// a checkout's Docker project is held to these both ways. The module
+	// lower-cases each owner/repo and sorts its paths, and they are read as
+	// if it had, whether or not it did: a pin written Example/Billing is
+	// example/billing's, as the script's baked file always had it.
 	Checkouts map[string][]string `json:"checkouts"`
 	// Apps is chase.internal.projectApps, what an app becomes when a
 	// project binds it, by name. An app whose routes are made at launch --
@@ -143,13 +146,44 @@ func LoadConfig(path string) (Config, error) {
 	if err := json.Unmarshal(b, &c); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
-	return c, nil
+	return c, c.paths()
 }
 
-// Validate is what the module refused when it built the script: an app with
-// no credential is made from its binding alone, which only its code can do,
-// so one without code is refused here rather than at a launch.
+// paths holds every path the script had spliced in to being one: absolute,
+// as a store path or the module's own is. A tool named without a slash is
+// looked up by exec on PATH, which is the caller's, and a path left out of
+// a hand-written file is "" -- a Hosts of "" is a file that is never there,
+// so the host's names would silently go unchecked when a claim is made, and
+// an Evaluator of "" is the flake ref "path:#envelope". So a file the module
+// did not write is refused, rather than half obeyed, as the selector's is.
+func (c Config) paths() error {
+	for _, p := range []struct{ name, path string }{
+		{"home", c.Home}, {"hosts", c.Hosts}, {"policies", c.Policies},
+		{"evaluator", c.Evaluator}, {"nix", c.Nix}, {"sops", c.Sops}, {"diff", c.Diff},
+	} {
+		if !filepath.IsAbs(p.path) {
+			return fmt.Errorf("%s is %q, which is not an absolute path", p.name, p.path)
+		}
+	}
+	// Empty is a default, or, for the approver, none: nothing is approved.
+	for _, p := range []struct{ name, path string }{
+		{"state", c.State}, {"runtime", c.Runtime}, {"approver", c.Approver},
+	} {
+		if p.path != "" && !filepath.IsAbs(p.path) {
+			return fmt.Errorf("%s is %q, which is neither empty nor an absolute path", p.name, p.path)
+		}
+	}
+	return nil
+}
+
+// Validate is what the module refused when it built the script -- an app
+// with no credential is made from its binding alone, which only its code
+// can do, so one without code is refused here rather than at a launch --
+// and every path in c an absolute one.
 func Validate(c Config, registry map[string]apps.App) error {
+	if err := c.paths(); err != nil {
+		return err
+	}
 	for _, name := range slices.Sorted(maps.Keys(c.Apps)) {
 		if _, code := registry[name]; !c.Apps[name].hasCredential() && !code {
 			return fmt.Errorf("chase.internal.projectApps.%s has no credential and no prepare, so nothing could be made of its binding", name)
@@ -170,6 +204,26 @@ func DefaultApps(c Config, stderr io.Writer) map[string]apps.App {
 		r["gcloud"] = appsgcloud.New(*c.Gcloud, stderr)
 	}
 	return r
+}
+
+// checkouts is Checkouts as the module baked it: `lib.zipAttrsWith (_:
+// paths: lib.unique (lib.sort lib.lessThan paths))` of each pin under
+// `lib.toLower s` -- every owner/repo lower-cased, ASCII only, as
+// lib.toLower is, with the paths of each spelling of it together, sorted,
+// each once. Read as given, a Config with a tier's own spelling would refuse
+// the repository at its own pinned path, as pinned there under another
+// name, and leave a pin elsewhere unenforced.
+func (c Config) checkouts() map[string][]string {
+	out := map[string][]string{}
+	for s, paths := range c.Checkouts {
+		l := lowerASCII(s)
+		out[l] = append(out[l], paths...)
+	}
+	for s, paths := range out {
+		slices.Sort(paths)
+		out[s] = slices.Compact(paths)
+	}
+	return out
 }
 
 func (c Config) state() string {

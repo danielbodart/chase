@@ -50,7 +50,9 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 		return renew.Minted
 	}
 	h.registry = map[string]apps.App{"gcloud": app}
-	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["github.com"], "routes": []}`)
+	// The tier has a gcloud route of its own, which the app's replaces
+	// rather than joins: `merge.jq`'s patch, applied by the launch.
+	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["github.com"], "routes": [{"name": "gcloud", "host": "x", "upstream": "https://x"}]}`)
 
 	k, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -82,6 +84,9 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 	}
 	if !slices.Equal(names, []string{"gcloud", "gcloud-mtls"}) || !slices.Equal(d.Allow, []string{"*.googleapis.com", "github.com"}) {
 		t.Fatalf("the routes were not merged: %q %q", names, d.Allow)
+	}
+	if d.Routes[0].Host != "*.googleapis.com" {
+		t.Errorf("the tier's gcloud route was not replaced by the app's: %s", d.Routes[0].Host)
 	}
 	if d.Routes[0].CredentialFile != run+"/gcloud-token.json" {
 		t.Errorf("the route does not carry the session's token: %s", d.Routes[0].CredentialFile)
@@ -128,5 +133,27 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 	}
 	if _, err := os.Stat(run); err == nil {
 		t.Error("the session's directory outlived it")
+	}
+
+	// LISTS THAT DO NOT APPLY end the launch: a category of an API this
+	// session does not carry -- storage, removed -- is the script's `||
+	// die`, said after why, and nothing of the session is written.
+	if err := os.Remove(h.envfile(ws)); err != nil {
+		t.Fatal(err)
+	}
+	h.approved(ws, "m2", "trusted", `{"secrets": "secrets.json", "bindings": {"gcloud": {
+		"serviceAccount": "`+sa+`", "credential": {"secret": "gcloud-key"},
+		"apis": {"remove": ["storage"]}, "allow": ["category:storage"]}}}`)
+	if rc := h.run("launch", "trusted", ws, "m2"); rc != 1 {
+		t.Fatalf("lists that do not apply were launched: %d %s", rc, h.err)
+	}
+	if want := "chase: gcloud has no category:storage\nchase: " + ws + ": its gcloud lists do not apply\n"; !strings.HasSuffix(h.err, want) {
+		t.Errorf("the refusal said %q, not %q", h.err, want)
+	}
+	if _, err := os.Stat(h.dir + "/run/chase/m2/policy.json"); err == nil {
+		t.Error("a document was written for lists that do not apply")
+	}
+	if _, err := os.Stat(h.envfile(ws)); err == nil {
+		t.Error("an environment was written for lists that do not apply")
 	}
 }

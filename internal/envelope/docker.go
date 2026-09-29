@@ -89,8 +89,9 @@ func project(ctx context.Context, g *gitsafe.Git, c Config, ws, _ string, stderr
 	}
 	slug := owner + "/" + repo
 	hit := false
-	for _, s := range slices.Sorted(maps.Keys(c.Checkouts)) {
-		for _, pinned := range c.Checkouts[s] {
+	checkouts := c.checkouts()
+	for _, s := range slices.Sorted(maps.Keys(checkouts)) {
+		for _, pinned := range checkouts[s] {
 			p, err := realpathM(pinned)
 			if err != nil {
 				return "", fmt.Errorf("realpath: %s: %w", pinned, err)
@@ -107,7 +108,7 @@ func project(ctx context.Context, g *gitsafe.Git, c Config, ws, _ string, stderr
 			hit = true
 		}
 	}
-	if paths, pinned := c.Checkouts[slug]; !hit && pinned {
+	if paths, pinned := checkouts[slug]; !hit && pinned {
 		return "", refuse("%s: its origin says %s, which is pinned at %s, not %s", ws, slug, strings.Join(paths, ", "), root)
 	}
 	if _, err := address(slug, stderr); err != nil {
@@ -236,7 +237,7 @@ func claim(c Config, ws, slug, addr string, record bool) error {
 		}
 		held += "\n" + more
 	}
-	for _, s := range slices.Sorted(maps.Keys(c.Checkouts)) {
+	for _, s := range slices.Sorted(maps.Keys(c.checkouts())) {
 		p, err := dockerproject.Of(s)
 		if err != nil {
 			continue

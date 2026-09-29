@@ -17,7 +17,9 @@ func newIdentity(t *testing.T) *harness {
 	h := newHarness(t)
 	r := h.root()
 	h.cfg.Checkouts["example/shop"] = []string{r + "/p/shop"}
-	h.cfg.Checkouts["example/billing"] = []string{r + "/p/billing"}
+	// As a tier may write it: the module bakes it lower-cased, and a
+	// Config that did not is read as if it had.
+	h.cfg.Checkouts["Example/Billing"] = []string{r + "/p/billing"}
 	return h
 }
 
@@ -124,7 +126,13 @@ func TestAPinIsHeldBothWays(t *testing.T) {
 	h.repo(r+"/p/shop", "git@github.com:example/shop.git")
 	h.repo(r+"/elsewhere/shop", "git@github.com:example/shop.git")
 	h.refusedAs(r+"/elsewhere/shop", "its origin says example/shop, which is pinned at "+r+"/p/shop, not "+r+"/elsewhere/shop")
-	h.repo(r+"/p/billing", "git@github.com:acme/app.git")
+	// A pin written Example/Billing is example/billing's: at its path it
+	// names it, and anywhere else is refused.
+	h.repo(r+"/p/billing", "git@github.com:example/billing.git")
+	h.names(r+"/p/billing", "example/billing")
+	h.repo(r+"/elsewhere/billing", "git@github.com:Example/Billing.git")
+	h.refusedAs(r+"/elsewhere/billing", "its origin says example/billing, which is pinned at "+r+"/p/billing, not "+r+"/elsewhere/billing")
+	h.fx.Run("-C", r+"/p/billing", "config", "remote.origin.url", "git@github.com:acme/app.git")
 	h.refusedAs(r+"/p/billing", "is under "+r+"/p/billing, where example/billing is pinned, but its origin says acme/app")
 
 	h.repo(r+"/forge", "git@github.com:example/shop.git")

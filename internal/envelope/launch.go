@@ -20,6 +20,7 @@ import (
 	"github.com/danielbodart/frisket/policy"
 
 	"github.com/danielbodart/chase/internal/apps"
+	"github.com/danielbodart/chase/internal/files"
 	"github.com/danielbodart/chase/internal/policydoc"
 	"github.com/danielbodart/chase/internal/term"
 )
@@ -229,13 +230,15 @@ func Launch(ctx context.Context, c Config, registry map[string]apps.App, tier, w
 	if err := os.MkdirAll(filepath.Dir(envfile), 0o777); err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(envfile+".new", []byte(exports.String()), 0o644); err != nil {
+	// Written beside itself under a name of its own, and renamed over, as
+	// the stage is: the script's fixed env.new was shared by every launch
+	// of the checkout, on any machine, so one launch could truncate what
+	// another was renaming into place, and a session source half an
+	// environment. 0644, whatever the umask: a session reads it.
+	if err := files.WriteAtomic(envfile, []byte(exports.String()), 0o644); err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(envfile+".new", 0o644); err != nil {
-		return nil, err
-	}
-	return env, os.Rename(envfile+".new", envfile)
+	return env, nil
 }
 
 // decrypt is the secret an app binds, decrypted from the staged copy of the
@@ -371,6 +374,14 @@ func applyLists(pd *policy.Document, bindings *value, ws, tier string, stderr io
 		case at < 0:
 			term.Say(stderr, "%s: %s's lists ignored: %s has no %s", ws, app, tier, app)
 			continue
+		// Anonymous is an empty credentialFile as well as none. jq's
+		// `.credentialFile` was true of any string, "" too, so a tier route
+		// written with `"credentialFile": ""` had the project's lists
+		// applied; frisket's Document cannot tell "" from absent, and the
+		// document is written without it, so that route IS anonymous in what
+		// frisket loads, and its lists are said to be ignored, as any
+		// anonymous route's are. A deliberate change, of an edge the module
+		// never writes.
 		case pd.Routes[at].CredentialFile == "":
 			term.Say(stderr, "%s: %s's lists ignored: %s is anonymous in %s", ws, app, app, tier)
 			continue
