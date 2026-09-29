@@ -45,6 +45,10 @@ let
   ''}";
   approver = if cfg.approver == null then "" else cfg.approver;
 
+  # What copies a checkout's tracked files into a snapshot, following no
+  # link: see ./copy-tracked.py.
+  copyTracked = pkgs.writers.writePython3Bin "chase-copy-tracked" { } (builtins.readFile ./copy-tracked.py);
+
   # WHAT EVALUATES AN ENVELOPE: a flake of chase's, in the store, whose one
   # input is the checkout -- given on the command line, never spliced into Nix
   # source -- evaluated PURELY. The checkout is the agent's to edit, and this
@@ -73,11 +77,14 @@ let
 
   envelope = pkgs.writeShellApplication {
     name = "chase-envelope";
-    runtimeInputs = with pkgs; [ nix jq sops coreutils diffutils git gnutar gnugrep ];
+    runtimeInputs = [ copyTracked ] ++ (with pkgs; [ nix jq sops coreutils diffutils git gnugrep gnused ]);
     text = ''
       uid=${toString cfg.uid}
       home=${lib.escapeShellArg cfg.home}
+      # Where chase keeps what it approved, and where a launch leaves what it
+      # stages: one line each, so a test can put them elsewhere.
       state=$home/.local/state/chase
+      runtime=/run/user/$uid
       apps=${apps}
       lists=${./lists.jq}
       merge=${./merge.jq}
@@ -90,7 +97,20 @@ let
 
       env_dir() { printf '%s/env/%s' "$state" "$(key "$1")"; }
 
-      die() { echo "chase: $*" >&2; exit 1; }
+      # What is said can carry what a session wrote -- a path in its
+      # checkout -- so no control byte but a newline reaches the terminal:
+      # an escape sequence there could retitle it, redraw what the person
+      # is reading, or write their clipboard. That is C0 and DEL, and C1
+      # too, both as UTF-8 (\302\200-\302\237) and as the raw bytes
+      # (\200-\237) a terminal not reading UTF-8 acts on. The raw bytes are
+      # also continuations of other UTF-8 characters, which come out
+      # mangled: a refusal read wrong is better than one that writes.
+      die() {
+        printf 'chase: %s\n' "$*" \
+          | LC_ALL=C sed 's/\xc2[\x80-\x9f]/?/g' \
+          | LC_ALL=C tr '\000-\011\013-\037\177-\237' '?' >&2
+        exit 1
+      }
 
       # ASK, THEN RUN. Nothing of the checkout's is evaluated until a person
       # has approved the bytes that decide what evaluating it reaches: its
@@ -115,15 +135,33 @@ let
           || die "$ws: its $kind was not approved"
       }
 
+      # git, asked of the checkout WS, with none of the commands its config
+      # could name: that config is the session's to write, and git runs
+      # what core.fsmonitor says as it reads the index -- here as the user,
+      # unsandboxed, before anyone is asked. Given on the command line,
+      # these outrank the checkout's config and anything it includes.
+      ws_git() {
+        git -C "$ws" -c core.fsmonitor=false -c core.untrackedCache=false \
+          -c core.hooksPath=/dev/null -c core.pager=cat -c core.editor=false \
+          -c core.askPass= -c credential.helper= -c core.sshCommand=false \
+          -c core.gitProxy= -c diff.external= -c gc.auto=0 -c maintenance.auto=false \
+          --no-pager "$@"
+      }
+
       # The checkout's tracked files, as they are now, in a directory of the
-      # user's own that no session sees.
+      # user's own that no session sees. Copied by chase-copy-tracked, which
+      # follows no link at any component: anything that opens WS/dir/f by
+      # its path, as tar did, lets the kernel resolve dir, so a tracked
+      # dir/f whose dir a session has made a link to a host directory would
+      # copy that host's f into what is evaluated and decrypted. A check for
+      # such a link before and after the copy is no better, since another
+      # live session of the same checkout can swap it in and back between.
       snapshot() {
-        local ws=$1 src=$2
-        git -C "$ws" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+        local ws=$1 src=$2 why
+        ws_git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
           || die "$ws: an envelope needs a git checkout, so what is evaluated is what git tracks"
-        git -C "$ws" ls-files -z --cached \
-          | tar -C "$ws" --null --no-recursion -T - -cf - \
-          | tar -C "$src" -xf -
+        why=$(ws_git ls-files -z --cached | chase-copy-tracked "$ws" "$src") \
+          || die "$ws: ''${why:-its tracked files could not be copied}"
         [ -f "$src/flake.nix" ] && [ ! -L "$src/flake.nix" ] \
           || die "$ws: flake.nix is not a tracked file"
         [ ! -L "$src/flake.lock" ] || die "$ws: flake.lock is a link"
@@ -214,7 +252,7 @@ let
       # /run/user/<uid>/chase, which no session sees. Per launch and not per
       # checkout, so two launches of one checkout approved at once each get
       # their own. A machine name never starts with a dot.
-      staged() { printf '/run/user/%s/chase/.envelope/%s.json' "$uid" "$1"; }
+      staged() { printf '%s/chase/.envelope/%s.json' "$runtime" "$1"; }
 
       # seccompPolicy: snapshot, approve, evaluate, approve, stage. Prints
       # the approved `allow` and `deny` lines, and nothing else, on stdout.
@@ -223,9 +261,9 @@ let
         exec 3>&1 1>&2
         umask 077
         [ -n "$machine" ] || die "no machine: flong names the session before seccompPolicy runs"
-        [ -d /run/user/$uid ] || die "/run/user/$uid does not exist: log in first"
+        [ -d "$runtime" ] || die "$runtime does not exist: log in first"
         # 0700, by the umask.
-        [ -d "/run/user/$uid/chase/.envelope" ] || mkdir -p "/run/user/$uid/chase/.envelope"
+        [ -d "$runtime/chase/.envelope" ] || mkdir -p "$runtime/chase/.envelope"
         stage=$(staged "$machine")
         # Only a flake that says chaseModules is looked at at all: any other
         # is the tier as it is, and is never evaluated or asked about.
@@ -301,7 +339,7 @@ let
         fi
         result=$(jq -c .result <<< "$staged_doc")
         secrets=$(jq -r '.secrets // empty' <<< "$result")
-        run=/run/user/$uid/chase/$machine
+        run=$runtime/chase/$machine
         mkdir -m 0700 "$run" "$run/secrets"
         if [ -n "$secrets" ]; then
           dir=$(mktemp -d "$run/sops.XXXXXX")
@@ -374,8 +412,8 @@ let
         launch) launch "$2" "$3" "$4" ;;
         # frisket steer's -policy: the session's own document, or the tier's.
         policy)
-          if [ -f "/run/user/$uid/chase/$3/policy.json" ]; then
-            printf '%s\n' "/run/user/$uid/chase/$3/policy.json"
+          if [ -f "$runtime/chase/$3/policy.json" ]; then
+            printf '%s\n' "$runtime/chase/$3/policy.json"
           else
             printf '%s\n' "/etc/frisket/policies/$2.json"
           fi

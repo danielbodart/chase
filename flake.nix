@@ -57,7 +57,75 @@
       lib.docker = import ./lib/docker.nix { lib = nixpkgs.lib; };
 
       checks = forAllSystems (system:
-        let pkgs = nixpkgs.legacyPackages.${system}; in
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+
+          # CHASE-ENVELOPE AS A TIER RUNS IT, where a test can watch it: the
+          # one agent-trusted has, from a system with ./examples/tiers.nix
+          # and CHASE (more of the chase section), copied to ./chase-envelope
+          # with its one-line home, state, runtime and approver -- and each
+          # of REWRITE, a name and its value -- put under the build
+          # directory, and ./bin first on its PATH. There, nix prints
+          # $ENVELOPE, as if the checkout evaluated to it, and the approver
+          # logs what it is asked to ./approvals.jsonl and approves. Shell
+          # for a check's own script, run first, needing jq.
+          envelopeHarness = { chase ? { }, rewrite ? { } }:
+            let
+              lib = nixpkgs.lib;
+              config = (lib.nixosSystem {
+                inherit system;
+                modules = [
+                  self.nixosModules.default
+                  home-manager.nixosModules.home-manager
+                  ./examples/tiers.nix
+                  {
+                    boot.isContainer = true;
+                    system.stateVersion = "26.05";
+                    users.users.alice = { isNormalUser = true; uid = 1000; group = "users"; };
+                    home-manager.users.alice.home.stateVersion = "26.05";
+                    chase = lib.recursiveUpdate {
+                      user = "alice";
+                      uid = 1000;
+                      gid = 100;
+                      bindings = {
+                        claude.package = pkgs.hello;
+                        codex.package = pkgs.hello;
+                        github.credentialFile = "/run/secrets/gh_token";
+                      };
+                    } chase;
+                  }
+                ];
+              }).config;
+              envelope = lib.findFirst (p: lib.getName p == "chase-envelope")
+                (throw "envelopeHarness: agent-trusted has no chase-envelope") config.flong.agent-trusted.path;
+              lines = {
+                home = "$PWD/home";
+                state = "$PWD/state";
+                runtime = "$PWD/run";
+                approver = "$PWD/bin/approver";
+              } // rewrite;
+            in
+            ''
+              mkdir -p bin run home
+              cat > bin/nix <<'SH'
+              #!${pkgs.runtimeShell}
+              printf '%s\n' "$ENVELOPE"
+              SH
+              cat > bin/approver <<'SH'
+              #!${pkgs.runtimeShell}
+              ${pkgs.jq}/bin/jq -c . >> "$TMPDIR/approvals.jsonl"
+              SH
+              chmod +x bin/*
+              touch approvals.jsonl
+              sed -e "s|^export PATH=\"|export PATH=\"$PWD/bin:|" \
+                ${lib.concatStrings (lib.mapAttrsToList (n: v: "-e \"s|^${n}=.*|${n}=${v}|\" ") lines)}\
+                ${lib.getExe envelope} > chase-envelope
+              for v in ${lib.concatStringsSep " " (lib.attrNames lines)}; do
+                grep -q "^$v=$PWD/" chase-envelope || { echo "envelopeHarness: $v is not one line of chase-envelope's" >&2; exit 1; }
+              done
+              grep -q "^export PATH=\"$PWD/bin:" chase-envelope || { echo "envelopeHarness: PATH is not one line of chase-envelope's" >&2; exit 1; }
+            '';
+        in
         {
           # A refusal happens at evaluation, so it is checked by evaluating.
           # This is also the only thing that proves the module stands alone:
@@ -1594,6 +1662,169 @@
               [ "$(cat "$wrongPath")" = "[]" ] || { echo "docker-envelope: evaluated wrongly: $(cat "$wrongPath")" >&2; exit 1; }
               touch $out
             '';
+
+          # A SNAPSHOT FOLLOWS NO LINK. What is evaluated and decrypted is
+          # the checkout's tracked files, copied; a session writes the
+          # checkout, and can make a directory above a tracked file a link
+          # to one of the host's -- another project's sops directory -- so
+          # a copy through it would put the host's file where the project's
+          # was. Refused, naming the link, with nothing staged and no host
+          # byte anywhere chase keeps things; the tracked link a project
+          # has is copied as a link, never read through.
+          envelope-snapshot = pkgs.runCommand "envelope-snapshot" { nativeBuildInputs = [ pkgs.git pkgs.jq ]; } ''
+            export HOME=$TMPDIR
+            fail() { echo "envelope-snapshot: $*" >&2; exit 1; }
+            ${envelopeHarness { }}
+            git config --global user.name x
+            git config --global user.email x@example.com
+            r=$(cd "$TMPDIR" && pwd -P)/root
+            mkdir -p "$r" hostsecret
+            echo TOPSECRET > hostsecret/secrets.yaml
+            printf '{ outputs = _: { chaseModules.default = { }; }; }\n' > hostflake.nix
+            copy=$(grep -o '/nix/store/[^:"]*-chase-copy-tracked[^:"]*/bin' chase-envelope)/chase-copy-tracked
+            [ -x "$copy" ] || fail "chase-copy-tracked is not on chase-envelope's PATH"
+
+            checkout() { # DIR TRACKED...: a checkout with a flake, and each TRACKED a file
+              local d=$1 f
+              shift
+              git init -q "$d"
+              printf '{ outputs = _: { chaseModules.default = { }; }; }\n' > "$d/flake.nix"
+              for f in "$@"; do
+                mkdir -p "$(dirname -- "$d/$f")"
+                echo "the project's own" > "$d/$f"
+              done
+              git -C "$d" add -A
+            }
+            approve() { # DIR MACHINE ENVELOPE
+              ENVELOPE=$3 bash ./chase-envelope approve "$1" "$2" >/dev/null 2>err
+            }
+            leaked() { grep -rqsF TOPSECRET home state run; }
+            # DIR MACHINE PREFIX: refused, naming the link, with nothing
+            # staged and no host byte kept.
+            refused() {
+              if approve "$1" "$2" "{\"secrets\": \"$3/secrets.yaml\", \"bindings\": {}}"; then fail "$1 was approved with $3 a link"; fi
+              grep -qF "chase: $1: $3 is a link, so what is tracked under it would be copied from wherever it points" err \
+                || fail "$1: the link $3 was not said: $(cat err)"
+              [ ! -e "run/chase/.envelope/$2.json" ] || fail "$1 was staged with $3 a link"
+              ! leaked || fail "$1: the host's file was copied: $(grep -rlF TOPSECRET home state run)"
+            }
+            # DIR OUT PREFIX: the copier itself, into OUT, which the test
+            # keeps (approve's snapshot is gone before leaked() could look):
+            # it refuses at the link, and no host byte is in OUT, so it did
+            # not copy through the link and check afterwards.
+            copyRefused() {
+              mkdir "$2"
+              if printf 'flake.nix\0%s/secrets.yaml\0' "$3" | "$copy" "$1" "$2" >copy.err; then
+                fail "$1: the copier copied through $3"
+              fi
+              grep -qF "$3 is a link, so what is tracked under it would be copied from wherever it points" copy.err \
+                || fail "$1: the copier did not name the link $3: $(cat copy.err)"
+              ! grep -rqF TOPSECRET "$2" || fail "$1: a host byte was copied through $3: $(grep -rlF TOPSECRET "$2")"
+              [ ! -e "$2/$3/secrets.yaml" ] && [ ! -L "$2/$3" ] || fail "$1: $3 was copied: $(ls -lR "$2")"
+            }
+
+            # What is tracked, as it is, is copied and staged.
+            checkout "$r/plain" link/secrets.yaml
+            approve "$r/plain" m0 '{"secrets": "link/secrets.yaml", "bindings": {}}' || fail "a plain checkout was refused: $(cat err)"
+            [ "$(jq -r .secrets.text run/chase/.envelope/m0.json)" = "the project's own" ] || fail "the project's sops file was not staged"
+
+            # (a) A tracked link/f, link then made a link to a host
+            # directory: the project's own name for its sops file, and the
+            # host's in its place.
+            checkout "$r/a" link/secrets.yaml
+            rm -rf "$r/a/link"
+            ln -s "$PWD/hostsecret" "$r/a/link"
+            refused "$r/a" m1 link
+            copyRefused "$r/a" out-a link
+
+            # (b) The same, a directory deeper.
+            checkout "$r/b" a/b/secrets.yaml
+            rm -rf "$r/b/a/b"
+            ln -s "$PWD/hostsecret" "$r/b/a/b"
+            refused "$r/b" m2 a/b
+            copyRefused "$r/b" out-b a/b
+
+            # A directory made a file is refused, and is not called a link.
+            checkout "$r/file" d/secrets.yaml
+            rm -rf "$r/file/d"
+            echo x > "$r/file/d"
+            if approve "$r/file" m3 '{"bindings": {}}'; then fail "a tracked directory made a file was approved"; fi
+            grep -qF "chase: $r/file: its tracked files could not be copied: d: it is not a directory" err || fail "a directory made a file was not said: $(cat err)"
+
+            # A tracked file missing from the work tree is refused, as tar
+            # refused it.
+            checkout "$r/gone" gone
+            rm "$r/gone/gone"
+            if approve "$r/gone" m4 '{"bindings": {}}'; then fail "a checkout missing a tracked file was approved"; fi
+            grep -qF "chase: $r/gone: its tracked files could not be copied: gone: " err || fail "a missing file was not said: $(cat err)"
+
+            # (c) A tracked file that is a link to a host file is a link in
+            # the snapshot, pointing where it did, and never its target's
+            # bytes: named as the sops file, it is outside the checkout.
+            checkout "$r/c" tool
+            ln -s "$PWD/hostsecret/secrets.yaml" "$r/c/secrets.yaml"
+            chmod +x "$r/c/tool"
+            git -C "$r/c" add -A
+            if approve "$r/c" m5 '{"secrets": "secrets.yaml", "bindings": {}}'; then fail "a sops file linked to the host's was approved"; fi
+            grep -qF "chase: $r/c: secrets.yaml is outside the checkout" err || fail "a linked sops file was not said: $(cat err)"
+            ! leaked || fail "a tracked link was read through"
+            mkdir out-c
+            git -C "$r/c" ls-files -z --cached | "$copy" "$r/c" out-c || fail "a checkout with a tracked link was not copied"
+            [ -L out-c/secrets.yaml ] && [ "$(readlink out-c/secrets.yaml)" = "$PWD/hostsecret/secrets.yaml" ] \
+              || fail "a tracked link was not copied as itself: $(ls -l out-c)"
+            [ -f out-c/tool ] && [ ! -L out-c/tool ] && [ -x out-c/tool ] && [ "$(cat out-c/tool)" = "the project's own" ] \
+              || fail "a tracked file was not copied with its exec bit: $(ls -l out-c)"
+            [ -f out-c/flake.nix ] && [ ! -x out-c/flake.nix ] || fail "a plain file was copied executable"
+
+            # (d) A flake.nix made a link, to a flake that says chaseModules,
+            # is not the checkout's.
+            checkout "$r/d"
+            ln -sf "$PWD/hostflake.nix" "$r/d/flake.nix"
+            if approve "$r/d" m6 '{"bindings": {}}'; then fail "a flake.nix made a link was approved"; fi
+            grep -qF "chase: $r/d: flake.nix is not a tracked file" err || fail "a linked flake.nix was not said: $(cat err)"
+            [ ! -e run/chase/.envelope/m6.json ] || fail "a linked flake.nix was staged"
+
+            # (e) What a session named is said with its control bytes made
+            # plain, never sent to the terminal.
+            esc=$(printf 'x\033]0;TITLE\007y')
+            checkout "$r/e" "$esc/secrets.yaml"
+            rm -rf "$r/e/$esc"
+            ln -s "$PWD/hostsecret" "$r/e/$esc"
+            refused "$r/e" m7 'x?]0;TITLE?y'
+            ! LC_ALL=C grep -q "$(printf '[\033\007]')" err || fail "a control byte reached the terminal: $(od -c err)"
+            # And C1: CSI as UTF-8, and as the raw byte.
+            c1=$(printf 'x\302\2331my\233z')
+            checkout "$r/e1" "$c1/secrets.yaml"
+            rm -rf "$r/e1/$c1"
+            ln -s "$PWD/hostsecret" "$r/e1/$c1"
+            refused "$r/e1" m8 'x?1my?z'
+            ! LC_ALL=C grep -q "$(printf '[\200-\237]')" err || fail "a C1 control reached the terminal: $(od -c err)"
+
+            # (f) The checkout's git config is the session's: a command it
+            # names is never run by approve. The same config does run it
+            # when git is asked plainly, so the test would see it.
+            checkout "$r/f"
+            git -C "$r/f" config core.fsmonitor "touch $PWD/fsmonitor-ran; false"
+            git -C "$r/f" ls-files >/dev/null 2>&1 || true
+            [ -e fsmonitor-ran ] || fail "core.fsmonitor is not run by a plain git ls-files, so (f) proves nothing"
+            rm fsmonitor-ran
+            approve "$r/f" m9 '{"bindings": {}}' || fail "a checkout with core.fsmonitor set was refused: $(cat err)"
+            [ ! -e fsmonitor-ran ] || fail "approve ran the checkout's core.fsmonitor"
+
+            # WHAT THE INDEX LISTS is the session's to write, so a path
+            # that would leave the checkout is refused, whatever it is.
+            mkdir out-x
+            for p in /etc/passwd ../hostsecret/secrets.yaml a/../../x a//b ./flake.nix a/. ""; do
+              if why=$(printf '%s\0' "$p" | "$copy" "$r/plain" out-x); then fail "the copier took '$p'"; fi
+              [ "$why" = "its index lists $p, which is not a path below it" ] || fail "'$p' was refused for something else: $why"
+            done
+            [ -z "$(ls -A out-x)" ] || fail "a path that leaves the checkout was copied: $(ls -A out-x)"
+            # An unmerged path, listed once for each stage, is copied once.
+            mkdir out-u
+            printf 'flake.nix\0flake.nix\0flake.nix\0' | "$copy" "$r/plain" out-u || fail "a path listed three times was refused"
+
+            touch $out
+          '';
 
           gcloud-session = pkgs.testers.runNixOSTest (import ./tests/gcloud-session.nix { inherit self home-manager; });
 
