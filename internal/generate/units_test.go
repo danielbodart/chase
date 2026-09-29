@@ -238,6 +238,14 @@ func TestReadYAML(t *testing.T) {
 			`[true,"yes","0o7",10,1000,90,685230.15,1.0,"1e5",1.7976931348623157e+308,-1.7976931348623157e+308,"5",12]`},
 		{"", "null"},
 		{"x: |\n  a\n  b\n", `{"x":"a\nb\n"}`},
+		// A merge that leads back to the mapping it is in, which PyYAML
+		// deletes before it follows, so it ends: what PyYAML 6.0.3 read.
+		{"zz: &z\n  a: 1\n  <<: *z\n", `{"zz":{"a":1}}`},
+		{"zz: &z\n  <<: *z\n  a: 1\n", `{"zz":{"a":1}}`},
+		{"a: &a {x: 1, <<: [*a, {y: 2}]}\n", `{"a":{"y":2,"x":1}}`},
+		{"a: &a {<<: &b {<<: *a, q: 1}, r: 2}\nc: *b\n", `{"a":{"r":2,"q":1},"c":{"r":2,"q":1}}`},
+		{"a: &a {=: 1, <<: *a}\n", `{"a":{"=":1}}`},
+		{"a: &a {p: 1, <<: {<<: *a, s: 2}}\n", `{"a":{"p":1,"s":2}}`},
 	} {
 		v, err := readYAML([]byte(c.in))
 		if err != nil {
@@ -249,7 +257,7 @@ func TestReadYAML(t *testing.T) {
 			t.Errorf("readYAML(%q) = %s\nwant %s", c.in, got, c.want)
 		}
 	}
-	for _, in := range []string{"t: 2001-12-14", "a: 1\n---\nb: 2", "? [a]\n: 1", "x: !!binary aGk=", "x: !custom 1", "a: &a [*a]"} {
+	for _, in := range []string{"t: 2001-12-14", "a: 1\n---\nb: 2", "? [a]\n: 1", "x: !!binary aGk=", "x: !custom 1", "a: &a [*a]", "a: &a {x: 1, b: &b {y: 2, <<: *a}, <<: *b}"} {
 		if _, err := readYAML([]byte(in)); err == nil {
 			t.Errorf("readYAML(%q) read what JSON cannot hold", in)
 		}
@@ -338,7 +346,7 @@ func TestFetchRetries(t *testing.T) {
 // A spec neither given nor vendored is fetched from the pinned URL, and
 // read only once it hashes as pinned.
 func TestOperationsFetchesThePin(t *testing.T) {
-	spec := read(t, filepath.Join(repo, "tests", "operations", "legacy", "openapi.json"))
+	spec := read(t, filepath.Join(fixtures, "legacy", "openapi.json"))
 	served := spec
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(served)) }))
 	defer srv.Close()
@@ -372,6 +380,7 @@ func TestRunOperationsUsage(t *testing.T) {
 		}
 	}
 	// Without -apps, the checkout's apps: this one's.
+	checkout(t, "apps")
 	var ee *ExitError
 	err := RunOperations(context.Background(), []string{"no-such-app"}, &stderr)
 	abs, _ := filepath.Abs(filepath.Join(repo, "apps", "no-such-app", "source.json"))
@@ -395,5 +404,23 @@ func TestChaseDoesNotImportTheGenerator(t *testing.T) {
 		if strings.Contains(dep, "yaml") || strings.Contains(dep, "gqlparser") || strings.HasSuffix(dep, "/internal/generate") {
 			t.Errorf("cmd/chase imports %s", dep)
 		}
+	}
+}
+
+// A pinned spec is skipped only where the network is not there: an answer,
+// a 404 among them, is a pin that is broken, and fails.
+func TestUnreachableIsOnlyTheNetworksAbsence(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	err := fetch(context.Background(), srv.Client(), srv.URL+"/gone", filepath.Join(t.TempDir(), "spec"))
+	if err == nil || unreachable(err) {
+		t.Fatalf("a 404 was taken for no network: %v", err)
+	}
+	closed := httptest.NewServer(http.NotFoundHandler())
+	url := closed.URL
+	closed.Close()
+	err = fetch(context.Background(), &http.Client{}, url+"/spec", filepath.Join(t.TempDir(), "spec"))
+	if err == nil || !unreachable(err) {
+		t.Fatalf("a refused connection was not taken for no network: %v", err)
 	}
 }

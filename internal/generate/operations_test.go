@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,8 +28,28 @@ import (
 // repo is the checkout this test is in.
 var repo = filepath.Join("..", "..")
 
-// fixture is a fresh copy of the apps the check works on: the two fixtures
-// and Docker's own.
+// fixtures are the check's two apps, tests/operations/{demo,legacy}, kept
+// here too: the package's own tests are run where only go.mod, go.sum, cmd
+// and internal are (the flake's buildGoModule source), so what they read
+// must be under internal. TestFixturesAreTheChecks holds the two copies
+// equal wherever the whole checkout is.
+var fixtures = filepath.Join("testdata", "operations")
+
+// checkout is the checkout's own directory at path, or the test is skipped
+// where the source it is run from has only go.mod, go.sum, cmd and
+// internal: what is committed under apps/ is compared by a run with the
+// whole tree, `go test ./...` in `nix develop` or a flake check given it.
+func checkout(t *testing.T, path ...string) string {
+	t.Helper()
+	dir := filepath.Join(append([]string{repo}, path...)...)
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		t.Skipf("%s is not in this source, so is not compared", filepath.Join(path...))
+	}
+	return dir
+}
+
+// fixture is a fresh copy of the apps the check works on: its two
+// fixtures, and where the helpers are given it, Docker's own.
 type fixture struct {
 	t    *testing.T
 	apps string
@@ -38,10 +59,34 @@ type fixture struct {
 func fresh(t *testing.T) *fixture {
 	t.Helper()
 	apps := filepath.Join(t.TempDir(), "apps")
-	copyDir(t, filepath.Join(repo, "tests", "operations", "demo"), filepath.Join(apps, "demo"))
-	copyDir(t, filepath.Join(repo, "tests", "operations", "legacy"), filepath.Join(apps, "legacy"))
-	copyDir(t, filepath.Join(repo, "apps", "docker"), filepath.Join(apps, "docker"))
+	copyDir(t, filepath.Join(fixtures, "demo"), filepath.Join(apps, "demo"))
+	copyDir(t, filepath.Join(fixtures, "legacy"), filepath.Join(apps, "legacy"))
 	return &fixture{t: t, apps: apps, app: "demo"}
+}
+
+// TestFixturesAreTheChecks: the fixtures here are, byte for byte, the ones
+// the flake's operations check and scripts/operations.sh were run on.
+func TestFixturesAreTheChecks(t *testing.T) {
+	check := checkout(t, "tests", "operations")
+	for _, app := range []string{"demo", "legacy"} {
+		ours, err := os.ReadDir(filepath.Join(fixtures, app))
+		if err != nil {
+			t.Fatal(err)
+		}
+		theirs, err := os.ReadDir(filepath.Join(check, app))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ours) != len(theirs) {
+			t.Fatalf("%s: %d files here, %d in tests/operations", app, len(ours), len(theirs))
+		}
+		for _, e := range theirs {
+			want := read(t, filepath.Join(check, app, e.Name()))
+			if got := read(t, filepath.Join(fixtures, app, e.Name())); got != want {
+				t.Fatalf("testdata/operations/%s/%s is not tests/operations/%s/%s", app, e.Name(), app, e.Name())
+			}
+		}
+	}
 }
 
 func copyDir(t *testing.T, from, to string) {
@@ -416,19 +461,38 @@ func TestOperationsOpenAPI3(t *testing.T) {
 	f.refuses("a server that is not the spec's", `servers is ["https://api.example.invalid/api/v3"], not https://api.example.invalid/api/v4`)
 }
 
-// pinned is the spec an app's source.json pins, fetched; the test is
-// skipped where it cannot be, as the check had it from a fixed-output
-// fetch and a test here has only the network.
+// specsVariable names the pinned specs a run without the network is given:
+// whitespace-separated paths, as a flake check's fixed-output fetches of
+// each app's pin would be. The check had Docker's spec from one, so it
+// compared Docker offline and never skipped.
+const specsVariable = "CHASE_GENERATE_SPECS"
+
+// pinned is the spec an app's source.json pins: the one of
+// $CHASE_GENERATE_SPECS that hashes as pinned, or else fetched. Only a
+// failure to reach the network skips the test; any other -- a 404, a spec
+// that is not the pin -- fails it, as a pin whose URL has gone is broken.
 func pinned(t *testing.T, url, sum, name string) string {
 	t.Helper()
+	for _, given := range strings.Fields(os.Getenv(specsVariable)) {
+		data, err := os.ReadFile(given)
+		if err != nil {
+			t.Fatalf("%s: %v", specsVariable, err)
+		}
+		if sha256Hex(data) == sum {
+			return given
+		}
+	}
 	if testing.Short() {
-		t.Skip("fetches the pinned spec")
+		t.Skipf("fetches the pinned spec, which %s does not give", specsVariable)
 	}
 	path := filepath.Join(t.TempDir(), name)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	if err := fetch(ctx, &http.Client{Timeout: 3 * time.Minute}, url, path); err != nil {
-		t.Skipf("the pinned spec could not be fetched, so is not compared: %v", err)
+		if unreachable(err) {
+			t.Skipf("the pinned spec could not be fetched, and %s does not give it, so is not compared: %v", specsVariable, err)
+		}
+		t.Fatalf("the pinned spec could not be fetched: %v", err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -440,10 +504,18 @@ func pinned(t *testing.T, url, sum, name string) string {
 	return path
 }
 
+// unreachable is whether err is the network's absence -- no name resolves,
+// no connection is made, nothing answers in time -- rather than an answer.
+func unreachable(err error) bool {
+	var dns *net.DNSError
+	var op *net.OpError
+	return errors.As(err, &dns) || errors.As(err, &op) || timeout(err) || errors.Is(err, context.DeadlineExceeded)
+}
+
 // pinOf is what the committed app's source.json pins.
 func pinOf(t *testing.T, app string, path ...string) (url, sum string) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(repo, "apps", app, "source.json"))
+	data, err := os.ReadFile(filepath.Join(checkout(t, "apps", app), "source.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,15 +530,17 @@ func pinOf(t *testing.T, app string, path ...string) (url, sum string) {
 // Docker, from the pinned Engine API spec: what is committed is what it
 // generates, byte for byte.
 func TestOperationsDocker(t *testing.T) {
+	docker := checkout(t, "apps", "docker")
 	url, sum := pinOf(t, "docker")
 	spec := pinned(t, url, sum, "swagger.yaml")
 	f := fresh(t)
 	f.app = "docker"
+	copyDir(t, docker, f.path(""))
 	if err, said := f.generate(spec); err != nil {
 		t.Fatalf("Docker did not generate from its pinned spec: %s", said)
 	}
 	for _, name := range []string{"operations.json", "known.json"} {
-		committed, err := os.ReadFile(filepath.Join(repo, "apps", "docker", name))
+		committed, err := os.ReadFile(filepath.Join(docker, name))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -524,8 +598,9 @@ func TestOperationsDocker(t *testing.T) {
 // itself names each admitted operation once, and no pinned or admitted
 // field twice.
 func TestDockerAdmitNamesEachOnce(t *testing.T) {
+	docker := checkout(t, "apps", "docker")
 	for _, name := range []string{"admit.json", "source.json"} {
-		data, err := os.ReadFile(filepath.Join(repo, "apps", "docker", name))
+		data, err := os.ReadFile(filepath.Join(docker, name))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -533,7 +608,7 @@ func TestDockerAdmitNamesEachOnce(t *testing.T) {
 			t.Fatalf("apps/docker/%s gives a key twice in one object (%v)", name, err)
 		}
 	}
-	data, err := os.ReadFile(filepath.Join(repo, "apps", "docker", "admit.json"))
+	data, err := os.ReadFile(filepath.Join(docker, "admit.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -551,8 +626,9 @@ func TestDockerAdmitNamesEachOnce(t *testing.T) {
 func TestOperationsCommitted(t *testing.T) {
 	for _, app := range []string{"huggingface", "cloudflare", "github"} {
 		t.Run(app, func(t *testing.T) {
+			committed := checkout(t, "apps", app)
 			apps := filepath.Join(t.TempDir(), "apps")
-			copyDir(t, filepath.Join(repo, "apps", app), filepath.Join(apps, app))
+			copyDir(t, committed, filepath.Join(apps, app))
 			var spec string
 			if !isFile(filepath.Join(apps, app, "openapi.json")) {
 				url, sum := pinOf(t, app)
@@ -577,7 +653,7 @@ func TestOperationsCommitted(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want, err := os.ReadFile(filepath.Join(repo, "apps", app, "operations.json"))
+			want, err := os.ReadFile(filepath.Join(committed, "operations.json"))
 			if err != nil {
 				t.Fatal(err)
 			}
