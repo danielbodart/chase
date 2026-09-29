@@ -205,6 +205,7 @@ func (f *Failure) Error() string { return fmt.Sprintf("operations: %s: %s", f.Na
 type operation struct {
 	method      string
 	spec        string
+	specKey     any // the path's key, a number where the paths are an array
 	rest        []any
 	id          any
 	summary     any
@@ -309,8 +310,12 @@ func classify(in classifyInput) (string, error) {
 	var ops []*operation
 	for _, pe := range q.entries(q.get(root, "paths")) {
 		shared := alt(q.get(pe.value, "parameters"), []any{})
+		// Paths written as an array have numbers for keys, which jq
+		// carries as far as the first thing it cannot do with one.
+		path, pathIsString := pe.key.(string)
 		for _, me := range q.entries(pe.value) {
-			if !methodKeys[me.key] {
+			method, ok := me.key.(string)
+			if !ok || !methodKeys[method] {
 				continue
 			}
 			params := append(append([]any{}, q.iter(shared)...), q.iter(alt(q.get(me.value, "parameters"), []any{}))...)
@@ -324,7 +329,11 @@ func classify(in classifyInput) (string, error) {
 			}
 			rest := []any{}
 			for _, s := range slashed {
-				if strings.HasSuffix(pe.key, "/{"+interp(s)+"}") {
+				if !pathIsString {
+					q.errorf("endswith() requires string inputs")
+					return "", jqErr()
+				}
+				if strings.HasSuffix(path, "/{"+interp(s)+"}") {
 					rest = append(rest, s)
 				}
 			}
@@ -345,7 +354,7 @@ func classify(in classifyInput) (string, error) {
 				}
 			}
 			ops = append(ops, &operation{
-				method: strings.ToUpper(me.key), spec: pe.key, rest: rest,
+				method: strings.ToUpper(method), spec: interp(pe.key), specKey: pe.key, rest: rest,
 				id: q.get(me.value, "operationId"), summary: q.get(me.value, "summary"),
 				description: q.get(me.value, "description"), category: category,
 			})
@@ -372,6 +381,10 @@ func classify(in classifyInput) (string, error) {
 	// empty segment or a trailing slash is a path no client sends.
 	odd = nil
 	for _, o := range ops {
+		if _, ok := o.specKey.(string); !ok {
+			q.errorf("%s and string (\"*\") cannot have their containment checked", describe(o.specKey))
+			return "", jqErr()
+		}
 		if oddPath(o.spec) {
 			odd = append(odd, o.spec)
 		}
@@ -483,23 +496,26 @@ func classify(in classifyInput) (string, error) {
 	for _, f := range in.fields {
 		naturals[f.name] = fieldNatural(f.name)
 	}
-	reclassed := map[string]*Object{}
+	// A class written as an array is taken as jq's keys and to_entries
+	// take one: an empty array names nothing, and another names its
+	// indices, which fail below where jq failed on them.
+	keysOf := map[string][]any{}
 	for _, c := range classes {
-		reclassed[c] = q.object(reclassedV[c])
+		keysOf[c] = q.keys(reclassedV[c])
 	}
 	if q.err != nil {
 		return "", jqErr()
 	}
 	var all []any
 	for _, c := range classes {
-		all = append(all, strs(reclassed[c].SortedKeys())...)
+		all = append(all, keysOf[c]...)
 	}
 	if both := dups(all); len(both) > 0 {
 		return "", fail("in more than one class: %s", toJSON(both))
 	}
 	unreasoned := []any{}
 	for _, c := range classes {
-		for _, e := range q.entries(reclassed[c]) {
+		for _, e := range q.entries(reclassedV[c]) {
 			if s, ok := e.value.(string); !ok || s == "" {
 				unreasoned = append(unreasoned, e.key)
 			}
@@ -510,8 +526,14 @@ func classify(in classifyInput) (string, error) {
 	}
 	missing := []any{}
 	for _, c := range classes {
-		for _, k := range reclassed[c].SortedKeys() {
-			if _, ok := naturals[k]; !ok {
+		for _, k := range keysOf[c] {
+			s, ok := k.(string)
+			if !ok {
+				// `$natural[.]`, with an array's index.
+				q.errorf("Cannot index object with %s", typeName(k))
+				return "", jqErr()
+			}
+			if _, ok := naturals[s]; !ok {
 				missing = append(missing, k)
 			}
 		}
@@ -521,8 +543,8 @@ func classify(in classifyInput) (string, error) {
 	}
 	same := []any{}
 	for _, c := range classes {
-		for _, k := range reclassed[c].SortedKeys() {
-			if naturals[k] == c {
+		for _, k := range keysOf[c] {
+			if naturals[k.(string)] == c {
 				same = append(same, k)
 			}
 		}
@@ -532,8 +554,8 @@ func classify(in classifyInput) (string, error) {
 	}
 	exception := map[string]string{}
 	for _, c := range classes {
-		for _, k := range reclassed[c].SortedKeys() {
-			exception[k] = c
+		for _, k := range keysOf[c] {
+			exception[k.(string)] = c
 		}
 	}
 

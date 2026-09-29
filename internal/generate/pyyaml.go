@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/big"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -87,7 +88,15 @@ func readYAML(data []byte) (any, error) {
 	if len(doc.Content) == 0 {
 		return nil, nil
 	}
-	c := &pyConstructor{active: map[*yaml.Node]bool{}}
+	c := &pyConstructor{
+		active:   map[*yaml.Node]bool{},
+		lists:    map[*yaml.Node]*pairList{},
+		built:    map[*yaml.Node][][2]*yaml.Node{},
+		retagged: map[*yaml.Node]bool{},
+	}
+	if err := c.construct(doc.Content[0]); err != nil {
+		return nil, err
+	}
 	return c.value(doc.Content[0])
 }
 
@@ -95,12 +104,87 @@ type pyConstructor struct {
 	// active are the collections being built, through which an alias back
 	// is a circular reference, which json.dump refuses.
 	active map[*yaml.Node]bool
+	// lists are each mapping's node.value as PyYAML's flatten_mapping has
+	// left it so far. flatten_mapping changes the node itself -- it deletes
+	// each merge key it meets, in place, before it follows it, and puts
+	// what it merged in front afterwards -- so a later flatten of the same
+	// node, through an alias or through a merge that leads back to it,
+	// sees what an earlier one left. They are pointers, as Python's lists
+	// are references: a list taken before a later flatten deletes from it
+	// sees the deletion, and one taken before it is replaced does not see
+	// the replacement.
+	lists map[*yaml.Node]*pairList
+	// built are the pairs each mapping is constructed from: its node.value
+	// as it was when its construct_mapping ran.
+	built map[*yaml.Node][][2]*yaml.Node
+	// retagged are the `=` keys flatten_mapping has made strings.
+	retagged map[*yaml.Node]bool
 }
 
-func (c *pyConstructor) value(n *yaml.Node) (any, error) {
+// pairList is one of PyYAML's MappingNode.value lists.
+type pairList struct{ pairs [][2]*yaml.Node }
+
+func (c *pyConstructor) list(n *yaml.Node) *pairList {
+	l, ok := c.lists[n]
+	if !ok {
+		l = &pairList{}
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			l.pairs = append(l.pairs, [2]*yaml.Node{n.Content[i], n.Content[i+1]})
+		}
+		c.lists[n] = l
+	}
+	return l
+}
+
+func resolveAlias(n *yaml.Node) *yaml.Node {
 	for n.Kind == yaml.AliasNode {
 		n = n.Alias
 	}
+	return n
+}
+
+// construct runs each mapping's flatten_mapping in the order safe_load
+// does, and keeps the pairs it then constructs the mapping from. safe_load
+// constructs no collection inside another: it gives each an empty one and
+// fills it later, in the order they were met, so a mapping's
+// flatten_mapping runs only after those of every collection met before it.
+// Only where merges lead round a cycle does that order change what a
+// mapping holds, and this queue keeps it.
+func (c *pyConstructor) construct(root *yaml.Node) error {
+	seen := map[*yaml.Node]bool{}
+	var queue []*yaml.Node
+	meet := func(n *yaml.Node) {
+		n = resolveAlias(n)
+		if (n.Kind == yaml.MappingNode || n.Kind == yaml.SequenceNode) && !seen[n] {
+			seen[n] = true
+			queue = append(queue, n)
+		}
+	}
+	meet(root)
+	for len(queue) > 0 {
+		n := queue[0]
+		queue = queue[1:]
+		if n.Kind == yaml.SequenceNode {
+			for _, e := range n.Content {
+				meet(e)
+			}
+			continue
+		}
+		if err := c.flatten(n); err != nil {
+			return err
+		}
+		pairs := slices.Clone(c.list(n).pairs)
+		c.built[n] = pairs
+		for _, p := range pairs {
+			meet(p[0])
+			meet(p[1])
+		}
+	}
+	return nil
+}
+
+func (c *pyConstructor) value(n *yaml.Node) (any, error) {
+	n = resolveAlias(n)
 	tag := ""
 	if n.Style&yaml.TaggedStyle != 0 {
 		tag = n.Tag
@@ -135,12 +219,8 @@ func (c *pyConstructor) value(n *yaml.Node) (any, error) {
 		}
 		c.active[n] = true
 		defer delete(c.active, n)
-		pairs, err := c.flatten(n)
-		if err != nil {
-			return nil, err
-		}
 		out := NewObject()
-		for _, p := range pairs {
+		for _, p := range c.built[n] {
 			k, err := c.key(p[0])
 			if err != nil {
 				return nil, err
@@ -156,61 +236,74 @@ func (c *pyConstructor) value(n *yaml.Node) (any, error) {
 	return nil, fmt.Errorf("line %d: a node PyYAML would not construct", n.Line)
 }
 
-// flatten is PyYAML's flatten_mapping: each `<<` key's mapping, or each of
-// its sequence of mappings, is put before the mapping's own pairs -- the
+// flatten is PyYAML's flatten_mapping, step for step: each `<<` key is
+// deleted from the mapping, and its mapping, or each of its sequence of
+// mappings, flattened in turn, is put before the mapping's own pairs -- the
 // later of a sequence first, so that the earlier, set after it, wins -- and
-// the own pairs, set last, win over all of them.
-func (c *pyConstructor) flatten(n *yaml.Node) ([][2]*yaml.Node, error) {
-	var merge, own [][2]*yaml.Node
-	for i := 0; i+1 < len(n.Content); i += 2 {
-		k, v := n.Content[i], n.Content[i+1]
-		if !isMergeKey(k) {
-			own = append(own, [2]*yaml.Node{k, v})
-			continue
-		}
-		for v.Kind == yaml.AliasNode {
-			v = v.Alias
-		}
-		switch v.Kind {
-		case yaml.MappingNode:
-			sub, err := c.flatten(v)
-			if err != nil {
-				return nil, err
-			}
-			merge = append(merge, sub...)
-		case yaml.SequenceNode:
-			var subs [][][2]*yaml.Node
-			for _, s := range v.Content {
-				for s.Kind == yaml.AliasNode {
-					s = s.Alias
+// the own pairs, set last, win over all of them. The merge key is deleted
+// before what it names is flattened, so a merge that leads back to a
+// mapping being flattened finds that mapping without it, and ends: a
+// mapping that merges itself holds its own pairs twice, as PyYAML's does,
+// where following the merge again would recurse until the stack ran out.
+func (c *pyConstructor) flatten(n *yaml.Node) error {
+	var merge [][2]*yaml.Node
+	for index := 0; index < len(c.list(n).pairs); {
+		l := c.list(n)
+		k, v := l.pairs[index][0], l.pairs[index][1]
+		switch keyTag(k) {
+		case "merge":
+			l.pairs = slices.Delete(slices.Clone(l.pairs), index, index+1)
+			v = resolveAlias(v)
+			switch v.Kind {
+			case yaml.MappingNode:
+				if err := c.flatten(v); err != nil {
+					return err
 				}
-				if s.Kind != yaml.MappingNode {
-					return nil, fmt.Errorf("line %d: expected a mapping for merging", s.Line)
+				merge = append(merge, c.list(v).pairs...)
+			case yaml.SequenceNode:
+				var subs []*pairList
+				for _, s := range v.Content {
+					s = resolveAlias(s)
+					if s.Kind != yaml.MappingNode {
+						return fmt.Errorf("line %d: expected a mapping for merging", s.Line)
+					}
+					if err := c.flatten(s); err != nil {
+						return err
+					}
+					subs = append(subs, c.list(s))
 				}
-				sub, err := c.flatten(s)
-				if err != nil {
-					return nil, err
+				for i := len(subs) - 1; i >= 0; i-- {
+					merge = append(merge, subs[i].pairs...)
 				}
-				subs = append(subs, sub)
+			default:
+				return fmt.Errorf("line %d: expected a mapping or list of mappings for merging", v.Line)
 			}
-			for i := len(subs) - 1; i >= 0; i-- {
-				merge = append(merge, subs[i]...)
-			}
+		case "value":
+			c.retagged[k] = true
+			index++
 		default:
-			return nil, fmt.Errorf("line %d: expected a mapping or list of mappings for merging", v.Line)
+			index++
 		}
 	}
-	return append(merge, own...), nil
+	if len(merge) > 0 {
+		c.lists[n] = &pairList{pairs: append(merge, c.list(n).pairs...)}
+	}
+	return nil
 }
 
-func isMergeKey(k *yaml.Node) bool {
+// keyTag is the tag PyYAML's resolver gave a key, "merge" and "value" among
+// them.
+func keyTag(k *yaml.Node) string {
 	if k.Kind != yaml.ScalarNode {
-		return false
+		return ""
 	}
 	if k.Style&yaml.TaggedStyle != 0 {
-		return k.Tag == "!!merge"
+		return strings.TrimPrefix(k.Tag, "!!")
 	}
-	return plain(k) && pyResolve(k.Value) == "merge"
+	if plain(k) {
+		return pyResolve(k.Value)
+	}
+	return ""
 }
 
 func plain(n *yaml.Node) bool {
@@ -227,12 +320,13 @@ func (c *pyConstructor) key(n *yaml.Node) (string, error) {
 	if n.Kind != yaml.ScalarNode {
 		return "", fmt.Errorf("line %d: found unhashable key", n.Line)
 	}
+	if c.retagged[n] {
+		// A `=` key is a string, as flatten_mapping made it.
+		return n.Value, nil
+	}
 	tag := ""
 	if n.Style&yaml.TaggedStyle != 0 {
 		tag = n.Tag
-	} else if plain(n) && pyResolve(n.Value) == "value" {
-		// A `=` key is a string, as flatten_mapping makes it.
-		return n.Value, nil
 	}
 	v, err := c.scalar(n, tag)
 	if err != nil {

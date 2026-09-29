@@ -88,8 +88,12 @@ func TestVersionOutsideARepository(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")
 	}
+	if _, err := os.Stat("/VERSION"); err == nil {
+		t.Skip("/VERSION exists, which the script would have read")
+	}
 	_, err := Version(VersionOptions{Dir: t.TempDir()})
-	if err == nil || !strings.HasPrefix(err.Error(), "version: git rev-parse --show-toplevel: ") {
-		t.Fatalf("%v", err)
+	var ee *ExitError
+	if !errors.As(err, &ee) || ee.Code != 1 || !strings.HasPrefix(err.Error(), "version: git rev-parse --show-toplevel: ") {
+		t.Fatalf("outside a repository, not refused with status 1 as the script's failed redirect was: %v", err)
 	}
 }

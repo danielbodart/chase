@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -45,12 +44,16 @@ func Version(o VersionOptions) (string, error) {
 	if now == nil {
 		now = time.Now
 	}
-	top, err := gitOutput(o.Dir, "rev-parse", "--show-toplevel")
+	// The script read "$(git rev-parse --show-toplevel)/VERSION": where
+	// git failed, outside a repository, that is /VERSION, which the
+	// redirect failed to open, and so the script's status was 1 rather
+	// than git's.
+	top, gitErr := gitOutput(o.Dir, "rev-parse", "--show-toplevel")
+	data, err := os.ReadFile(top + "/VERSION")
 	if err != nil {
-		return "", err
-	}
-	data, err := os.ReadFile(filepath.Join(top, "VERSION"))
-	if err != nil {
+		if gitErr != nil {
+			return "", &ExitError{Code: 1, Err: gitErr}
+		}
 		return "", &ExitError{Code: 1, Err: fmt.Errorf("version: %w", err)}
 	}
 	major := strings.Map(func(r rune) rune {
@@ -62,10 +65,9 @@ func Version(o VersionOptions) (string, error) {
 
 	// Counted from HEAD, not a branch name: on Actions the checkout is
 	// detached, and a pull request ref is not a rev at all.
-	shallow, err := gitOutput(o.Dir, "rev-parse", "--is-shallow-repository")
-	if err != nil {
-		return "", err
-	}
+	// A failure here was only a comparison with "true" that did not hold,
+	// as it was in the script's test.
+	shallow, _ := gitOutput(o.Dir, "rev-parse", "--is-shallow-repository")
 	if shallow == "true" {
 		return "", exitf(1, "version: shallow clone, so the commit count and the version are wrong.\n         In Actions, check out with `fetch-depth: 0`.")
 	}

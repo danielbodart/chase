@@ -3,6 +3,7 @@ package generate
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 )
 
@@ -93,34 +94,55 @@ func tryIter(v any) []any {
 	return out
 }
 
+// entry is one of to_entries: an object's key is a string, an array's its
+// index, a number.
 type entry struct {
-	key   string
+	key   any
 	value any
 }
 
-// entries is to_entries, in the object's order.
+// entries is to_entries: an object's in its order, and an array's by index,
+// as jq's keys_unsorted gives both.
 func (q *eval) entries(v any) []entry {
-	o, ok := v.(*Object)
-	if !ok {
-		q.errorf("%s has no keys", describe(v))
-		return nil
+	switch x := v.(type) {
+	case *Object:
+		out := make([]entry, 0, x.Len())
+		for _, k := range x.keys {
+			out = append(out, entry{k, x.vals[k]})
+		}
+		return out
+	case []any:
+		out := make([]entry, 0, len(x))
+		for i, e := range x {
+			out = append(out, entry{index(i), e})
+		}
+		return out
 	}
-	out := make([]entry, 0, o.Len())
-	for _, k := range o.keys {
-		out = append(out, entry{k, o.vals[k]})
-	}
-	return out
+	q.errorf("%s has no keys", describe(v))
+	return nil
 }
 
-// keys is jq's keys, sorted.
-func (q *eval) keys(v any) []string {
-	o, ok := v.(*Object)
-	if !ok {
-		q.errorf("%s has no keys", describe(v))
-		return nil
+// keys is jq's keys: an object's sorted, and an array's indices, numbers.
+// An exceptions.json class, or an admit.json, written as an array is taken
+// as jq took it: an empty one names nothing, and the indices of another
+// fail where jq failed on them.
+func (q *eval) keys(v any) []any {
+	switch x := v.(type) {
+	case *Object:
+		return strs(x.SortedKeys())
+	case []any:
+		out := make([]any, 0, len(x))
+		for i := range x {
+			out = append(out, index(i))
+		}
+		return out
 	}
-	return o.SortedKeys()
+	q.errorf("%s has no keys", describe(v))
+	return nil
 }
+
+// index is an array index as jq holds it.
+func index(i int) Number { return Number(strconv.Itoa(i)) }
 
 // object is v where it must be an object to go on.
 func (q *eval) object(v any) *Object {

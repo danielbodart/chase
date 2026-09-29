@@ -66,7 +66,14 @@ func known(name string, root any, admit any) (string, error) {
 			return jqErr()
 		}
 		for _, e := range q.entries(alt(q.get(v, "properties"), NewObject())) {
-			p := prefix + e.key
+			// `$prefix + .key`: an array of properties has numbers
+			// for keys, which do not add to a string.
+			key, ok := e.key.(string)
+			if !ok {
+				q.errorf("%s and %s cannot be added", describe(prefix), describe(e.key))
+				return jqErr()
+			}
+			p := prefix + key
 			*out = append(*out, p)
 			if err := fields(e.value, p+".", seen, out); err != nil {
 				return err
@@ -92,7 +99,7 @@ func known(name string, root any, admit any) (string, error) {
 	for _, item := range q.iter(q.get(root, "paths")) {
 		shared := alt(q.get(item, "parameters"), []any{})
 		for _, me := range q.entries(item) {
-			if !methodKeys[me.key] {
+			if key, ok := me.key.(string); !ok || !methodKeys[key] {
 				continue
 			}
 			op := me.value
