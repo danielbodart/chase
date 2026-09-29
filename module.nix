@@ -434,9 +434,15 @@ in
         };
       });
     };
+    # chase-docker-address: a project's loopback address and names, from its
+    # owner/repo. Here so that every part of chase that needs them runs the
+    # one derivation.
+    internal.dockerAddress = mkOption { type = types.package; readOnly = true; internal = true; };
   };
 
   config = {
+    chase.internal.dockerAddress = import ./lib/docker-address.nix { inherit pkgs; };
+
     assertions =
       let
         names = lib.attrNames cfg.tiers;

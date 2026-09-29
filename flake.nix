@@ -50,6 +50,12 @@
       nixosModules.chase = import ./module.nix self;
       nixosModules.default = self.nixosModules.chase;
 
+      # A project's loopback address and names, from its owner/repo, as
+      # chase-docker-address prints them: address, names, reserved and
+      # isProject (see ./lib/docker.nix). Pure Nix and the same on every system, so a
+      # consumer writing /etc/hosts derives them from here, not from a copy.
+      lib.docker = import ./lib/docker.nix { lib = nixpkgs.lib; };
+
       checks = forAllSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system}; in
         {
@@ -1375,6 +1381,135 @@
               [ "$(grep -cE '^"[A-Za-z]+": ' $app/admit.json)" = "$(jq 'keys | length' $app/admit.json)" ] \
                 && [ "$(jq 'keys | length' $app/admit.json)" = 31 ] \
                 || fail "admit.json does not name 31 operations, each once on its own line"
+              touch $out
+            '';
+
+          # The address and names frisket derives again and refuses a route
+          # over, and nix-config derives for /etc/hosts: these are the
+          # vectors nix-config and frisket assert. The reserved list is
+          # held to theirs by these vectors; the list itself this check
+          # cannot see.
+          docker-address =
+            let
+              address = import ./lib/docker-address.nix { inherit pkgs; };
+              docker = self.lib.docker;
+              as = n: nixpkgs.lib.concatStrings (nixpkgs.lib.replicate n "a");
+              # Every slug below that is given an address, with what lib.docker
+              # makes of it, for the script to be compared against.
+              slugs = [
+                "triptease/data-lab" "triptease/finance-api" "danielbodart/frisket"
+                "test/repo-66" "TripTease/Data-Lab" "bodar/bodar.ts" "bodar/bodar-ts"
+                "test/${as 63}" "test/${as 64}" "test/___" "test/..." "test/-x.-" "test/_.._"
+                "frisket/docker" "google/metadata" "google/data-lab" "frisket/foo"
+                "frisket/frisket" "google/google" "x/frisket"
+              ];
+              fromNix = map (slug: { inherit slug; address = docker.address slug; names = docker.names slug; }) slugs;
+              # Slugs frisket refuses, each of which lib.docker must refuse
+              # too; those it gives an address or names to are listed.
+              refused = [
+                "triptease" "triptease/data-lab/x" "" "${nixpkgs.lib.concatStrings (nixpkgs.lib.replicate 40 "o")}/repo"
+                "test/.." "test/." "-test/repo" "test/${nixpkgs.lib.concatStrings (nixpkgs.lib.replicate 101 "r")}"
+                "test/a b" "test/repo\nx" "test/ré" "a/b/c" "evil/../data-lab" "a/rép" "/x"
+              ];
+              acceptedByNix = builtins.filter
+                (slug: (builtins.tryEval (docker.address slug)).success
+                  || (builtins.tryEval (builtins.deepSeq (docker.names slug) true)).success)
+                refused;
+            in
+            pkgs.runCommand "docker-address" {
+              nativeBuildInputs = [ address pkgs.jq ];
+              fromNix = builtins.toJSON fromNix;
+              acceptedByNix = builtins.toJSON acceptedByNix;
+              passAsFile = [ "fromNix" "acceptedByNix" ];
+            } ''
+              fail() { echo "docker-address: $*" >&2; exit 1; }
+              as() { printf 'a%.0s' $(seq "$1"); }
+              gives() {
+                local got
+                got=$(chase-docker-address "$1") || fail "$1 was refused"
+                [ "$(jq -r .address <<< "$got")" = "$2" ] || fail "$1 is not at $2: $got"
+                [ "$(jq -c .names <<< "$got")" = "$3" ] || fail "$1 is not named $3: $got"
+                [ "$(jq -r .project <<< "$got")" = "''${1,,}" ] || fail "$1 is not its own project: $got"
+              }
+              refuses() {
+                ! chase-docker-address "$1" 2>$TMPDIR/err || fail "$1 was given an address"
+                [ -s $TMPDIR/err ] || fail "$1 was refused without a reason"
+              }
+
+              gives triptease/data-lab 127.1.191.78 '["data-lab.internal","data-lab.triptease.internal"]'
+              gives triptease/finance-api 127.6.18.253 '["finance-api.internal","finance-api.triptease.internal"]'
+              gives danielbodart/frisket 127.103.202.234 '["frisket.danielbodart.internal"]'
+              gives test/repo-66 127.211.18.75 '["repo-66.internal","repo-66.test.internal"]'
+              gives TripTease/Data-Lab 127.1.191.78 '["data-lab.internal","data-lab.triptease.internal"]'
+
+              # The label folds "." to "-", so two repos of one owner can
+              # share both names, at different addresses.
+              gives bodar/bodar.ts 127.100.84.99 '["bodar-ts.internal","bodar-ts.bodar.internal"]'
+              gives bodar/bodar-ts 127.113.253.232 '["bodar-ts.internal","bodar-ts.bodar.internal"]'
+
+              # A DNS label is at most 63 characters, and a repo that folds
+              # to nothing leaves no label at all.
+              gives "test/$(as 63)" 127.9.96.222 "[\"$(as 63).internal\",\"$(as 63).test.internal\"]"
+              gives "test/$(as 64)" 127.60.34.62 '[]'
+              [ "$(chase-docker-address test/___ | jq -c .names)" = '[]' ] || fail "a repo of only underscores was named"
+              [ "$(chase-docker-address test/... | jq -c .names)" = '[]' ] || fail "a repo of only dots was named"
+              [ "$(chase-docker-address test/-x.- | jq -c .names)" = '["x.internal","x.test.internal"]' ] \
+                || fail "the label's ends were not trimmed"
+
+              # A name that is already something else's is never generated.
+              [ "$(chase-docker-address frisket/docker | jq -c .names)" = '["docker.internal"]' ] \
+                || fail "frisket/docker was given frisket's own route host"
+              [ "$(chase-docker-address google/metadata | jq -c .names)" = '["metadata.internal"]' ] \
+                || fail "google/metadata was given GCE's metadata server"
+
+              # All of frisket.internal and google.internal is reserved, as
+              # frisket and nix-config hold it: an owner frisket or google
+              # keeps only its short name, and repo "frisket" or "google" has
+              # no short name either.
+              [ "$(chase-docker-address google/data-lab | jq -c .names)" = '["data-lab.internal"]' ] \
+                || fail "google/data-lab was given a name under google.internal"
+              [ "$(chase-docker-address frisket/foo | jq -c .names)" = '["foo.internal"]' ] \
+                || fail "frisket/foo was given a name under frisket.internal"
+              [ "$(chase-docker-address frisket/frisket | jq -c .names)" = '[]' ] \
+                || fail "frisket/frisket was given a name under frisket.internal"
+              [ "$(chase-docker-address google/google | jq -c .names)" = '[]' ] \
+                || fail "google/google was given a name under google.internal"
+              [ "$(chase-docker-address x/frisket | jq -c .names)" = '["frisket.x.internal"]' ] \
+                || fail "x/frisket was given frisket.internal"
+              [ "$(chase-docker-address test/_.._ | jq -c .names)" = '[]' ] \
+                || fail "a repo of only punctuation was named"
+
+              # What frisket would refuse as a route's project is refused here.
+              refuses triptease
+              refuses triptease/data-lab/x
+              refuses ""
+              refuses "$(printf 'o%.0s' $(seq 40))/repo"
+              refuses test/..
+              refuses test/.
+              refuses -test/repo
+              refuses "test/$(printf 'r%.0s' $(seq 101))"
+              refuses "test/a b"
+              refuses "$(printf 'test/repo\nx')"
+              refuses test/ré
+              chase-docker-address "$(printf 'o%.0s' $(seq 39))/repo" >/dev/null || fail "a 39-character owner was refused"
+              chase-docker-address "test/$(printf 'r%.0s' $(seq 100))" >/dev/null || fail "a 100-character repo was refused"
+
+              # lib.docker, which a consumer writing /etc/hosts uses, gives
+              # every slug above the address and names this script does.
+              [ "$(jq length "$fromNixPath")" -eq ${toString (builtins.length slugs)} ] || fail "the slugs from Nix did not arrive"
+              while IFS= read -r want; do
+                slug=$(jq -r .slug <<< "$want")
+                got=$(chase-docker-address "$slug") || fail "$slug was refused"
+                [ "$(jq -c '{address, names}' <<< "$got")" = "$(jq -c '{address, names}' <<< "$want")" ] \
+                  || fail "lib.docker gives $slug $want, but chase-docker-address gives $got"
+              done < <(jq -c '.[]' "$fromNixPath")
+
+              # And lib.docker refuses what the script refuses, rather than
+              # naming a project frisket could never route.
+              [ "$(jq -c . "$acceptedByNixPath")" = '[]' ] \
+                || fail "lib.docker gave an address or names to $(jq -c . "$acceptedByNixPath")"
+              for slug in a/b/c evil/../data-lab a/rép /x; do refuses "$slug"; done
+
               touch $out
             '';
 
