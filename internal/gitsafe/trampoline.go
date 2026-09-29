@@ -43,6 +43,16 @@ func MaybeExec() {
 		return
 	}
 	runtime.LockOSThread()
+	// One P, and this goroutine holding it through both raw system calls,
+	// which never give it up: no other goroutine runs between them, and no
+	// idle P is left for the scheduler to start a thread for. Without this,
+	// the runtime's own goroutines, parking on other threads just after
+	// startup, woke a P and made a new thread for it -- a new mapping after
+	// the limit, which is fatal: "fatal error: runtime: cannot allocate
+	// memory" reached git's stderr, from a process that execve then replaced
+	// anyway, and LsFiles, rightly, took any stderr for a sparse index. Seen
+	// under load, once in a few hundred calls.
+	runtime.GOMAXPROCS(1)
 	debug.SetGCPercent(-1)
 	path := os.Args[2]
 	argv0, err := syscall.BytePtrFromString(path)
