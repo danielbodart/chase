@@ -8,6 +8,7 @@
 package codex
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,10 +20,14 @@ import (
 // has to be JWT-shaped with an expiry far away -- {"alg":"none","typ":"JWT"}
 // over {"exp":4102444800,"sub":"frisket-placeholder"}, 4102444800 being
 // 2100-01-01. Nothing verifies the signature: not codex, which only splits
-// on '.', and not frisket, which compares the whole string to this one. The
-// module gives frisket's codex route this same string as its placeholder, so
-// the two must not drift.
-const PlaceholderJWT = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJleHAiOjQxMDI0NDQ4MDAsInN1YiI6ImZyaXNrZXQtcGxhY2Vob2xkZXIifQ.frisket"
+// on '.', and not frisket, which compares the whole string to this one.
+//
+// It is placeholder.jwt, which the module reads too, for frisket's codex
+// route: one file, so the placeholder a session sends and the one frisket
+// replaces cannot drift.
+//
+//go:embed placeholder.jwt
+var PlaceholderJWT string
 
 // ClientID is the client codex itself logs in as, from its source: without
 // it the token endpoint refuses the exchange.

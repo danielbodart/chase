@@ -148,7 +148,7 @@ hash.** Swagger 2.0, the Engine API's own definition, with an `operationId`
 for every operation and full schemas for the bodies. Pinned by URL and
 `sha256`, as Cloudflare's is.
 
-**4. `scripts/operations.sh` reads Swagger 2.0 YAML as well as OpenAPI 3.**
+**4. `chase-generate operations` reads Swagger 2.0 YAML as well as OpenAPI 3.**
 `basePath` where 3 has `servers[].url`, `definitions` where 3 has
 `components.schemas`, `in: body` where 3 has `requestBody`; the YAML is
 converted with PyYAML after its bytes are hashed. A `HEAD` is added to a

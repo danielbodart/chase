@@ -36,7 +36,7 @@ GitHub publishes OpenAPI 3.0 at
 one file per API version, and it is pinned by commit, as Cloudflare's is, in
 `apps/github/source.json`.
 
-    nix develop -c scripts/operations.sh github
+    nix develop -c chase-generate operations github
 
 **Which version.** gh sends `X-GitHub-Api-Version: 2022-11-28`, and the
 pinned file is `2026-03-10`. They describe the same 1221 operations, with the

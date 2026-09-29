@@ -21,7 +21,7 @@ let
   # {"exp":4102444800,"sub":"frisket-placeholder"}, 4102444800 being
   # 2100-01-01. Nothing verifies the signature: not codex, which only splits
   # on '.', and not frisket, which compares the whole string to this one.
-  placeholderJWT = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJleHAiOjQxMDI0NDQ4MDAsInN1YiI6ImZyaXNrZXQtcGxhY2Vob2xkZXIifQ.frisket";
+  placeholderJWT = builtins.readFile ../internal/apps/codex/placeholder.jwt;
 
   # frisket reads the host's own login and puts its token on each request.
   # The expiry is the `exp` claim inside the access token: auth.json itself
@@ -47,125 +47,14 @@ let
     paths = [{ methods = every; prefix = "/"; refuse = true; }];
   };
 
-  # The placeholder auth.json, made from the host's login: codex decides what
-  # to offer from the plan and account claims in the id_token, and sends
-  # account_id as the ChatGPT-Account-ID header, so those are the host's own.
-  # Only the tokens are replaced. The id_token keeps its claims and loses its
-  # signature, which nothing checks.
-  #
-  # Written in place, never by rename: a container binds this file over its
-  # own auth.json, and a rename over a mountpoint detaches that bind in every
-  # other namespace -- which would uncover whatever is underneath.
-  writePlaceholder = pkgs.writeShellApplication {
-    name = "codex-placeholder";
-    runtimeInputs = [ pkgs.jq pkgs.coreutils ];
-    text = ''
-      mkdir -p ${lib.escapeShellArg stateDir}
-      auth=${lib.escapeShellArg authFile}
-      out=${lib.escapeShellArg placeholderFile}
-      # Logged in on the host or not, the file must exist: flong refuses to
-      # start when a bind's source is missing.
-      real='{}'
-      if [ -f "$auth" ]; then real=$(cat "$auth"); fi
-      jq -n \
-        --argjson real "$real" \
-        --arg access ${lib.escapeShellArg placeholderJWT} \
-        '$real as $r
-         | {
-             auth_mode: ($r.auth_mode // "chatgpt"),
-             OPENAI_API_KEY: null,
-             tokens: {
-               # The signature dropped, the claims kept.
-               id_token: (($r.tokens.id_token // "") | split(".")[0:2] + ["frisket"] | join(".")),
-               access_token: $access,
-               refresh_token: "frisket-placeholder",
-               account_id: ($r.tokens.account_id // "")
-             },
-             last_refresh: ($r.last_refresh // "2000-01-01T00:00:00Z")
-           }' > "$out.new"
-      # cat, not mv: see above. The temporary file is this script's own.
-      cat "$out.new" > "$out"
-      chmod 0600 "$out"
-      rm -f "$out.new"
-    '';
-  };
-
-  # codex refreshes only in the last 5 minutes before its access token expires,
-  # and a refresh token is single-use: a second refresher racing the first
-  # revokes the login. So this one runs a day early, where nothing else is
-  # looking, and does the exchange itself.
-  refresh = pkgs.writeShellApplication {
-    name = "codex-refresh";
-    runtimeInputs = [ pkgs.jq pkgs.coreutils pkgs.curl writePlaceholder ];
-    text = ''
-      auth=${lib.escapeShellArg authFile}
-      # The client codex itself logs in as, from its source: without it the
-      # token endpoint refuses the exchange.
-      client_id=app_EMoamEEZ73f0CkXaXp7hrann
-
-      # `exp`, out of the access token's own claims.
-      expires() {
-        jq -er '.tokens.access_token | split(".")[1]
-                | gsub("-";"+") | gsub("_";"/")
-                | . + ("=" * ((4 - (length % 4)) % 4))
-                | @base64d | fromjson | .exp | numbers' "$auth" 2>/dev/null
-      }
-
-      while true; do
-        if ! exp=$(expires); then
-          echo "codex-refresh: no access token in $auth; looking again in 5 minutes" >&2
-          sleep 300
-          continue
-        fi
-        # Wake a day before expiry, in steps short enough to survive suspend.
-        wait=$(( exp - 86400 - $(date +%s) ))
-        if (( wait > 0 )); then
-          sleep $(( wait < 300 ? wait : 300 ))
-          continue
-        fi
-
-        refresh_token=$(jq -er '.tokens.refresh_token' "$auth") || {
-          echo "codex-refresh: no refresh token; trying again in a minute" >&2
-          sleep 60
-          continue
-        }
-        if ! new=$(curl -fsS --max-time 60 https://auth.openai.com/oauth/token \
-              -H 'Content-Type: application/json' \
-              -d "$(jq -n --arg c "$client_id" --arg r "$refresh_token" \
-                     '{client_id:$c, grant_type:"refresh_token", refresh_token:$r}')"); then
-          echo "codex-refresh: the exchange failed; trying again in a minute" >&2
-          sleep 60
-          continue
-        fi
-
-        # In place, and only what came back: codex writes this file the same
-        # way, and a rename would detach the bind covering it in a container.
-        if merged=$(jq -e --argjson new "$new" '
-              .tokens.id_token = ($new.id_token // .tokens.id_token)
-              | .tokens.access_token = ($new.access_token // .tokens.access_token)
-              | .tokens.refresh_token = ($new.refresh_token // .tokens.refresh_token)
-              | .last_refresh = (now | todate)' "$auth"); then
-          printf '%s\n' "$merged" > "$auth"
-          codex-placeholder
-          echo "codex-refresh: refreshed" >&2
-        else
-          echo "codex-refresh: the response held no tokens; trying again in a minute" >&2
-          sleep 60
-        fi
-      done
-    '';
-  };
-
-  codexRaw = pkgs.writeShellApplication {
-    name = "codex-raw";
-    text = ''exec ${base}/bin/codex "$@"'';
-  };
-  # On the host codex keeps its own sandbox; in a container it bypasses it.
-  codexWrapped = cfg.internal.mkWrapper {
-    name = "codex";
-    agent = "codex";
-    hostCommand = "${base}/bin/codex";
-  };
+  # `codex` on the host is the chase binary, which picks the checkout's
+  # tier and runs codex there; `codex-raw` is codex itself. The placeholder
+  # login and the refresher are internal/apps/codex.
+  codexLinks = pkgs.runCommand "codex-links" { } ''
+    mkdir -p $out/bin
+    ln -s ${lib.getExe cfg.package} $out/bin/codex
+    ln -s ${base}/bin/codex $out/bin/codex-raw
+  '';
 
   bind = path: readOnly: { hostPath = path; isReadOnly = readOnly; };
 
@@ -199,12 +88,22 @@ in
   };
 
   config = {
+    chase.internal.config = {
+      # On the host codex keeps its own sandbox; in a container it bypasses it.
+      wrappers.codex.hostCommand = [ "${base}/bin/codex" ];
+      codex = {
+        auth = authFile;
+        inherit stateDir;
+        placeholder = placeholderFile;
+      };
+    };
+
     home-manager.users.${cfg.user} = { lib, ... }: {
-      home.packages = [ codexWrapped codexRaw ];
+      home.packages = [ codexLinks ];
 
       # The placeholder is a bind source: flong refuses to start without it.
       home.activation.codexPlaceholder = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        ${lib.getExe writePlaceholder} || echo "codex: no placeholder login written"
+        ${lib.getExe cfg.package} codex-placeholder || echo "codex: no placeholder login written"
       '';
 
       systemd.user.services.codex-refresh = {
@@ -213,7 +112,7 @@ in
         Service = {
           Restart = "always";
           RestartSec = 60;
-          ExecStart = lib.getExe refresh;
+          ExecStart = "${lib.getExe cfg.package} codex-refresh";
         };
       };
     };

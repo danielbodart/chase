@@ -34,7 +34,7 @@ jobs:
   # a direct push to trunk (never a pull request) and on the check having
   # succeeded, so a red commit never ships.
   #
-  # The derived version (major.commit-count.run-number, scripts/version.sh)
+  # The derived version (major.commit-count.run-number, `chase-generate version`)
   # makes every build a unique, monotonic release, so two pushes cannot collide
   # on a tag and a re-run of the same commit does not either.
   release:
@@ -44,13 +44,19 @@ jobs:
     permissions:
       contents: write
     steps:
-      # fetch-depth: 0 because the minor is the commit count and the script
-      # REFUSES a shallow clone; fetch-tags so the previous tag resolves when
-      # the notes are generated below.
+      # fetch-depth: 0 because the minor is the commit count and
+      # `chase-generate version` REFUSES a shallow clone; fetch-tags so the
+      # previous tag resolves when the notes are generated below.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
+
+      # For chase-generate, which derives the version.
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
 
       # Notes from the COMMITS since the last release. Trunk-based means direct
       # pushes and no pull requests, so GitHub's PR-based --generate-notes
@@ -60,7 +66,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          V="$(./scripts/version.sh)"
+          V="$(nix run .#chase-generate -- version)"
           PREV="$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)"
           if [ -n "$PREV" ] && git rev-parse -q --verify "refs/tags/$PREV" >/dev/null; then
             git log "$PREV..HEAD" --pretty='- %s (%h)' > notes.md

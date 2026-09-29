@@ -10,10 +10,10 @@ let
   # EVERY OPERATION IN CLOUDFLARE'S OWN API DESCRIPTION, one rule each: a
   # read, a write or guarded, in the spec's own words, answered as the tier
   # and the app say (../lib/operations.nix). Generated from a pinned spec by
-  # ../scripts/operations.sh, with ./cloudflare/exceptions.json saying which
-  # reads are writes and which writes are reads; regenerating is a reviewed
-  # change, and its diff is the list of what is newly allowed. See
-  # ../docs/cloudflare.md.
+  # chase-generate operations (../internal/generate), with
+  # ./cloudflare/exceptions.json saying which reads are writes and which
+  # writes are reads; regenerating is a reviewed change, and its diff is the
+  # list of what is newly allowed. See ../docs/cloudflare.md.
   operations = builtins.fromJSON (builtins.readFile ./cloudflare/operations.json);
 
   # The route in a tier, as a policy document holds it: shared by a tier that

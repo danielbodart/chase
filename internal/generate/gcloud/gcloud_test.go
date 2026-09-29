@@ -28,7 +28,7 @@ func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	need(t, "protoc")
 	f := &fixture{t: t, dir: filepath.Join(t.TempDir(), "t")}
-	copyTree(t, filepath.Join("..", "..", "..", "tests", "gcloud"), f.dir)
+	copyTree(t, filepath.Join("testdata"), f.dir)
 	tmp := t.TempDir()
 	f.entries, f.desc = filepath.Join(tmp, "entries"), filepath.Join(tmp, "d.pb")
 	if err := os.WriteFile(f.entries, []byte(strings.Join(fixtureEntries, "\n")+"\n"), 0o644); err != nil {

@@ -63,7 +63,7 @@ type Config struct {
 	Protoc string `json:"protoc,omitempty"`
 }
 
-const usage = "usage: scripts/gcloud.sh [DISCOVERY_DIR GOOGLEAPIS_DIR | --bump [DISCOVERY_COMMIT GOOGLEAPIS_COMMIT]]"
+const usage = "usage: chase-generate gcloud [DISCOVERY_DIR GOOGLEAPIS_DIR | --bump [DISCOVERY_COMMIT GOOGLEAPIS_COMMIT]]"
 
 // ExitError is a failure and the status the script exited with for it:
 // git's own where git failed (set -e), 2 where tar could not copy a pinned

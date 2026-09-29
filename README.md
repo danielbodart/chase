@@ -311,10 +311,10 @@ the diff of `operations.json`, one operation per line, is the list of what is
 newly allowed:
 
 ```sh
-nix develop -c scripts/operations.sh cloudflare
-nix develop -c scripts/operations.sh huggingface
-nix develop -c scripts/operations.sh github
-nix develop -c scripts/gcloud.sh
+nix develop -c chase-generate operations cloudflare
+nix develop -c chase-generate operations huggingface
+nix develop -c chase-generate operations github
+nix develop -c chase-generate gcloud
 ```
 
 Cloudflare's and GitHub's are fetched from a commit of their own repositories;

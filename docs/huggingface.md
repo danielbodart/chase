@@ -17,7 +17,7 @@ of first being fetched. So it is **vendored**, as
 generator reads the vendored copy, and taking a newer one is replacing that
 file, updating the hash, and reading the diff of `operations.json`.
 
-    scripts/operations.sh huggingface
+    chase-generate operations huggingface
 
 Three things about it that the shared generator handles:
 

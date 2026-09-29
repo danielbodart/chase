@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -70,28 +69,6 @@ func TestThePlaceholderJWTIsWhatItSays(t *testing.T) {
 	writeAuth(t, c, `{"tokens":{"access_token":"`+PlaceholderJWT+`"}}`)
 	if exp, ok := accessExpiry(c.Auth); !ok || exp != "4102444800" {
 		t.Errorf("exp %q, %v", exp, ok)
-	}
-}
-
-// The module gives frisket's codex route its own copy of the placeholder,
-// and until it takes this one the two must be the same string, or frisket
-// would not know the placeholder a session sends for what it is. Likewise
-// the client and endpoint the script it replaces used.
-func TestTheModuleSaysWhatThisDoes(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "..", "apps", "codex.nix"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	nix := string(b)
-	m := regexp.MustCompile(`(?m)^\s*placeholderJWT = "([^"]*)";$`).FindAllStringSubmatch(nix, -1)
-	if len(m) != 1 || m[0][1] != PlaceholderJWT {
-		t.Errorf("apps/codex.nix's placeholderJWT is %q, this %q", m, PlaceholderJWT)
-	}
-	if !strings.Contains(nix, "client_id="+ClientID+"\n") {
-		t.Errorf("apps/codex.nix's client_id is not %s", ClientID)
-	}
-	if !strings.Contains(nix, " "+TokenEndpoint+" ") {
-		t.Errorf("apps/codex.nix's endpoint is not %s", TokenEndpoint)
 	}
 }
 

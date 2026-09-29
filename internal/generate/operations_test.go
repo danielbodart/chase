@@ -64,31 +64,6 @@ func fresh(t *testing.T) *fixture {
 	return &fixture{t: t, apps: apps, app: "demo"}
 }
 
-// TestFixturesAreTheChecks: the fixtures here are, byte for byte, the ones
-// the flake's operations check and scripts/operations.sh were run on.
-func TestFixturesAreTheChecks(t *testing.T) {
-	check := checkout(t, "tests", "operations")
-	for _, app := range []string{"demo", "legacy"} {
-		ours, err := os.ReadDir(filepath.Join(fixtures, app))
-		if err != nil {
-			t.Fatal(err)
-		}
-		theirs, err := os.ReadDir(filepath.Join(check, app))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(ours) != len(theirs) {
-			t.Fatalf("%s: %d files here, %d in tests/operations", app, len(ours), len(theirs))
-		}
-		for _, e := range theirs {
-			want := read(t, filepath.Join(check, app, e.Name()))
-			if got := read(t, filepath.Join(fixtures, app, e.Name())); got != want {
-				t.Fatalf("testdata/operations/%s/%s is not tests/operations/%s/%s", app, e.Name(), app, e.Name())
-			}
-		}
-	}
-}
-
 func copyDir(t *testing.T, from, to string) {
 	t.Helper()
 	if err := os.MkdirAll(to, 0o755); err != nil {

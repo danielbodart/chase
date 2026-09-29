@@ -13,9 +13,10 @@ let
   bindings = cfg.bindings.docker;
   read = f: builtins.fromJSON (builtins.readFile f);
 
-  # Generated from the pinned Engine API spec by ../scripts/operations.sh:
-  # every operation, the admitted ones with their docker block and the rest
-  # refused. admit.json and fields.json are hand-written and reviewed.
+  # Generated from the pinned Engine API spec by chase-generate operations
+  # (../internal/generate): every operation, the admitted ones with their
+  # docker block and the rest refused. admit.json and fields.json are
+  # hand-written and reviewed.
   operations = read ./docker/operations.json;
   admit = read ./docker/admit.json;
   fields = read ./docker/fields.json;

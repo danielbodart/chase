@@ -38,20 +38,6 @@ let
     esac
   '';
 
-  # The checkout's root, so all of it is mounted wherever you start; otherwise
-  # the directory itself, which only a `paths` rule can place. The root
-  # chase-checkout finds, the one the selector sorted: git's own answer is
-  # the checkout's to steer, with a core.worktree its session wrote, and
-  # would mount wherever it named. A layout it will not sort is mounted as
-  # the directory alone.
-  workspaceSnippet = ''
-    if out=$(${lib.getExe cfg.internal.checkout} "$PWD"); then
-      printf '%s\n' "''${out%%$'\t'*}"
-    else
-      pwd
-    fi
-  '';
-
   # A flong hook is a command, never shell: one that needs a shell is a
   # script of its own, under the options flong's snippets once ran with.
   hookScript = name: text: "${pkgs.writeShellScript "chase-${name}" ''
@@ -456,6 +442,17 @@ in
         systemd is, runs.
       '';
     };
+    # The chase binary's configuration, a section per part of chase that
+    # needs one (internal/config): everything the module once spliced into
+    # script text, as data. Installed at /etc/chase/config.json, where
+    # every hook and unit reads it -- a runtime path rather than a store
+    # one, because the selector's section names each tier's launcher, whose
+    # declaration names the hooks.
+    internal.config = mkOption {
+      internal = true;
+      type = types.submodule { freeformType = (pkgs.formats.json { }).type; };
+      default = { };
+    };
   };
 
   config = {
@@ -500,6 +497,8 @@ in
         }
       ]) cfg.tiers);
 
+    environment.etc."chase/config.json".source = (pkgs.formats.json { }).generate "chase-config.json" cfg.internal.config;
+
     # The user whose credential files the routes read.
     services.frisket = {
       enable = true;
@@ -539,7 +538,11 @@ in
       inherit (tier) seccomp;
       user = cfg.user;
       command = [ (lib.getExe (mkCommand name cfg.internal.tiers.${name})) ];
-      workspace = [ (hookScript "agent-${name}-workspace" workspaceSnippet) ];
+      # The checkout's root, so all of it is mounted wherever you start;
+      # otherwise the directory itself, which only a `paths` rule can place.
+      # The root the selector sorted, never git's own answer, which a
+      # session's core.worktree would steer. See internal/checkout.
+      workspace = [ (lib.getExe cfg.package) "workspace" ];
       # One script for every line, as the snippet was: one fork a launch.
       binds =
         let text = groupBinds + lines cfg.internal.tiers.${name}.bindLines; in

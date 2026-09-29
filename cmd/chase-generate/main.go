@@ -1,8 +1,8 @@
 // Command chase-generate regenerates what chase reads but does not derive at
 // run time, from what its providers publish, and derives the version CI
 // publishes. It is for a person in `nix develop` and for CI, never for the
-// NixOS module: it alone reads YAML and GraphQL, and nothing in cmd/chase
-// imports what it does.
+// NixOS module: it alone reads YAML, GraphQL and protobuf descriptors, and
+// nothing in cmd/chase imports what it does.
 package main
 
 import (
@@ -12,8 +12,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 
 	"github.com/danielbodart/chase/internal/generate"
+	"github.com/danielbodart/chase/internal/generate/gcloud"
 	"github.com/danielbodart/chase/internal/term"
 )
 
@@ -26,6 +28,14 @@ const usage = `chase-generate -- what chase reads, generated from what its provi
         pinned URL. Refuses a spec that does not hash as pinned, and every
         exception, rule or admission that does not fit it. DIR is where the
         apps are; without it, the checkout's apps.
+
+  chase-generate gcloud [DISCOVERY_DIR GOOGLEAPIS_DIR | --bump [DISCOVERY_COMMIT GOOGLEAPIS_COMMIT]]
+        Google Cloud's classification, apps/gcloud/apis/*.json and
+        index.json, from Google's Discovery documents and the googleapis
+        protos at the commits apps/gcloud/source.json pins, every file
+        checked against its pinned hash: fetched with git, or read from
+        local checkouts of the two. --bump pins newer commits. Runs git and
+        protoc.
 
   chase-generate version
         The version: MAJOR from ./VERSION, MINOR the commit count, PATCH the
@@ -46,9 +56,13 @@ func main() {
 		err = generate.RunOperations(ctx, args, os.Stderr)
 	case "version":
 		err = generate.RunVersion(args, os.Stdout)
-	// INTEGRATION: the `gcloud` subcommand (scripts/gcloud.sh and
-	// scripts/gcloud.py, ported to internal/generate/gcloud) is wired here,
-	// and described in usage above.
+	case "gcloud":
+		apps, aerr := generate.CheckoutApps("gcloud", "")
+		if aerr != nil {
+			err = aerr
+			break
+		}
+		os.Exit(gcloud.Main(gcloud.Config{App: filepath.Join(apps, "gcloud")}, args, os.Stdout, os.Stderr))
 	case "-h", "--help", "help":
 		fmt.Fprint(os.Stdout, usage)
 	default:

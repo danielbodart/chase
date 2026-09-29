@@ -1,5 +1,0 @@
-{
-  "url": "https://api.example.invalid/.well-known/openapi.json",
-  "sha256": "8b4af02e179342bbae00d5e4b8ac43cbfce71f8cea0839210ed3f91fc6105130",
-  "server": "https://api.example.invalid/api/v3"
-}

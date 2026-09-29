@@ -30,7 +30,7 @@ func RunOperations(ctx context.Context, args []string, stderr io.Writer) error {
 	}
 	dir := *apps
 	if dir == "" {
-		found, err := checkoutApps()
+		found, err := CheckoutApps("operations", ", or say -apps DIR")
 		if err != nil {
 			return err
 		}
@@ -45,12 +45,12 @@ func RunOperations(ctx context.Context, args []string, stderr io.Writer) error {
 	})
 }
 
-// checkoutApps is the apps directory of the checkout the working directory
-// is in.
-func checkoutApps() (string, error) {
+// CheckoutApps is the apps directory of the checkout the working directory
+// is in; what names the command, and hint is said after the refusal.
+func CheckoutApps(what, hint string) (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
-		return "", exitf(2, "operations: %v", err)
+		return "", exitf(2, "%s: %v", what, err)
 	}
 	for {
 		if isFile(filepath.Join(dir, "go.mod")) {
@@ -60,7 +60,7 @@ func checkoutApps() (string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", exitf(2, "operations: no apps directory beside a go.mod here or above: run it in a checkout, or say -apps DIR")
+			return "", exitf(2, "%s: no apps directory beside a go.mod here or above: run it in a checkout%s", what, hint)
 		}
 		dir = parent
 	}

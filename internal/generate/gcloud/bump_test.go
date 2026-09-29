@@ -67,7 +67,7 @@ func read(t *testing.T, path string) []byte {
 func newRepos(t *testing.T) *repos {
 	t.Helper()
 	need(t, "git", "protoc")
-	fx := filepath.Join("..", "..", "..", "tests", "gcloud")
+	fx := filepath.Join("testdata")
 	root := t.TempDir()
 	r := &repos{t: t, discovery: filepath.Join(root, "discovery"), googleapis: filepath.Join(root, "googleapis"), app: filepath.Join(root, "apps", "gcloud")}
 	for _, n := range []string{"index.json", "demo.v1.json", "demo.v1beta1.json", "demo.v2.json", "whole.v1.json"} {

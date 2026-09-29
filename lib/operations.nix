@@ -1,8 +1,9 @@
 # How an app's operations are answered in a tier (PLAN.md, decision 18).
 #
-# ../scripts/operations.sh says what each operation IS -- read, write or
-# guarded -- and nothing about what is done with it. That is said here, from
-# the tier's settings and the app's own, the same way for every app:
+# chase-generate operations (../internal/generate) says what each operation IS
+# -- read, write or guarded -- and nothing about what is done with it. That is
+# said here, from the tier's settings and the app's own, the same way for
+# every app:
 #
 #   read     allowed
 #   write    the app's `writes`, which is the tier's unless the app says

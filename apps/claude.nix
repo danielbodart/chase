@@ -75,15 +75,13 @@ let
     printf '%s:rw\n' "$transcripts"
   '';
 
-  claudeRaw = pkgs.writeShellApplication {
-    name = "claude-raw";
-    text = ''exec ${base}/bin/claude "$@"'';
-  };
-  claudeWrapped = cfg.internal.mkWrapper {
-    name = "claude";
-    agent = "claude";
-    hostCommand = "${base}/bin/claude --allow-dangerously-skip-permissions";
-  };
+  # `claude` on the host is the chase binary, which picks the checkout's
+  # tier and runs Claude Code there; `claude-raw` is Claude Code itself.
+  claudeLinks = pkgs.runCommand "claude-links" { } ''
+    mkdir -p $out/bin
+    ln -s ${lib.getExe cfg.package} $out/bin/claude
+    ln -s ${base}/bin/claude $out/bin/claude-raw
+  '';
 
   bind = path: readOnly: { hostPath = path; isReadOnly = readOnly; };
   claudeDir = "${cfg.home}/.claude";
@@ -135,80 +133,42 @@ in
   };
 
   config = {
+    chase.internal.config = {
+      wrappers.claude.hostCommand = [ "${base}/bin/claude" "--allow-dangerously-skip-permissions" ];
+      claude = {
+        credentials = "${claudeDir}/.credentials.json";
+        claude = "${base}/bin/claude";
+        claudeJSON = "${cfg.home}/.claude.json";
+        # Every checkout this flake clones, and every group member.
+        trustPaths = lib.unique (
+          [ cfg.home ]
+          ++ cfg.bindings.claude.preTrustPaths
+          ++ lib.concatLists cfg.workspaceGroups
+        );
+      };
+    };
+
     home-manager.users.${cfg.user} = { lib, ... }: {
-      # Pre-trust every checkout this flake clones, and every group member.
-      home.activation.claudeTrustWorkspaces =
-        let
-          paths = lib.unique (
-            [ cfg.home ]
-            ++ cfg.bindings.claude.preTrustPaths
-            ++ lib.concatLists cfg.workspaceGroups
-          );
-        in
-        lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-          f="$HOME/.claude.json"
-          if [ -f "$f" ]; then
-            t=$(mktemp) || exit 0
-            if ${pkgs.jq}/bin/jq \
-                 --argjson paths ${lib.escapeShellArg (builtins.toJSON paths)} \
-                 'reduce $paths[] as $p (.; .projects[$p].hasTrustDialogAccepted = true)' \
-                 "$f" > "$t" 2>/dev/null && [ -s "$t" ]; then
-              if ! ${pkgs.diffutils}/bin/cmp -s "$t" "$f"; then
-                chmod 0600 "$t" && mv "$t" "$f"
-                echo "claude: pre-trusted ${toString (builtins.length paths)} workspaces"
-              else
-                rm -f "$t"
-              fi
-            else
-              rm -f "$t"
-            fi
-          fi
-        '';
+      # Pre-trust the configured workspaces (internal/apps/claude).
+      home.activation.claudeTrustWorkspaces = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        ${lib.getExe cfg.package} claude-trust
+      '';
 
       # Containers cannot refresh a placeholder, and frisket never refreshes,
-      # so the host's login is kept fresh here.
+      # so the host's login is kept fresh here (internal/apps/claude).
       systemd.user.services.claude-refresh = {
         Unit.Description = "Refresh the host's Claude Code login before it expires";
         Install.WantedBy = [ "default.target" ];
         Service = {
           Restart = "always";
           RestartSec = 60;
-          ExecStart = lib.getExe (pkgs.writeShellApplication {
-            name = "claude-refresh";
-            runtimeInputs = [ pkgs.jq pkgs.coreutils claudeRaw ];
-            text = ''
-              cred=${cfg.home}/.claude/.credentials.json
-              expires() { jq -er '.claudeAiOauth.expiresAt | numbers' "$cred" 2>/dev/null; }
-              while true; do
-                if ! exp=$(expires); then
-                  echo "claude-refresh: no expiresAt in $cred; looking again in 5 minutes" >&2
-                  sleep 300
-                  continue
-                fi
-                # Wake 4 minutes before expiry, in steps short enough to survive suspend.
-                wait=$(( (exp - 240000) / 1000 - $(date +%s) ))
-                if (( wait > 0 )); then
-                  sleep $(( wait < 300 ? wait : 300 ))
-                  continue
-                fi
-                claude-raw -p --model haiku --no-session-persistence 'Reply with the single word: ok' \
-                  > /dev/null 2>&1 || echo "claude-refresh: claude exited $?" >&2
-                if [ "$(expires)" = "$exp" ]; then
-                  echo "claude-refresh: expiresAt did not move; trying again in a minute" >&2
-                  sleep 60
-                else
-                  echo "claude-refresh: refreshed" >&2
-                fi
-              done
-            '';
-          });
+          ExecStart = "${lib.getExe cfg.package} claude-refresh";
         };
       };
 
-      home.packages = [ claudeRaw ];
       programs.claude-code.package = pkgs.symlinkJoin {
         name = "claude-code-tiered";
-        paths = [ claudeWrapped base ];
+        paths = [ claudeLinks base ];
         inherit (base) meta;
       };
     };

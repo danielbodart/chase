@@ -291,7 +291,7 @@ messages passed through the interceptor unchanged (measured).
 
 1. frisket: 1 to 6. *Done.*
 2. chase: the generator and the pinned sources; read the exceptions before
-   anything uses them. *Done:* `scripts/gcloud.sh`, pinned to
+   anything uses them. *Done:* `chase-generate gcloud`, pinned to
    `discovery-artifact-manager` 3d84c9e and `googleapis` bf87786 (359 and
    3,684 files, each hashed), writes `apps/gcloud/apis/<api>.json` for 394
    APIs, 79 of them proto-only, and `apps/gcloud/index.json`, each API's
