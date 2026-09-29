@@ -1,18 +1,16 @@
 # chase-docker-address OWNER/REPO: a project's loopback address and its
 # names, printed as {project,address,names} (docs/docker.md, with names
-# under .internal). It computes them as ./docker.nix does, and takes its
-# reserved names from there; the docker-address check holds the two to the
-# same vectors, and to those frisket asserts, since frisket derives both again
-# from the route's project and refuses a route whose address or names differ.
+# under .internal). It computes them as ./docker.nix does, with the
+# reserved names frisket exports, which the caller passes in; the
+# docker-address check holds the two to the same vectors, and to those frisket
+# asserts, since frisket derives both again from the route's project and
+# refuses a route whose address or names differ.
 #
 # It is a script of its own, with nothing but coreutils and jq, so that
 # chase-envelope, the Docker prepare step and chase itself can all run it
 # without any of them depending on another.
-{ pkgs }:
+{ pkgs, reserved }:
 
-let
-  inherit (import ./docker.nix { inherit (pkgs) lib; }) reserved;
-in
 pkgs.writeShellApplication {
   name = "chase-docker-address";
   runtimeInputs = with pkgs; [ coreutils jq ];

@@ -6,26 +6,18 @@
 # route's project and refuses a route whose address or names differ; the
 # docker-address check holds this, and chase-docker-address, to the vectors
 # frisket asserts.
-{ lib }:
+#
+# reserved is the list of names that already mean something else under
+# .internal, which a project's name must never equal or fall under: all of
+# frisket.internal, frisket's route hosts, and all of google.internal, the
+# cloud's. frisket owns it (internal/docker/reserved.json, which its Go code
+# embeds and its flake exports as lib.docker.reserved), and the caller passes
+# it in, so chase never holds a copy that could drift from what frisket
+# refuses a route over.
+{ lib, reserved }:
 
 rec {
-  # Names that already mean something else under .internal, which a project's
-  # name must never equal or fall under. The whole of frisket.internal is
-  # frisket's, for its route hosts, docker.frisket.internal among them and any
-  # it adds later: repo "docker" of owner "frisket" would otherwise be
-  # docker.frisket.internal, and repo "frisket" would be frisket.internal. The
-  # whole of google.internal is the cloud's, metadata.google.internal among
-  # it. So owner frisket or google keeps only its short name.
-  #
-  # frisket owns this list (internal/docker/address.go, the reserved its
-  # docker.Names uses), and refuses a route whose names differ from its own.
-  # chase keeps the same literal here until its frisket input is new enough
-  # to export the list; then it takes the list from frisket's flake, and the
-  # docker-address check holds the vectors of both to agree.
-  reserved = [
-    "frisket.internal"
-    "google.internal"
-  ];
+  inherit reserved;
 
   isReserved = name:
     lib.any (r: name == r || lib.hasSuffix ".${r}" name) reserved;

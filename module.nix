@@ -441,7 +441,7 @@ in
   };
 
   config = {
-    chase.internal.dockerAddress = import ./lib/docker-address.nix { inherit pkgs; };
+    chase.internal.dockerAddress = import ./lib/docker-address.nix { inherit pkgs; inherit (self.inputs.frisket.lib.docker) reserved; };
 
     assertions =
       let

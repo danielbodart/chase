@@ -38,7 +38,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, home-manager, ... }:
+  outputs = { self, nixpkgs, home-manager, frisket, ... }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
@@ -54,7 +54,9 @@
       # chase-docker-address prints them: address, names, reserved and
       # isProject (see ./lib/docker.nix). Pure Nix and the same on every system, so a
       # consumer writing /etc/hosts derives them from here, not from a copy.
-      lib.docker = import ./lib/docker.nix { lib = nixpkgs.lib; };
+      # The reserved names are frisket's, which it exports as the list its Go
+      # code embeds.
+      lib.docker = import ./lib/docker.nix { lib = nixpkgs.lib; inherit (frisket.lib.docker) reserved; };
 
       checks = forAllSystems (system:
         let
@@ -1468,13 +1470,18 @@
             '';
 
           # The address and names frisket derives again and refuses a route
-          # over, and nix-config derives for /etc/hosts: these are the
-          # vectors nix-config and frisket assert. The reserved list is
-          # held to theirs by these vectors; the list itself this check
-          # cannot see.
+          # over, and nix-config derives for /etc/hosts. Every vector in
+          # frisket's TestTheDerivationGivesTheContractsVectors
+          # (internal/docker/docker_test.go, at the frisket this flake locks)
+          # is here, with the same address and names; the rest are chase's
+          # own. frisket exports only its reserved list, not the vectors, so
+          # this check holds lib.docker to that list itself as well. The
+          # script is the module's own chase.internal.dockerAddress, the one a
+          # project's prepare step runs, so the vectors test the reserved
+          # list the module passes it, not one this check chose.
           docker-address =
             let
-              address = import ./lib/docker-address.nix { inherit pkgs; };
+              address = (harnessConfig { }).chase.internal.dockerAddress;
               docker = self.lib.docker;
               as = n: nixpkgs.lib.concatStrings (nixpkgs.lib.replicate n "a");
               # Every slug below that is given an address, with what lib.docker
@@ -1499,6 +1506,8 @@
                   || (builtins.tryEval (builtins.deepSeq (docker.names slug) true)).success)
                 refused;
             in
+            assert nixpkgs.lib.assertMsg (docker.reserved == frisket.lib.docker.reserved)
+              "lib.docker reserves ${builtins.toJSON docker.reserved}, but frisket reserves ${builtins.toJSON frisket.lib.docker.reserved}";
             pkgs.runCommand "docker-address" {
               nativeBuildInputs = [ address pkgs.jq ];
               fromNix = builtins.toJSON fromNix;
