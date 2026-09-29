@@ -32,7 +32,12 @@ let
   cfg = config.chase;
   tiers = lib.filterAttrs (_: t: t.envelope) cfg.tiers;
 
-  apps = pkgs.writeText "chase-project-apps.json" (builtins.toJSON cfg.internal.projectApps);
+  # An app with no credential is made from its binding alone, which only a
+  # `prepare` can do: one without is refused here rather than at a launch.
+  apps = pkgs.writeText "chase-project-apps.json" (builtins.toJSON (lib.mapAttrs (name: app:
+    if (app.credential or true) == false && (app.prepare or null) == null
+    then throw "chase.internal.projectApps.${name} has no credential and no prepare, so nothing could be made of its binding"
+    else app) cfg.internal.projectApps));
   stops = lib.filter (s: s != null) (lib.mapAttrsToList (_: a: a.stop or null) cfg.internal.projectApps);
 
   # Every tier's pinned checkouts, as the selector holds them: each
@@ -91,11 +96,13 @@ let
       uid=${toString cfg.uid}
       home=${lib.escapeShellArg cfg.home}
       # Where chase keeps what it approved, where a launch leaves what it
-      # stages, and which of a project's names the host's /etc/hosts carries:
-      # one line each, so a test can put them elsewhere.
+      # stages, which of a project's names the host's /etc/hosts carries,
+      # and where the tiers' own policy documents are: one line each, so a
+      # test can put them elsewhere.
       state=$home/.local/state/chase
       runtime=/run/user/$uid
       hosts=/etc/chase/docker-hosts.json
+      policies=/etc/frisket/policies
       checkouts=${checkouts}
       apps=${apps}
       lists=${./lists.jq}
@@ -488,6 +495,7 @@ let
       # postStart: what seccompPolicy staged for this launch, applied.
       launch() {
         local tier=$1 ws=$2 machine=$3 stage staged_doc result run doc envfile app secret dir file="" secrets
+        local binding prepare patch from docker_project
         # Everything written here is the user's alone: decrypted secrets
         # above all.
         umask 077
@@ -512,20 +520,36 @@ let
             || die "$ws: the staged $secrets is not the one approved"
         fi
 
-        doc=$(cat "/etc/frisket/policies/$tier.json")
+        doc=$(cat "$policies/$tier.json")
+        # The Docker project approve derived and staged, which is what was
+        # approved: read, never derived again here. A prepare is given it,
+        # and the session is not.
+        docker_project=$(jq -r '.dockerProject // empty' <<< "$result")
         local exports=""
         for app in $(jq -r 'keys[]' "$apps"); do
-          secret=$(jq -r --arg a "$app" '.bindings[$a].credential.secret // empty' <<< "$result")
-          [ -n "$secret" ] || continue
-          decrypt "$ws" "$file" "$secret" "$run/secrets/$app"
+          binding=$(jq -c --arg a "$app" '.bindings[$a] // empty' <<< "$result")
+          [ -n "$binding" ] || continue
+          prepare=$(jq -r --arg a "$app" '.[$a].prepare // empty' "$apps")
+          # An app with a credential is bound only with the project's own,
+          # decrypted; one with none is made by its prepare from the binding
+          # alone. Not `.credential // true`: jq's // takes false as absent.
+          if [ "$(jq -r --arg a "$app" '.[$a].credential != false' "$apps")" = true ]; then
+            secret=$(jq -r '.credential.secret // empty' <<< "$binding")
+            [ -n "$secret" ] || continue
+            decrypt "$ws" "$file" "$secret" "$run/secrets/$app"
+            from=$secrets:$secret
+          else
+            [ -n "$prepare" ] || die "$ws: $app has no credential and no prepare"
+            from="no credential"
+          fi
           # The app's routes, in place of any of the same names the tier had:
           # what its `prepare` made of the binding, or its own with the
           # project's credential.
-          prepare=$(jq -r --arg a "$app" '.[$a].prepare // empty' "$apps")
           patch=$run/$app.patch.json
           if [ -n "$prepare" ]; then
-            jq -c --arg a "$app" '.bindings[$a]' <<< "$result" \
-              | "$prepare" "$tier" "$ws" "$run" "$(env_dir "$ws")" > "$patch" || die "$ws: $app could not be prepared"
+            printf '%s\n' "$binding" \
+              | chase_project=$docker_project "$prepare" "$tier" "$ws" "$run" "$(env_dir "$ws")" > "$patch" \
+              || die "$ws: $app could not be prepared"
           else
             jq -c --arg a "$app" --arg tier "$tier" --arg cred "$run/secrets/$app" '
               .[$a] | {routes: [.routes[$tier] // empty | arrays // [.] | .[] | . + {credentialFile: $cred}], allow}
@@ -539,7 +563,7 @@ let
             | to_entries[] | "export \(.key)=\(.value | @sh)"
           ')$'\n'
           rm -f -- "$patch"
-          echo "chase: $ws: $app from $secrets:$secret" >&2
+          echo "chase: $ws: $app from $from" >&2
         done
         [ -z "$file" ] || rm -rf -- "$(dirname -- "$file")"
         # What the project names in each app's lists, applied to the app's
@@ -580,7 +604,7 @@ let
           if [ -f "$runtime/chase/$3/policy.json" ]; then
             printf '%s\n' "$runtime/chase/$3/policy.json"
           else
-            printf '%s\n' "/etc/frisket/policies/$2.json"
+            printf '%s\n' "$policies/$2.json"
           fi
           ;;
         *) die "usage: chase-envelope env-dir WS | approve WS MACHINE TIER | launch TIER WS MACHINE | policy TIER MACHINE | project WS TIER" ;;
@@ -620,7 +644,15 @@ in
         `prepare TIER WORKSPACE RUN ENVDIR` with the approved binding on
         stdin, printing `{routes, allow, env}`; and `stop`, run in postStop
         as `stop MACHINE` before RUN is removed, to release what `prepare`
-        started.
+        started. `prepare` has `chase_project` in its environment: the
+        Docker project approved for the checkout, or empty if its envelope
+        binds no Docker.
+
+        `credential`, true by default, says the app is bound only with the
+        project's secret, named by the binding's `credential.secret`, and
+        not at all without one. False: the app has no credential, its
+        `prepare` -- which it must have -- is run from the binding alone,
+        whenever the binding says anything, and nothing is decrypted.
       '';
     };
   };

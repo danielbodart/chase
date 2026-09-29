@@ -60,6 +60,37 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
 
+          # The system envelopeHarness runs chase-envelope from, with CHASE
+          # (more of the chase section), and the chase-envelope it has.
+          harnessConfig = chase:
+            let lib = nixpkgs.lib; in
+            (lib.nixosSystem {
+              inherit system;
+              modules = [
+                self.nixosModules.default
+                home-manager.nixosModules.home-manager
+                ./examples/tiers.nix
+                {
+                  boot.isContainer = true;
+                  system.stateVersion = "26.05";
+                  users.users.alice = { isNormalUser = true; uid = 1000; group = "users"; };
+                  home-manager.users.alice.home.stateVersion = "26.05";
+                  chase = lib.recursiveUpdate {
+                    user = "alice";
+                    uid = 1000;
+                    gid = 100;
+                    bindings = {
+                      claude.package = pkgs.hello;
+                      codex.package = pkgs.hello;
+                      github.credentialFile = "/run/secrets/gh_token";
+                    };
+                  } chase;
+                }
+              ];
+            }).config;
+          harnessEnvelope = config: nixpkgs.lib.findFirst (p: nixpkgs.lib.getName p == "chase-envelope")
+            (throw "envelopeHarness: agent-trusted has no chase-envelope") config.flong.agent-trusted.path;
+
           # CHASE-ENVELOPE AS A TIER RUNS IT, where a test can watch it: the
           # one agent-trusted has, from a system with ./examples/tiers.nix
           # and CHASE (more of the chase section), copied to ./chase-envelope
@@ -72,32 +103,7 @@
           envelopeHarness = { chase ? { }, rewrite ? { } }:
             let
               lib = nixpkgs.lib;
-              config = (lib.nixosSystem {
-                inherit system;
-                modules = [
-                  self.nixosModules.default
-                  home-manager.nixosModules.home-manager
-                  ./examples/tiers.nix
-                  {
-                    boot.isContainer = true;
-                    system.stateVersion = "26.05";
-                    users.users.alice = { isNormalUser = true; uid = 1000; group = "users"; };
-                    home-manager.users.alice.home.stateVersion = "26.05";
-                    chase = lib.recursiveUpdate {
-                      user = "alice";
-                      uid = 1000;
-                      gid = 100;
-                      bindings = {
-                        claude.package = pkgs.hello;
-                        codex.package = pkgs.hello;
-                        github.credentialFile = "/run/secrets/gh_token";
-                      };
-                    } chase;
-                  }
-                ];
-              }).config;
-              envelope = lib.findFirst (p: lib.getName p == "chase-envelope")
-                (throw "envelopeHarness: agent-trusted has no chase-envelope") config.flong.agent-trusted.path;
+              envelope = harnessEnvelope (harnessConfig chase);
               lines = {
                 home = "$PWD/home";
                 state = "$PWD/state";
@@ -2156,6 +2162,94 @@
               grep -qF "chase: $app: acme/app would be at 127.95.137.218, which collide/x33613042 already holds" err \
                 || fail "the pinned project's collision was not said: $(cat err)"
               [ ! -e run/chase/.envelope/m12.json ] || fail "the pinned project's collision was staged"
+
+              touch $out
+            '';
+
+          # AN APP WITH NO CREDENTIAL (docs/docker.md, 3.6), launched: its
+          # prepare is run from the binding alone, whenever the binding says
+          # anything, with nothing decrypted, and given the Docker project
+          # that approve staged -- never one derived again at launch, nor one
+          # the session has. probe stands in for such an app, and is only
+          # this test's. An app with a credential is still bound only with
+          # one, and an app with neither is refused when the system is built.
+          project-launch =
+            let
+              lib = nixpkgs.lib;
+              root = "/chase-project-launch-test";
+              probe = pkgs.writeShellScript "chase-probe-prepare" ''
+                cat > "$3/probe.stdin"
+                printf '%s:%s' "''${chase_project+set}" "''${chase_project-}" > "$3/probe.project"
+                printf '%s\n' '{"routes": [], "allow": ["probe.example"], "env": {"PROBE": "1"}}'
+              '';
+              bad = harnessEnvelope (harnessConfig { internal.projectApps.bad.credential = false; });
+            in
+            assert ! (builtins.tryEval (builtins.deepSeq bad.drvPath true)).success
+              || throw "project-launch: an app with no credential and no prepare was built";
+            pkgs.runCommand "project-launch" { nativeBuildInputs = [ pkgs.git pkgs.jq ]; } ''
+              export HOME=$TMPDIR
+              fail() { echo "project-launch: $*" >&2; exit 1; }
+              ${envelopeHarness {
+                chase = {
+                  tiers.trusted.match = [ { checkouts."triptease/data-lab" = "${root}/p/data-lab"; } ];
+                  internal.projectApps.probe = { credential = false; prepare = "${probe}"; };
+                };
+                rewrite = { hosts = "$PWD/docker-hosts.json"; policies = "$PWD/policies"; };
+              }}
+              r=$(cd "$TMPDIR" && pwd -P)/root
+              baked=$(sed -n 's/^checkouts=//p' chase-envelope)
+              sed "s|${root}|$r|g" "$baked" > checkouts.json
+              sed -i "s|^checkouts=.*|checkouts=$PWD/checkouts.json|" chase-envelope
+              grep -q "^checkouts=$PWD/checkouts.json$" chase-envelope || fail "checkouts is not one line of chase-envelope's"
+              jq -e '.probe.credential == false' "$(sed -n 's/^apps=//p' chase-envelope)" >/dev/null || fail "probe is not an app with no credential"
+
+              # Any decryption is logged, and fails.
+              cat > bin/sops <<'SH'
+              #!${pkgs.runtimeShell}
+              echo "$*" >> "$TMPDIR/sops.log"
+              exit 1
+              SH
+              chmod +x bin/sops
+              mkdir policies
+              printf '{"name": "trusted", "allow": [], "routes": []}\n' > policies/trusted.json
+
+              ws=$r/p/data-lab
+              git init -q "$ws"
+              git -C "$ws" config remote.origin.url git@github.com:triptease/data-lab.git
+              printf '{ outputs = _: { chaseModules.default = { }; }; }\n' > "$ws/flake.nix"
+              git -C "$ws" add flake.nix
+              envfile=state/env/$(printf '%s' "$ws" | sha256sum | cut -c1-32)/env
+
+              launched() { # MACHINE ENVELOPE
+                ENVELOPE=$2 bash ./chase-envelope approve "$ws" "$1" trusted >/dev/null 2>err || fail "$1 was not approved: $(cat err)"
+                bash ./chase-envelope launch trusted "$ws" "$1" 2>err || fail "$1 was not launched: $(cat err)"
+              }
+
+              # Docker and probe: probe is prepared from its binding, as the
+              # project approve named, and a gcloud binding with no secret is
+              # not bound at all.
+              launched m1 '{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320]}, "probe": {"x": 1}, "gcloud": {"serviceAccount": "a@p.iam.gserviceaccount.com"}}}'
+              m=run/chase/m1
+              [ "$(jq -c . "$m/probe.stdin")" = '{"x":1}' ] || fail "prepare was not given the binding: $(cat "$m/probe.stdin")"
+              [ "$(cat "$m/probe.project")" = set:triptease/data-lab ] || fail "prepare was not given the approved project: $(cat "$m/probe.project")"
+              jq -e '.allow == ["probe.example"] and .routes == []' "$m/policy.json" >/dev/null || fail "probe's patch was not merged: $(cat "$m/policy.json")"
+              grep -qx "export PROBE='1'" "$envfile" || fail "probe's env was not exported: $(cat "$envfile")"
+              ! grep -q chase_project "$envfile" || fail "the session was given chase_project: $(cat "$envfile")"
+              grep -qxF "chase: $ws: probe from no credential" err || fail "where probe came from was not said: $(cat err)"
+              ! grep -q "gcloud from" err || fail "gcloud was bound with no secret: $(cat err)"
+              [ ! -e sops.log ] && [ -z "$(ls -A "$m/secrets")" ] || fail "a secret was decrypted: $(cat sops.log 2>/dev/null)"
+
+              # Without probe, its prepare is never run.
+              launched m2 '{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320]}}}'
+              [ ! -e run/chase/m2/probe.stdin ] && [ ! -e run/chase/m2/probe.project ] || fail "probe was prepared with no binding"
+              ! grep -q "probe from" err || fail "probe was said with no binding: $(cat err)"
+              jq -e '.allow == []' run/chase/m2/policy.json >/dev/null || fail "probe's names were allowed with no binding"
+
+              # Without Docker, there is no project to give, and it is empty.
+              launched m3 '{"bindings": {"probe": {"x": 2}}}'
+              [ "$(cat run/chase/m3/probe.project)" = set: ] || fail "prepare was given a project with no Docker: $(cat run/chase/m3/probe.project)"
+              [ "$(jq -c . run/chase/m3/probe.stdin)" = '{"x":2}' ] || fail "prepare was not given the binding"
+              [ ! -e sops.log ] || fail "a secret was decrypted: $(cat sops.log)"
 
               touch $out
             '';
