@@ -207,15 +207,43 @@ carries (`apps.gcloud.apis`), a project adds or removes, and each request is
 answered by an allowlist generated from Google's own descriptions. Only in a
 tier that takes envelopes. See [docs/gcloud.md](docs/gcloud.md).
 
-**Docker.** The Docker CLI and Compose, against `chase.user`'s rootless daemon,
-for a project that names its images and ports in its envelope. The project is
-its checkout's GitHub origin, approved with the envelope, and frisket admits
-only what is that project's own: containers, volumes and networks it labelled
-when they were made, the images named, and ports published on the project's
-own loopback address, which a session reaches as `localhost` and as
-`<repo>.internal`. Only in a tier that takes envelopes, with direct egress.
-chase runs no daemon: the machine runs rootless Docker for the user, with its
-socket at `/run/user/<uid>/docker.sock`, as NixOS's
+**Docker.** The Docker CLI and Compose, against `chase.user`'s rootless
+daemon, for a project whose tests start their services with Compose. A tier
+turns it on with `chase.tiers.<tier>.apps.docker.enable`, and only a tier
+that takes envelopes and whose egress is direct may: a container reaches
+whatever the host does. The project names what it runs, in its envelope:
+
+```nix
+chaseModules.default = {
+  chase.bindings.docker = {
+    images = [ "postgres:18" ];   # exactly as `docker pull` shortens it, with a tag or digest
+    ports = [ 64320 ];            # the host ports its containers publish
+  };
+};
+```
+
+The project is its checkout's GitHub origin, `owner/repo`, read by chase from
+the checkout's `.git` and never from anything the envelope says, approved with
+the envelope and held to the tiers' pinned `checkouts`. frisket admits only
+operations chase lists, and only on what is that project's own: containers,
+volumes and networks it labelled when they were made, the images named, and no
+bind mount, privilege or host namespace. Everything else is refused; nothing
+asks. Each project has its own loopback address, a hash of its name
+(`triptease/data-lab` is `127.1.191.78`), and its ports are published there: a
+Compose file's `'64320:5432'`, which would bind every address, is bound to
+that one. A session reaches them as `localhost`, through frisket's relay, and
+by the project's names, `<repo>.internal` and `<repo>.<owner>.internal`
+(`data-lab.internal`), which frisket answers for that session alone. On the
+host, a name is only reliable where the machine's `/etc/hosts` gives it; any
+other `.internal` name is asked of the upstream resolver, which a hostile
+network can answer, so use the address. A machine that writes those entries derives them from
+chase's `lib.docker`, and says which it wrote in
+`/etc/chase/docker-hosts.json`, which is what chase reads before it calls a
+name a host name. `chase docker [DIR]` prints a checkout's project, address,
+names and approved ports, and says which names this host has.
+
+chase runs no daemon: the machine runs rootless `dockerd` for `chase.user`,
+with its socket at `/run/user/<uid>/docker.sock`, as NixOS's
 `virtualisation.docker.rootless` does. See [docs/docker.md](docs/docker.md).
 
 Anything else is yours. An app is an ordinary NixOS module written against

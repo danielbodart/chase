@@ -223,6 +223,13 @@ project run at once, so a project that declared a forwarded port would break
 its own second session. Reaching a dev server *inside* a sandbox is a separate
 problem and frisket's open question 3.
 
+Docker sets `hostPorts` aside ([docs/docker.md](docs/docker.md), decision
+12). `-T` reaches only the host's `127.0.0.1`, which every project shares, and
+a project's containers publish on its own loopback address instead. Its ports
+reach the host by frisket's relay: the session's loopback steers each port
+the envelope names to frisket, which sends it on to the project's address and
+to nothing else. flong is given no port for it.
+
 **16. A port alone is not enough; the envelope carries environment too.**
 flong starts a session clean and direnv's hook never fires in it, so a session
 with 5432 open still has no `DATABASE_URL` and nothing tells it to look. This
@@ -231,6 +238,11 @@ feature, and shipping one without the other opens a door nothing walks through.
 
 nix-config's note that *"no tier that could use a devShell runs in one"* stops
 being true when this lands, and wants rewriting.
+
+Docker needs no environment beyond what its app sets: `DOCKER_HOST`,
+`DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH`, which point the CLI and Compose at
+frisket's route. A Compose file's `localhost` already reaches its ports,
+through the relay, so a project names its ports and nothing else.
 
 **17. Nothing of a checkout's runs until a person has approved it.** An
 envelope is the project's own flake output, `chaseModules.default`, and
@@ -256,7 +268,11 @@ beyond its tier's filter, and a filter is installed before anything in the
 session runs. The approved result is staged for `postStart` under the
 session's name, which flong gives both, so two launches of one checkout keep
 their approvals apart; `postStart` applies the rest — secrets, the policy
-document, the environment — without looking at the checkout again.
+document, the environment — without looking at the checkout again. For a
+checkout whose envelope binds Docker, the approved result also carries
+`dockerProject`, the `owner/repo` chase read from the checkout's origin
+rather than anything the envelope says, so a changed origin is a diff someone
+approves ([docs/docker.md](docs/docker.md), decision 9).
 
 Only a `flake.nix` that says `chaseModules` is looked at, so an ordinary
 project flake never prompts. Approvals live in `~/.local/state/chase/`, on
@@ -264,6 +280,14 @@ the host and bound into no session. Refused, the launch ends rather than
 running without the envelope. Working from the snapshot is what makes the
 approval mean something: a session of the same checkout cannot change a file
 between the approval and its use.
+
+The snapshot is taken without running anything the checkout's config names:
+which files are tracked is read by `chase-ls-files` from the index alone, in
+an empty repository, never by `git ls-files` in the checkout, whose
+`core.fsmonitor` is a command git would run; and they are copied by
+`chase-copy-tracked`, which follows no link above the tracked files, so a
+directory the session made a link cannot bring a host file into what is
+evaluated and decrypted.
 
 This replaces decision 8's report for the envelope itself: a line printed at
 launch is easy to miss, and a dialog is not.
@@ -335,6 +359,15 @@ push updates, an LFS batch's operation. Each gets an operation id, so git,
 GraphQL and LFS are listed, switched and named like any other app. GraphQL
 has it: frisket reads the body, a query is a read, and each mutation is the
 schema's operation of that name, generated as a REST operation is.
+
+**Docker is not classed.** It is admitted per operation by
+`apps/docker/admit.json`, reviewed as an exceptions file is, with a body
+table for each body it admits; every other operation is generated as a
+refusal, and nothing on its route ever asks
+([docs/docker.md](docs/docker.md), decision 7). Its tier has only
+`apps.docker.enable`, and a project names only its images and ports: an
+operation cannot be allowed by name or category, since images are global and
+one project's `ImageTag` would change what another's container runs.
 
 ## Considered and rejected
 

@@ -86,10 +86,11 @@ let
         map (s: if problem s == null then s else throw "chase.bindings.docker.images: ${s} ${problem s}") images;
     };
 
-  # A port frisket listens on in the session and relays to the project's
-  # address, where the project's containers publish it. frisket refuses
-  # the whole document if the list breaks any of this, so it is refused
-  # here first, when the envelope is evaluated.
+  # A port the session's own loopback steers to frisket, which relays it to
+  # the project's address, where the project's containers publish it. It is
+  # steered, not listened on, so pasta's `-t auto` has nothing of it to
+  # republish. frisket refuses the whole document if the list breaks any
+  # of this, so it is refused here first, when the envelope is evaluated.
   dockerPorts = ports:
     let
       steering = 15001;
