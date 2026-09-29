@@ -6,6 +6,7 @@
 #   scripts/operations.sh cloudflare [path/to/openapi.json]
 #   scripts/operations.sh huggingface [path/to/openapi.json]
 #   scripts/operations.sh github [path/to/openapi.json]
+#   scripts/operations.sh docker [path/to/swagger.yaml]
 #
 # Every operation in the spec becomes one rule: a method, a path template,
 # and a class (PLAN.md, decision 18). GET and HEAD are reads, DELETE is
@@ -36,16 +37,38 @@
 # the diff of operations.json is what gets read -- which is why it holds one
 # operation per line.
 #
+# A spec is OpenAPI 3, whose servers url prefixes every template, or Swagger
+# 2.0, whose templates are already relative to its basePath: source.json says
+# which, by its `server` or its `basePath`, and says JSON or YAML by its
+# `format` or else by its url's extension. A basePath is the API's version as
+# well (Docker's /v1.56), so a Swagger spec's info.version must be the top of
+# source.json's apiVersions: a pin bumped without the range fails. YAML is
+# hashed as it was fetched and only then read, by PyYAML.
+#
 # Where the spec comes from, first found: the argument; the app's vendored
-# openapi.json, for a provider that publishes its spec at a URL that moves
-# rather than at a commit; the pinned URL. Whichever it is, it must hash as
-# pinned, so the choice saves a download and changes nothing else. A GraphQL
-# schema is the app's vendored schema.graphql, or its pinned URL, and is read
-# by ./schema.py, which needs graphql-core: `nix develop` has it.
+# spec.json or spec.yaml (or openapi.json, as the apps before YAML still have
+# it), for a provider that publishes its spec at a URL that moves rather than
+# at a commit; the pinned URL. Whichever it is, it must hash as pinned, so
+# the choice saves a download and changes nothing else. A GraphQL schema is
+# the app's vendored schema.graphql, or its pinned URL, and is read by
+# ./schema.py, which needs graphql-core: `nix develop` has it, and PyYAML.
+#
+# An app with an admit.json is ADMITTED, not classed (Docker, docs/docker.md):
+# its route answers no class, and a request passes only where admit.json
+# names the operation, with the methods it lists and the `docker` block
+# frisket checks the request by, and nothing else admits: an exceptions.json
+# with rules, GraphQL or classes fails. Every other operation is still a rule, a
+# refusal that carries its operation, so that what was refused is named. Its
+# class is kept, because frisket refuses a rule of no known class, though
+# nothing answers it. And for each operation admitted with a `body` table,
+# known.json lists every field the spec gives that body -- object properties
+# through $ref and allOf, not into an array's items or a map's values -- so
+# that a pin bump shows new fields in its diff, and the check that compares
+# the tables to it fails until each is decided.
 set -euo pipefail
 
 usage() {
-    echo "usage: scripts/operations.sh APP [path/to/openapi.json]" >&2
+    echo "usage: scripts/operations.sh APP [path/to/spec]" >&2
     exit 2
 }
 [ $# -ge 1 ] && [ $# -le 2 ] || usage
@@ -56,21 +79,68 @@ app="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../apps" && pwd)/$name
     echo "operations: $app/source.json does not exist" >&2
     exit 2
 }
-url=$(jq -r .url "$app/source.json")
-sha256=$(jq -r .sha256 "$app/source.json")
-server=$(jq -r .server "$app/source.json")
+source="$app/source.json"
+url=$(jq -r .url "$source")
+sha256=$(jq -r .sha256 "$source")
+server=$(jq -r '.server // empty' "$source")
+basePath=$(jq -r '.basePath // empty' "$source")
+version=$(jq -r '.apiVersions.max // empty' "$source")
 exceptions="$app/exceptions.json"
+admit="$app/admit.json"
 out="$app/operations.json"
+known="$app/known.json"
 scripts="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 work=$(mktemp -d)
-trap 'rm -rf "$work" "$out.new"' EXIT
+trap 'rm -rf "$work" "$out.new" "$known.new"' EXIT
+
+# Which kind of spec, and in what: exactly one of server and basePath, and a
+# format that agrees with it where one is given.
+format=$(jq -r '.format // empty' "$source")
+case "$format" in
+    '') ;;
+    swagger2-json | swagger2-yaml | openapi3-json | openapi3-yaml) ;;
+    *)
+        echo "operations: $source: format $format is not swagger2-json, swagger2-yaml, openapi3-json or openapi3-yaml" >&2
+        exit 1
+        ;;
+esac
+if [ -n "$basePath" ] && [ -z "$server" ]; then
+    flavor=swagger2
+elif [ -n "$server" ] && [ -z "$basePath" ]; then
+    flavor=openapi3
+else
+    echo "operations: $source needs exactly one of server (OpenAPI 3) and basePath (Swagger 2.0)" >&2
+    exit 1
+fi
+if [ -n "$format" ] && [ "${format%-*}" != "$flavor" ]; then
+    echo "operations: $source: format $format, but a $flavor spec by its ${basePath:+basePath}${server:+server}" >&2
+    exit 1
+fi
+if [ "$flavor" = swagger2 ] && [ -z "$version" ]; then
+    echo "operations: $source: a Swagger spec is its basePath's version, which apiVersions.max must say" >&2
+    exit 1
+fi
+if [ -n "$format" ]; then
+    ext=${format#*-}
+else
+    case "$url" in
+        *.json) ext=json ;;
+        *.yaml | *.yml) ext=yaml ;;
+        *)
+            echo "operations: $source: $url is neither .json nor .yaml, so format must say which" >&2
+            exit 1
+            ;;
+    esac
+fi
 
 spec=${2:-}
-if [ -z "$spec" ] && [ -f "$app/openapi.json" ]; then
+if [ -z "$spec" ] && [ -f "$app/spec.$ext" ]; then
+    spec="$app/spec.$ext"
+elif [ -z "$spec" ] && [ "$ext" = json ] && [ -f "$app/openapi.json" ]; then
     spec="$app/openapi.json"
 elif [ -z "$spec" ]; then
-    spec="$work/openapi.json"
+    spec="$work/spec.$ext"
     curl -fsSL --retry 3 -o "$spec" "$url"
 fi
 
@@ -82,6 +152,26 @@ if [ "$actual" != "$sha256" ]; then
     echo "  (pinned: $url, in $app/source.json)" >&2
     exit 1
 fi
+
+# The bytes that were hashed are what is read: YAML only after it is pinned.
+if [ "$ext" = yaml ]; then
+    python3 -c 'import sys,yaml,json; json.dump(yaml.safe_load(sys.stdin), sys.stdout)' < "$spec" > "$work/spec.json" || {
+        echo "operations: could not read $spec as YAML (PyYAML is in \`nix develop\`)" >&2
+        exit 1
+    }
+    spec="$work/spec.json"
+fi
+
+# No exceptions is none; no admit.json is an app whose classes are answered.
+[ -f "$exceptions" ] || {
+    exceptions="$work/exceptions.json"
+    echo '{}' > "$exceptions"
+}
+admitted="$admit"
+[ -f "$admitted" ] || {
+    admitted="$work/admit.json"
+    echo 'null' > "$admitted"
+}
 
 # The GraphQL schema, pinned the same way, read into its operations.
 graphql_path=$(jq -r '.graphql.path // empty' "$app/source.json")
@@ -111,8 +201,8 @@ fi
 
 # Every failure below is a halt, not a warning: a classification that is
 # quietly wrong is worse than none, because the gate would trust it.
-jq -r --slurpfile exceptions "$exceptions" --slurpfile schema "$schema" --arg graphqlPath "$graphql_path" \
-    --arg server "$server" --arg name "$name" '
+jq -r --slurpfile exceptions "$exceptions" --slurpfile admit "$admitted" --slurpfile schema "$schema" --arg graphqlPath "$graphql_path" \
+    --arg flavor "$flavor" --arg server "$server" --arg basePath "$basePath" --arg version "$version" --arg name "$name" '
     def fail($message): "operations: \($name): \($message)\n" | halt_error(1);
 
     def classes: ["read", "write", "guarded"];
@@ -144,6 +234,7 @@ jq -r --slurpfile exceptions "$exceptions" --slurpfile schema "$schema" --arg gr
 
     . as $root
     | $exceptions[0] as $exceptions
+    | $admit[0] as $admit
     | ($exceptions.rules // []) as $rules
     | (classes | map({ key: ., value: ($exceptions[.] // {}) }) | from_entries) as $reclassed
 
@@ -156,20 +247,31 @@ jq -r --slurpfile exceptions "$exceptions" --slurpfile schema "$schema" --arg gr
     def multisegment: (.["x-multi-segment"] == true) or ((.schema.description // "") | test("^wildcard path parameter$"; "i"));
 
     # The servers url is what the templates are prefixed with. A spec that
-    # moved it would produce rules for paths nobody sends.
-    if [.servers[].url] != [$server]
-      then fail("servers is \([.servers[].url]), not \($server)") end
-    | ($server | sub("^https://[^/]+"; "")) as $prefix
+    # moved it would produce rules for paths nobody sends. A Swagger spec'"'"'s
+    # templates are what follows its basePath, which is the API'"'"'s version:
+    # frisket strips a version it admits before it matches.
+    (if $flavor == "swagger2" then
+       if .swagger != "2.0" then fail("swagger is \(.swagger), not 2.0") end
+       | if .basePath != $basePath then fail("basePath is \(.basePath), not \($basePath)") end
+       | if .info.version != $version
+         then fail("info.version is \(.info.version), not \($version), the top of apiVersions: bump the range with the pin") end
+       | ""
+     else
+       if [.servers[].url] != [$server]
+         then fail("servers is \([.servers[].url]), not \($server)") end
+       | $server | sub("^[a-z]+://[^/]+"; "")
+     end) as $prefix
 
     # Only method keys are operations; "parameters" and "x-*" sit beside them.
     # A parameter that holds slashes, as the last segment, is the rest of the
     # path, which is a prefix to frisket; anywhere else it is one segment, and
-    # a value with a slash matches nothing and is left to `unmatched`.
+    # a value with a slash matches nothing and is left to `unmatched`. A
+    # Swagger body is a parameter too, and is never one of these.
     | [ .paths | to_entries[] | .key as $path | .value
         | (.parameters // []) as $shared
         | to_entries[]
         | select(.key | IN("get", "put", "post", "patch", "delete", "head", "options", "trace"))
-        | ([$shared[], (.value.parameters // [])[]] | map(resolve | select(.in == "path" and multisegment) | .name)) as $slashed
+        | ([$shared[], (.value.parameters // [])[]] | map(resolve | select(.in == "path") | select(multisegment) | .name)) as $slashed
         | ([$slashed[] | select(. as $r | $path | endswith("/{\($r)}"))]) as $rest
         | (.value["x-github"].category // .value.tags[0]? // null) as $category
         | { method: (.key | ascii_upcase), spec: $path, rest: $rest, id: .value.operationId,
@@ -224,6 +326,22 @@ jq -r --slurpfile exceptions "$exceptions" --slurpfile schema "$schema" --arg gr
     | if $same != [] then fail("an exception gives an operation the class it has anyway: \($same)") end
     | ([classes[] as $c | $reclassed[$c] | keys[] | { key: ., value: $c }] | from_entries) as $exception
 
+    # What admit.json names is an operation, admitted by its methods and a
+    # docker block, and nothing else.
+    | if $admit != null then
+        (map(.id)) as $ids
+        | ([$admit | keys[] | select(. as $k | $ids | index($k) | not)]) as $missing
+        | if $missing != [] then fail("admit.json names what is not in the pinned spec: \($missing)") end
+        | ([$admit | to_entries[] | select((.value | type) != "object" or (.value | keys) != ["docker", "methods"]
+            or (.value.docker | type) != "object" or (.value.methods | type) != "array" or (.value.methods | length) == 0) | .key]) as $odd
+        | if $odd != [] then fail("an admitted operation needs its methods and a docker block, and nothing else: \($odd)") end
+        # Nothing else admits: a hand-written rule, a GraphQL endpoint or a
+        # reclassification would be a rule with no docker block, which
+        # frisket would pass unfiltered.
+        | if ($rules | length) > 0 or ($endpoints | length) > 0 or $graphqlPath != "" or ($exception | length) > 0
+          then fail("an admitted app takes no hand-written rules, GraphQL or classes: admit.json is all it admits") end
+      end
+
     # A hand-written rule says why it exists, what it is, what class, and
     # exactly one of the two ways a rule matches.
     | ($rules | map(select((.reason | type) != "string" or .reason == ""
@@ -236,14 +354,26 @@ jq -r --slurpfile exceptions "$exceptions" --slurpfile schema "$schema" --arg gr
     # with literal text ({scan_id}.png, {event_t}.{event_n}): frisket matches
     # segments, and "*" matching a little more than the spec says is the
     # direction that stays inside one operation.
+    | map(.where = (if .rest == [] then { path: ($prefix + (.spec | template)) }
+                    else { prefix: ($prefix + (.spec | sub("/[{][^/]*[}]$"; "") | template)) } end))
+
+    # A GET answers HEAD too, unless the spec says what a HEAD there is:
+    # Docker'"'"'s /_ping has one of each. Where an app is admitted, its
+    # admit.json says which of them are.
+    | [.[] | select(.method == "HEAD") | .where] as $heads
     | map(
-        { methods: (if .method == "GET" then ["GET", "HEAD"] else [.method] end) }
-        + (if .rest == [] then { path: ($prefix + (.spec | template)) }
-           else { prefix: ($prefix + (.spec | sub("/[{][^/]*[}]$"; "") | template)) } end)
+        (if .method == "GET" and (.where as $w | any($heads[]; . == $w) | not) then ["GET", "HEAD"] else [.method] end) as $methods
+        | (if $admit == null then null else $admit[.id] end) as $admitted
+        | if $admitted != null and ($admitted.methods - $methods) != []
+          then fail("admit.json gives \(.id) \($admitted.methods), and the spec has it for \($methods)") end
+        | { methods: ($admitted.methods // $methods) }
+        + .where
+        + (if $admit == null or $admitted != null then {} else { refuse: true } end)
         + { operation: ({ id, summary }
             + (if (.description // "") == "" then {} else { description } end)
             + { class: ($exception[.id] // (.method | natural)) }
-            + (if .category == null then {} else { category } end)) })
+            + (if .category == null then {} else { category } end)) }
+        + (if $admitted == null then {} else { docker: $admitted.docker } end))
 
     # A HAND-WRITTEN RULE MAY NOT DECIDE WHAT THE SPEC ALREADY DOES. frisket
     # takes the most specific rule, segment by segment, so a hand rule with a
@@ -266,7 +396,7 @@ jq -r --slurpfile exceptions "$exceptions" --slurpfile schema "$schema" --arg gr
     # ({slug} and {slug}-{id}, say), and the first id speaks for both.
     | group_by([.methods, .path, .prefix])
     | map(if length == 1 then .[0]
-          elif (map([.operation.class, .operation.summary]) | unique | length) == 1 then sort_by(.operation.id)[0]
+          elif (map([.operation.class, .operation.summary, .refuse, .docker]) | unique | length) == 1 then sort_by(.operation.id)[0]
           else fail("the same method and template twice: \(.[0].methods) \(.[0].path // .[0].prefix) (\(map(.operation.id) | join(", ")))") end)
 
     # A GraphQL endpoint decides every request at its path, so what the spec
@@ -279,6 +409,8 @@ jq -r --slurpfile exceptions "$exceptions" --slurpfile schema "$schema" --arg gr
     | [$rest[] | select(.path as $p | [$endpoints[].path] | index($p) | not)]
 
     | sort_by(.path // .prefix, .methods[0])
+    | if $admit != null and any(.[]; (.refuse == true) == (.docker != null))
+      then fail("a rule of an admitted app is neither refused nor admitted by admit.json: \(map(select((.refuse == true) == (.docker != null)) | .operation.id))") end
     | . + [$endpoints[] | { graphql: .path, query: true, operation: (.operation + { class: "read" }) }]
     + [$fields | sort_by(.kind, .name)[]
         | (.description | sentence) as $summary
@@ -293,7 +425,53 @@ jq -r --slurpfile exceptions "$exceptions" --slurpfile schema "$schema" --arg gr
 
 mv "$out.new" "$out"
 
+# The fields of each admitted body, as the spec gives them. Where one table
+# is named by two operations, their bodies must be the same.
+if [ -f "$admit" ]; then
+    jq -r --slurpfile admit "$admit" --arg name "$name" '
+        def fail($message): "operations: \($name): \($message)\n" | halt_error(1);
+
+        . as $root
+        | def resolve: if has("$ref") then ."$ref" as $r | $root | getpath($r | ltrimstr("#/") | split("/"))
+            // fail("\($r) is not in the spec") else . end;
+
+        # Every path below a schema: each of its properties, and what is below
+        # that, through a $ref and each part of an allOf -- so an allOf of
+        # objects is their fields together, and one of scalars is a scalar,
+        # with nothing below. An array is a field, and so is a map
+        # (additionalProperties): their elements are not fields but values,
+        # judged by the leaf that names the field.
+        def fields($prefix; $seen):
+            if has("$ref") then
+              ."$ref" as $r
+              | if any($seen[]; . == $r) then fail("\($r) contains itself, at \($prefix)") end
+              | resolve | fields($prefix; $seen + [$r])
+            else
+              ((.properties // {}) | to_entries[] | ($prefix + .key) as $p | $p, (.value | fields($p + "."; $seen))),
+              ((.allOf // [])[] | fields($prefix; $seen))
+            end;
+
+        [ .paths[] | (.parameters // []) as $shared | to_entries[]
+          | select(.key | IN("get", "put", "post", "patch", "delete", "head", "options", "trace"))
+          | .value as $op | $admit[0][$op.operationId // ""].docker.body // empty
+          | . as $table
+          | [$shared[], ($op.parameters // [])[] | resolve | select(.in == "body")] as $bodies
+          | if ($bodies | length) != 1
+            then fail("admit.json gives \($op.operationId) the body table \($table), and the spec gives it \($bodies | length) bodies") end
+          | { table: $table, id: $op.operationId,
+              fields: (reduce ($bodies[0].schema | fields(""; [])) as $f ([]; if index([$f]) then . else . + [$f] end)) } ]
+        | group_by(.table)
+        | map(if (map(.fields) | unique | length) > 1
+              then fail("the body table \(.[0].table) is named by \(map(.id)), whose bodies differ") end
+              | "\(.[0].table | tojson): [\n" + (.[0].fields | map(tojson) | join(",\n")) + "\n]")
+        | "{\n" + join(",\n") + "\n}"
+    ' "$spec" > "$known.new"
+    mv "$known.new" "$known"
+fi
+
 jq -r --arg name "$name" 'length as $n | group_by(.operation.class) | map("\(length) \(.[0].operation.class)") | join(", ")
     | "operations: \($name): \($n) operations: \(.)."' "$out" >&2
+jq -r --arg name "$name" '[.[] | select(.docker)] | select(length > 0)
+    | "operations: \($name): of which admitted: \(length); the rest are refused."' "$out" >&2
 jq -r --arg name "$name" '[.[] | select(.graphql)] | select(length > 0)
     | "operations: \($name): of which GraphQL: \(map(select(.query)) | length) queries, \(map(select(.mutation)) | length) mutations, \(map(select(.subscription)) | length) subscriptions."' "$out" >&2

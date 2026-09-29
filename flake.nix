@@ -1201,6 +1201,129 @@
                 touch $out
               '';
 
+          # THE GENERATOR ON A SWAGGER 2.0 SPEC (docs/docker.md, decision 4),
+          # offline, on a small spec shaped like the Engine API's: its
+          # basePath, its own HEAD, its bodies walked into known.json, and an
+          # app admitted rather than classed. What would make it generate for
+          # a spec it was not pinned to is refused.
+          operations = pkgs.runCommand "operations"
+            { nativeBuildInputs = [ pkgs.jq (pkgs.python3.withPackages (p: [ p.pyyaml ])) ]; }
+            ''
+              fail() { echo "operations: $*" >&2; exit 1; }
+              app=t/apps/demo
+              fresh() {
+                rm -rf t && mkdir -p t/scripts t/apps
+                cp ${./scripts/operations.sh} t/scripts/operations.sh
+                cp -r ${./tests/operations/demo} t/apps/demo
+                cp -r ${./tests/operations/legacy} t/apps/legacy && chmod -R u+w t
+              }
+              repin() { edit source.json ".sha256 = \"$(sha256sum "$app/$1" | cut -d' ' -f1)\""; }
+              generate() { bash t/scripts/operations.sh demo 2>$TMPDIR/err; }
+              rule() { jq -c --arg m "$1" --arg p "$2" '.[] | select(.methods == ($m | split(",")) and .path == $p)' $app/operations.json; }
+              edit() { jq "$2" "$app/$1" > $TMPDIR/edit && mv $TMPDIR/edit "$app/$1"; }
+              refuses() {
+                local why=$1; shift
+                ! generate || fail "generated anyway: $why"
+                grep -qF -- "$1" $TMPDIR/err || fail "$why, refused otherwise: $(cat $TMPDIR/err)"
+              }
+
+              fresh
+              generate || fail "the fixture did not generate: $(cat $TMPDIR/err)"
+              jq -e 'all(.[]; .path | startswith("/v1.2") | not)' $app/operations.json >/dev/null && [ -n "$(rule GET '/things/*/json')" ] \
+                || fail "the basePath was not stripped from the templates"
+              [ "$(rule HEAD /_ping | jq -r '.operation.id + " " + (.refuse | tostring)')" = "PingHead null" ] \
+                || fail "an explicit HEAD is not its own rule: $(rule HEAD /_ping)"
+              [ "$(rule GET /_ping | jq -r '.operation.id + " " + (.refuse | tostring)')" = "Ping true" ] \
+                || fail "a GET beside an explicit HEAD took HEAD too: $(rule GET /_ping)"
+              [ "$(rule GET,HEAD /things/json | jq -r .operation.id)" = ThingList ] \
+                || fail "a refused GET with no HEAD of its own does not refuse HEAD too"
+              [ "$(rule GET /version | jq -r '.docker.owned')" = none ] && [ -z "$(rule GET,HEAD /version)" ] \
+                || fail "an admitted operation does not have exactly the methods admit.json lists"
+              [ "$(rule DELETE '/things/*' | jq -c '[.refuse, .operation.id, .operation.summary, .operation.class, .docker]')" = '[true,"ThingDelete","Remove a thing","guarded",null]' ] \
+                || fail "an operation admit.json does not name is not refused, with its operation: $(rule DELETE '/things/*')"
+              jq -e 'all(.[]; (.operation.id | type) == "string" and (.operation.summary | type) == "string"
+                  and (.operation.class | IN("read", "write", "guarded")) and ((.refuse == true) != (.docker != null)))' \
+                $app/operations.json >/dev/null || fail "a rule is neither refused nor admitted, or has no operation or class"
+              [ "$(rule POST /things/create | jq -c .docker)" = "$(jq -c .ThingCreate.docker $app/admit.json)" ] \
+                || fail "an admitted operation does not carry its docker block"
+
+              # A body's fields: through #/parameters, $ref and allOf, and not
+              # into an array, a map, or a scalar's allOf.
+              want='{"ThingCreate":["Name","Labels","Mounts","Kind","Health","Health.Test","Host","Host.Memory","Host.Binds"]}'
+              [ "$(jq -c . $app/known.json)" = "$want" ] || fail "known.json is not the body's fields: $(jq -c . $app/known.json)"
+              [ "$(wc -l < $app/known.json)" = 13 ] || fail "known.json is not one field per line"
+              cp $app/operations.json $TMPDIR/admitted.json
+
+              # The format from the url, where source.json does not say it.
+              edit source.json 'del(.format)'
+              generate || fail "a .yaml url was not read as YAML: $(cat $TMPDIR/err)"
+              cmp -s $app/operations.json $TMPDIR/admitted.json || fail "the format from the url generated something else"
+
+              # Without admit.json, an app is classed, as every app before
+              # Docker is, with no exceptions.json and a HEAD where a GET has
+              # none of its own.
+              fresh
+              rm $app/admit.json
+              generate || fail "an app with no admit.json did not generate: $(cat $TMPDIR/err)"
+              jq -e 'all(.[]; .refuse == null and .docker == null)' $app/operations.json >/dev/null || fail "an app that is not admitted refused"
+              [ "$(rule GET,HEAD /version | jq -r .operation.class)" = read ] || fail "a GET with no HEAD of its own does not take HEAD"
+              [ "$(rule GET /_ping | jq -r .operation.id)" = Ping ] && [ "$(rule HEAD /_ping | jq -r .operation.id)" = PingHead ] \
+                || fail "a GET beside an explicit HEAD took HEAD too"
+              [ ! -e $app/known.json ] || fail "known.json was written for an app that is not admitted"
+
+              fresh; edit admit.json '. + {"NoSuchThing": {"methods": ["GET"], "docker": {"owned": "none"}}}'
+              refuses "an admitted operation the spec does not have" "not in the pinned spec: [\"NoSuchThing\"]"
+              fresh; edit admit.json '. + {"Ping": {"methods": ["GET", "HEAD"], "docker": {"owned": "none"}}}'
+              refuses "HEAD admitted as a GET's where the spec has its own" "admit.json gives Ping"
+              fresh; edit admit.json '.Version = {"docker": {"owned": "none"}}'
+              refuses "an admitted operation with no methods" "needs its methods and a docker block"
+              fresh; edit admit.json '.ThingInspect.docker.body = "ThingInspect"'
+              refuses "a body table for an operation with no body" "the spec gives it 0 bodies"
+              fresh; edit source.json '.apiVersions.max = "1.3"'
+              refuses "a pin whose version is not the top of the range" "info.version is 1.2, not 1.3"
+              fresh; edit source.json '.basePath = "/v1.3"'
+              refuses "a spec whose basePath is not the one pinned" "basePath is /v1.2, not /v1.3"
+              fresh; edit source.json '.format = "openapi3-yaml"'
+              refuses "a format that is not what source.json pins" "format openapi3-yaml, but a swagger2 spec"
+              fresh; edit source.json '.sha256 = "0000000000000000000000000000000000000000000000000000000000000000"'
+              refuses "a spec that does not hash as pinned" "is not the pinned spec"
+              fresh; echo 'x: 1' >> $app/spec.yaml
+              refuses "YAML changed after it was pinned" "is not the pinned spec"
+              fresh; sed -i 's/^swagger: "2.0"$/swagger: "1.2"/' $app/spec.yaml; repin spec.yaml
+              refuses "a basePath spec that is not Swagger 2.0" "swagger is 1.2, not 2.0"
+
+              # In an admitted app, admit.json is all that admits: nothing
+              # exceptions.json could add would carry a docker block.
+              fresh; echo '{"rules": [{"methods": ["POST"], "prefix": "/things/*", "reason": "x", "class": "write", "operation": {"id": "Hand", "summary": "hand"}}]}' > $app/exceptions.json
+              refuses "a hand-written rule in an admitted app" "an admitted app takes no hand-written rules"
+              fresh; echo '{"graphql": [{"path": "/graphql", "reason": "x", "operation": {"id": "Q", "summary": "q"}}]}' > $app/exceptions.json
+              refuses "a GraphQL endpoint in an admitted app" "an admitted app takes no hand-written rules"
+              fresh; echo '{"write": {"Ping": "x"}}' > $app/exceptions.json
+              refuses "a reclassification in an admitted app" "an admitted app takes no hand-written rules"
+
+              # OpenAPI 3, as the apps before Docker are: its spec vendored as
+              # openapi.json and nowhere else (its url does not resolve), and
+              # its templates under the servers url's path, whatever scheme.
+              app=t/apps/legacy
+              fresh
+              bash t/scripts/operations.sh legacy 2>$TMPDIR/err || fail "the OpenAPI 3 fixture did not generate from openapi.json: $(cat $TMPDIR/err)"
+              [ "$(rule GET,HEAD /api/v3/items | jq -r '.operation.id + " " + .operation.class')" = "listItems read" ] \
+                || fail "an OpenAPI 3 GET is not [GET,HEAD] under the server's path: $(jq -c . $app/operations.json)"
+              [ "$(rule POST /api/v3/items | jq -r .operation.class)" = write ] && [ "$(rule DELETE '/api/v3/items/*' | jq -r .operation.class)" = guarded ] \
+                || fail "an OpenAPI 3 operation is not under the server's path, as its class: $(jq -c . $app/operations.json)"
+              jq -e 'length == 3 and all(.[]; .refuse == null and .docker == null)' $app/operations.json >/dev/null \
+                || fail "the OpenAPI 3 fixture generated other rules: $(jq -c . $app/operations.json)"
+              cp $app/operations.json $TMPDIR/legacy.json
+              fresh
+              sed -i 's|https://api.example.invalid/api/v3|http://api.example.invalid/api/v3|' $app/openapi.json $app/source.json; repin openapi.json
+              bash t/scripts/operations.sh legacy 2>$TMPDIR/err || fail "an http server did not generate: $(cat $TMPDIR/err)"
+              cmp -s $app/operations.json $TMPDIR/legacy.json || fail "an http server's path was not stripped as an https one's"
+              fresh; edit source.json '.server = "https://api.example.invalid/api/v4"'
+              ! bash t/scripts/operations.sh legacy 2>$TMPDIR/err && grep -qF 'servers is ["https://api.example.invalid/api/v3"], not https://api.example.invalid/api/v4' $TMPDIR/err \
+                || fail "a server that is not the spec's was not refused: $(cat $TMPDIR/err)"
+              touch $out
+            '';
+
           gcloud-session = pkgs.testers.runNixOSTest (import ./tests/gcloud-session.nix { inherit self home-manager; });
 
           # The version script decides what every release is called, so it is
