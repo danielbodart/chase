@@ -1,0 +1,5 @@
+{
+  "url": "https://api.example.invalid/x.json",
+  "server": "https://api.example.invalid/api/v3",
+  "sha256": "fc3c4dd2d2c863f251a2d9396f6fc50deca582c891dc3cbb79c8cb64e8a84c33"
+}

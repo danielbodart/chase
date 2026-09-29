@@ -1,0 +1,2 @@
+operations: g-ok: 11 operations: 2 guarded, 3 read, 6 write.
+operations: g-ok: of which GraphQL: 1 queries, 6 mutations, 1 subscriptions.

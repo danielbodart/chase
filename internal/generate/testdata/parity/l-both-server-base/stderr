@@ -1,0 +1,1 @@
+operations: $APP/source.json needs exactly one of server (OpenAPI 3) and basePath (Swagger 2.0)

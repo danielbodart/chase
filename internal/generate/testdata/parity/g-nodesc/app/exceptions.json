@@ -1,0 +1,15 @@
+{
+  "graphql": [
+    {
+      "path": "/graphql",
+      "reason": "x",
+      "operation": {
+        "id": "graphql-query",
+        "summary": "A query"
+      }
+    }
+  ],
+  "read": {
+    "reclassed": "r"
+  }
+}

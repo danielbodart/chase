@@ -1,0 +1,67 @@
+{
+ "openapi": "3.0.0",
+ "info": {
+  "title": "Legacy",
+  "version": "1"
+ },
+ "servers": [
+  {
+   "url": "https://api.example.invalid/api/v3"
+  }
+ ],
+ "paths": {
+  "/items": {
+   "get": {
+    "operationId": "listItems",
+    "summary": "List items"
+   },
+   "post": {
+    "operationId": "createItem",
+    "summary": "Create an item"
+   }
+  },
+  "/items/{id}": {
+   "parameters": [
+    {
+     "$ref": "#/components/parameters/Id"
+    }
+   ],
+   "delete": {
+    "operationId": "deleteItem",
+    "summary": "Delete an item"
+   }
+  },
+  "/items/": {
+   "get": {
+    "summary": "x"
+   }
+  },
+  "/a//b": {
+   "get": {
+    "summary": "x"
+   }
+  },
+  "/a*": {
+   "get": {
+    "summary": "x"
+   }
+  },
+  "b": {
+   "get": {
+    "summary": "x"
+   }
+  }
+ },
+ "components": {
+  "parameters": {
+   "Id": {
+    "name": "id",
+    "in": "path",
+    "required": true,
+    "schema": {
+     "type": "string"
+    }
+   }
+  }
+ }
+}

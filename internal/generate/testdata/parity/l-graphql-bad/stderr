@@ -1,0 +1,1 @@
+operations: l-graphql-bad: a GraphQL endpoint needs a path, a reason, and its query's operation id and summary: ["graphql","?"]

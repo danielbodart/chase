@@ -1,0 +1,6 @@
+{
+"PingHead": {"methods": ["HEAD"], "docker": {"owned": "none"}},
+"Version": {"methods": ["GET"], "docker": {"owned": "none"}},
+"ThingCreate": {"methods": ["POST"], "docker": {"owned": "createContainer", "body": "ThingCreate", "query": {"name": "containerName"}}},
+"ThingInspect": {"methods": ["GET"], "docker": {"owned": "container", "param": 1.50, "n": [1e2, 0.1e-5, -0, 1E400, 100000000000000000000001, 0.0, 12.5e3, "\u007f\u2028<\u0001"]}}
+}

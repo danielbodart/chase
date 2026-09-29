@@ -1,0 +1,10 @@
+[
+{"methods":["DELETE"],"prefix":"/api/v3/files/*","operation":{"id":"delete-files-repo-path","summary":"x","class":"guarded"}},
+{"methods":["GET"],"prefix":"/api/v3/files/*","operation":{"id":"get-files-repo-path","summary":"Get a file. And more","description":"Gets it.\nMore","class":"read","category":"repos"}},
+{"methods":["HEAD"],"prefix":"/api/v3/files/*","operation":{"id":"head-files-repo-path","summary":"h","class":"read"}},
+{"methods":["PATCH"],"path":"/api/v3/ids/*/y","operation":{"id":"é weird/{id}","summary":"p","class":"write"}},
+{"methods":["PUT"],"path":"/api/v3/ids/*/y","operation":{"id":"put-ids-x.png-y","summary":"noid","class":"write"}},
+{"methods":["GET","HEAD"],"path":"/api/v3/items","operation":{"id":"listItems","summary":"List items","description":"Line <one>   & \u007f \"q\"\ttab\u0001","class":"read"}},
+{"methods":["POST"],"path":"/api/v3/items","operation":{"id":"createItem","summary":"Create an item","class":"write"}},
+{"methods":["DELETE"],"path":"/api/v3/items/*","operation":{"id":"deleteItem","summary":"Delete an item","class":"guarded"}}
+]

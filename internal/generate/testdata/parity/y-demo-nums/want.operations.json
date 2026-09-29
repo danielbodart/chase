@@ -1,0 +1,9 @@
+[
+{"methods":["GET"],"path":"/_ping","refuse":true,"operation":{"id":"Ping","summary":"Ping","class":"read","category":"System"}},
+{"methods":["HEAD"],"path":"/_ping","operation":{"id":"PingHead","summary":"Ping, headers only","class":"read","category":"System"},"docker":{"owned":"none"}},
+{"methods":["DELETE"],"path":"/things/*","refuse":true,"operation":{"id":"ThingDelete","summary":"Remove a thing","class":"guarded","category":"Thing"}},
+{"methods":["GET"],"path":"/things/*/json","operation":{"id":"ThingInspect","summary":"Inspect a thing","class":"read","category":"Thing"},"docker":{"owned":"container","param":1.50,"n":[1E+2,0.000001,-0,1E+400,100000000000000000000001,0.0,1.25E+4,"\u007f <\u0001"]}},
+{"methods":["POST"],"path":"/things/create","operation":{"id":"ThingCreate","summary":"Create a thing","class":"write","category":"Thing"},"docker":{"owned":"createContainer","body":"ThingCreate","query":{"name":"containerName"}}},
+{"methods":["GET","HEAD"],"path":"/things/json","refuse":true,"operation":{"id":"ThingList","summary":"List things","class":"read","category":"Thing"}},
+{"methods":["GET"],"path":"/version","operation":{"id":"Version","summary":"Version","description":"What the daemon is.","class":"read","category":"System"},"docker":{"owned":"none"}}
+]

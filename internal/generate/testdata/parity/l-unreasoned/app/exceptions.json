@@ -1,0 +1,8 @@
+{
+  "read": {
+    "createItem": ""
+  },
+  "write": {
+    "deleteItem": 5
+  }
+}

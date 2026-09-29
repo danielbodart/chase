@@ -1,0 +1,28 @@
+schema { query: Query mutation: M }
+
+"""A doc"""
+type Query { "A query field" a: Int }
+type M {
+  """
+    Create a thing.
+    It is made.
+  """
+  createThing(input: X): Int @docsCategory(name: "things")
+  "Delete a thing"
+  deleteThing: Int @deprecated(reason: "Use removeThing.")
+  # a comment
+  "Old one! Still here"
+  oldThing: Int @deprecated
+  ""
+  emptyThing: Int @deprecated(reason: "")
+  "Reclassed? Yes."
+  reclassed: Int
+}
+extend type M {
+  "Later. Field."
+  laterThing: Int @docsCategory(name: "later")
+}
+type Subscription {
+  "Sub it"
+  subThing: Int
+}

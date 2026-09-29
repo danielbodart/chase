@@ -1,0 +1,24 @@
+{
+  "rules": [
+    {
+      "methods": [
+        "GET"
+      ],
+      "reason": "r",
+      "class": "write",
+      "operation": {
+        "id": "hand",
+        "summary": "Hand"
+      }
+    },
+    {
+      "methods": [],
+      "path": "/a",
+      "reason": "r",
+      "class": "read",
+      "operation": {
+        "summary": "x"
+      }
+    }
+  ]
+}

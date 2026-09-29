@@ -1,0 +1,1 @@
+operations: $APP/source.json: x is neither .json nor .yaml, so format must say which

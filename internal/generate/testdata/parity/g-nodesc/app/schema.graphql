@@ -1,0 +1,26 @@
+
+"""A doc"""
+type Query { "A query field" a: Int }
+type Mutation {
+  """
+    Create a thing.
+    It is made.
+  """
+  createThing(input: X): Int @docsCategory(name: "things")
+  "Delete a thing"
+  deleteThing: Int @deprecated(reason: "Use removeThing.")
+  # a comment
+  "Old one! Still here"
+  oldThing: Int @deprecated
+  ""
+  emptyThing: Int @deprecated(reason: "")
+  "Reclassed? Yes."
+  reclassed: Int
+}
+extend type Mutation {
+  "Later. Field."
+  laterThing: Int @docsCategory(name: "later")
+}
+type Subscription {
+    subThing: Int
+}

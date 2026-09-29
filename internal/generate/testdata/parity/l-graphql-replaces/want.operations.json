@@ -1,0 +1,4 @@
+[
+{"methods":["DELETE"],"path":"/api/v3/items/*","operation":{"id":"deleteItem","summary":"Delete an item","class":"guarded"}},
+{"graphql":"/api/v3/items","query":true,"operation":{"id":"listItems","summary":"Q","class":"read"}}
+]

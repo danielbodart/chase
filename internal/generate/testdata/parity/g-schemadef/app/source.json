@@ -1,0 +1,10 @@
+{
+  "url": "https://api.example.invalid/x.json",
+  "server": "https://api.example.invalid/api/v3",
+  "graphql": {
+    "path": "/graphql",
+    "url": "https://example.invalid/s.graphql",
+    "sha256": "59e5cf36ab115b49c730fad1e97f5a0cb1f5fcba25b4beaf07553d42e8fca682"
+  },
+  "sha256": "b6fb185d86d5a2a8b48f54424e5c423881dbbd9104dbbd8b186aa7edb88d30f2"
+}

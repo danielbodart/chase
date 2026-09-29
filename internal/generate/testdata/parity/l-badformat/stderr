@@ -1,0 +1,1 @@
+operations: $APP/source.json: format xml is not swagger2-json, swagger2-yaml, openapi3-json or openapi3-yaml
