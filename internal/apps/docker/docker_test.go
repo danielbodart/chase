@@ -129,14 +129,25 @@ func asJSON(t *testing.T, v any) any {
 	return out
 }
 
+// requireFrisket is the variable that makes a missing frisket a failure
+// rather than a skip. The build that gates chase sets it, with frisket among
+// its check inputs, so that what frisket loads is always judged there.
+const requireFrisket = "CHASE_REQUIRE_FRISKET"
+
 // frisketCheck runs `frisket check` on a session's document, as the checks
-// do, when frisket is on PATH; a test that needs it is skipped otherwise,
-// since frisket is not a Go dependency chase can build from here.
+// do. frisket's command is not a package chase can build from here: its
+// loader is internal to frisket, and what it needs is not in chase's
+// go.sum. So it is the binary on PATH, and a test that needs it is skipped
+// without one, unless CHASE_REQUIRE_FRISKET is set, when it fails: a skip
+// the build did not ask for is a check that silently never ran.
 func frisketCheck(t *testing.T, doc any) (string, error) {
 	t.Helper()
 	bin, err := exec.LookPath("frisket")
 	if err != nil {
-		t.Skip("frisket is not on PATH, so what it loads is not checked")
+		if os.Getenv(requireFrisket) != "" {
+			t.Fatalf("frisket is not on PATH, and %s is set: %v", requireFrisket, err)
+		}
+		t.Skipf("frisket is not on PATH, so what it loads is not checked; set %s to fail instead", requireFrisket)
 	}
 	b, err := json.Marshal(doc)
 	if err != nil {
@@ -216,7 +227,7 @@ func TestTheRouteIsTheProjects(t *testing.T) {
 	// Every rule has its operation, without its description; the admitted
 	// ones are admit.json's, exactly; and none asks.
 	admit := admitted(t)
-	n := 0
+	got := map[string]bool{}
 	for _, rule := range r.Paths {
 		if rule.Operation == nil || rule.Operation.Description != "" {
 			t.Errorf("a rule without its operation, or with its description: %+v", rule)
@@ -228,7 +239,12 @@ func TestTheRouteIsTheProjects(t *testing.T) {
 		if rule.Refuse {
 			continue
 		}
-		n++
+		// jq's from_entries kept one rule of each operation; two admitted
+		// rules of one would have made its equality with admit.json fail.
+		if got[rule.Operation.ID] {
+			t.Errorf("%s is admitted twice", rule.Operation.ID)
+		}
+		got[rule.Operation.ID] = true
 		a, ok := admit[rule.Operation.ID]
 		if !ok {
 			t.Errorf("%s is admitted, and not in admit.json", rule.Operation.ID)
@@ -238,8 +254,10 @@ func TestTheRouteIsTheProjects(t *testing.T) {
 			t.Errorf("%s is not admit.json's: %v %s", rule.Operation.ID, rule.Methods, asJSON(t, rule.Docker))
 		}
 	}
-	if n != len(admit) {
-		t.Errorf("%d rules admit, and admit.json has %d", n, len(admit))
+	for id := range admit {
+		if !got[id] {
+			t.Errorf("%s is in admit.json, and not admitted", id)
+		}
 	}
 
 	if !slices.Equal(p.Allow, []string{"docker.frisket.internal"}) {
@@ -336,15 +354,30 @@ func TestWhatIsRefused(t *testing.T) {
 		{"a bare ID, in capitals, tagged", "example/shop", `{"images": ["` + strings.Repeat("0123ABCD", 8) + `:1"]}`, id},
 		{"sha256 as a repository", "example/shop", `{"images": ["o/sha256:1"]}`, id},
 		{"SHA256 as a registry", "example/shop", `{"images": ["postgres:18", "SHA256/x@y"]}`, id},
+		// jq's $ matched before a newline that ends the text, so an ID with
+		// one after it was still an ID to the script.
+		{"an ID and a newline", "example/shop", `{"images": ["` + strings.Repeat("0123abcd", 8) + `\n"]}`, id},
+		{"an ID and a newline, tagged", "example/shop", `{"images": ["o/` + strings.Repeat("0123abcd", 8) + `\n:1"]}`, id},
 		// What jq could not split, its `|| die` said as an ID.
 		{"an empty component", "example/shop", `{"images": ["a//b:1"]}`, id},
 		{"a component with no name before its digest", "example/shop", `{"images": ["@sha256:1"]}`, id},
-		{"an empty image", "example/shop", `{"images": [""]}`, id},
 		{"a null image", "example/shop", `{"images": ["postgres:18", null]}`, id},
 		{"images that are one string", "example/shop", `{"images": "postgres:18"}`, id},
 		{"images that are a number", "example/shop", `{"images": 1}`, id},
+		// Not the script's: jq split "" into no parts, so the ID check held
+		// and it routed "" and its spellings; and it read an object's values
+		// as its images. Both are refused here.
+		{"an empty image", "example/shop", `{"images": [""]}`, id},
+		{"images that are an object", "example/shop", `{"images": {"a": "postgres:18"}}`, id},
+		{"images that are an empty object", "example/shop", `{"images": {}}`, id},
 		{"a project frisket would refuse", "not a slug", `{"images": ["postgres:18"]}`, "not a slug has no address"},
 		{"ports that are not ports", "example/shop", `{"images": ["postgres:18"], "ports": ["x"]}`, `ports are not a list of ports: ["x"]`},
+		// The script's own refusals come before the ports are read, whatever
+		// they are, as its jq read them last.
+		{"no images, and ports that are not ports", "example/shop", `{"images": [], "ports": ["x"]}`, "no images"},
+		{"an ID, and ports that are not ports", "example/shop", `{"images": ["sha256:1"], "ports": ["x"]}`, id},
+		{"no project, and ports that are not ports", "", `{"images": ["postgres:18"], "ports": ["x"]}`, "no project"},
+		{"no address, and ports that are not ports", "not a slug", `{"images": ["postgres:18"], "ports": ["x"]}`, "not a slug has no address"},
 	} {
 		p, said, err := prepare(t, template(t), "trusted", v.project, v.binding)
 		if err == nil {

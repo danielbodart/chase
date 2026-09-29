@@ -117,6 +117,13 @@ func (a *App) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
 	if err != nil {
 		return die("%s has no address", r.Project)
 	}
+	// The ports are read last, as the script's jq read them only once
+	// everything above had passed: a binding refused for its images or its
+	// project is refused for that, whatever its ports are.
+	ports, err := b.decodePorts()
+	if err != nil {
+		return die("%v", err)
+	}
 
 	// frisket compares an image as the string a client sends, and the CLI
 	// sends what it was given: every spelling that names the same image on
@@ -140,14 +147,14 @@ func (a *App) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
 	}
 	d.Project = who.Project
 	d.Images = images
-	d.Ports = b.ports
+	d.Ports = ports
 	d.Address = who.Address
 	d.Names = who.Names
 	route.Docker = &d
 
-	ports := make([]string, len(b.ports))
-	for i, p := range b.ports {
-		ports[i] = strconv.Itoa(p)
+	said := make([]string, len(ports))
+	for i, p := range ports {
+		said[i] = strconv.Itoa(p)
 	}
 	return apps.Patch{
 		Routes: []policy.Route{route},
@@ -159,7 +166,7 @@ func (a *App) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
 			"CHASE_DOCKER_PROJECT": who.Project,
 			"CHASE_DOCKER_ADDRESS": who.Address,
 			"CHASE_DOCKER_NAMES":   strings.Join(who.Names, " "),
-			"CHASE_DOCKER_PORTS":   strings.Join(ports, " "),
+			"CHASE_DOCKER_PORTS":   strings.Join(said, " "),
 		},
 	}, nil
 }
@@ -190,17 +197,27 @@ func Spellings(image string) []string {
 	return []string{image, "docker.io/" + image}
 }
 
-var hex64 = regexp.MustCompile(`^[0-9a-f]{64}$`)
+// hex64 is the script's test("^[0-9a-f]{64}$") as jq's Oniguruma ran it,
+// where $ also matches before a newline that ends the text: 64 hex and one
+// newline was an ID to the script, and is one here. Go's $ is only the end
+// of the text, so that newline is written out.
+var hex64 = regexp.MustCompile(`^[0-9a-f]{64}\n?$`)
 
 // notAnID is whether no /-separated part of an image, before its @digest
 // and then its :tag, is sha256 or 64 hex, in any case.
 //
-// It is the script's jq, exactly, where frisket's docker.ValidImage has the
-// same rule: split("@")[0] | split(":")[0] | ascii_downcase. jq splits an
-// empty string into no parts, so a part that is empty, or empty before its
-// '@', has no name, and jq failed on it; the script's `|| die` said that
-// failure as this refusal, and so does this. options.nix and ValidImage
-// both refuse such an image anyway.
+// It is the script's jq, where frisket's docker.ValidImage has the same
+// rule: split("@")[0] | split(":")[0] | ascii_downcase. jq splits an empty
+// string into no parts, so a part that is empty, or empty before its '@',
+// has no name, and jq failed on it; the script's `|| die` said that failure
+// as this refusal, and so does this. options.nix and ValidImage both refuse
+// such an image anyway.
+//
+// It differs from the script in one image: the empty one. jq split "" on
+// "/" into no parts at all, so all() of them held, and the script went on
+// to route "", library/, docker.io/ and docker.io/library/ as images. Here
+// "" is one empty part, and is refused with the rest: an image that names
+// nothing is not one to route.
 func notAnID(image string) bool {
 	for _, part := range strings.Split(image, "/") {
 		name, _, _ := strings.Cut(part, "@")
@@ -226,10 +243,12 @@ func asciiLower(s string) string {
 	}, s)
 }
 
-// binding is what Prepare reads of a Docker binding: its images and ports.
+// binding is what Prepare reads of a Docker binding: its images, and its
+// ports as the binding gave them, decoded only once the images and the
+// project have been judged.
 type binding struct {
 	images []string
-	ports  []int
+	ports  json.RawMessage
 }
 
 // errNoImages is a binding with nothing a container could run. It is also
@@ -251,16 +270,30 @@ func readBinding(raw json.RawMessage) (binding, error) {
 		if err := json.Unmarshal(v, &b.images); err != nil {
 			// jq failed on images that were not a list of strings, in the ID
 			// check, whose `|| die` said this; the options refuse them first.
+			// One such value jq did not fail on: an object, whose .images[]
+			// is its values, so {"images": {"a": "postgres:18"}} routed
+			// postgres:18 and {"images": {}} routed no image at all. Both
+			// are refused here, as images that are not a list.
 			return binding{}, errors.New("an image named by its ID: name it by its repository and a tag or digest")
 		}
 	}
-	b.ports = []int{}
-	if v := obj["ports"]; !none(v) {
-		if err := json.Unmarshal(v, &b.ports); err != nil {
-			return binding{}, fmt.Errorf("ports are not a list of ports: %s", v)
-		}
-	}
+	b.ports = obj["ports"]
 	return b, nil
+}
+
+// decodePorts is the binding's ports, none for what jq's `// []` replaced.
+// The script did not judge them: it gave frisket whatever they were, and
+// frisket refused the document if they were not ports. They are refused
+// here instead, after every refusal the script had of its own.
+func (b binding) decodePorts() ([]int, error) {
+	ports := []int{}
+	if none(b.ports) {
+		return ports, nil
+	}
+	if err := json.Unmarshal(b.ports, &ports); err != nil {
+		return nil, fmt.Errorf("ports are not a list of ports: %s", b.ports)
+	}
+	return ports, nil
 }
 
 // none is whether a value is what jq's `// []` replaces: absent, null or
