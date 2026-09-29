@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/danielbodart/chase/internal/term"
@@ -54,8 +53,11 @@ const (
 // takes once the person has fixed it. It returns when RUN is gone, or ctx
 // is done.
 //
-// It checks no service account: the launch did, before it started this.
-func Loop(ctx context.Context, cfg Config, run string, stderr io.Writer, clock Clock) {
+// A non-empty sa is checked on every mint, as the script's loop called the
+// same mint under the same $CHASE_GCLOUD_SA. The unit sets none, since the
+// launch checked the key before it started this; but a loop that is given
+// one refuses another account's key every minute rather than send it.
+func Loop(ctx context.Context, cfg Config, run, sa string, stderr io.Writer, clock Clock) {
 	for ctx.Err() == nil && isDir(run) {
 		// In whole seconds, truncated, as the shell's arithmetic had it.
 		wait := (expiry(run)-clock.Now().UnixMilli())/1000 - renewBefore
@@ -63,7 +65,7 @@ func Loop(ctx context.Context, cfg Config, run string, stderr io.Writer, clock C
 			nap(ctx, clock, run, min(wait, longestNap))
 			continue
 		}
-		if Mint(ctx, cfg, run, "", stderr) != Minted {
+		if Mint(ctx, cfg, run, sa, stderr) != Minted {
 			if !isDir(run) || ctx.Err() != nil {
 				break
 			}
@@ -84,7 +86,7 @@ func nap(ctx context.Context, clock Clock, run string, left int64) {
 // expiry is the token's expiry in epoch milliseconds, or 0 if there is no
 // token file or it names none: a token to mint now.
 func expiry(run string) int64 {
-	b, err := os.ReadFile(filepath.Join(run, "gcloud-token.json"))
+	b, err := os.ReadFile(run + "/gcloud-token.json")
 	if err != nil {
 		return 0
 	}

@@ -30,7 +30,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -94,7 +93,11 @@ func Mint(ctx context.Context, cfg Config, run, sa string, stderr io.Writer) Out
 	say := func(format string, args ...any) {
 		fmt.Fprint(stderr, term.Clean("chase-gcloud-renew: "+fmt.Sprintf(format, args...))+"\n")
 	}
-	keyPath := filepath.Join(run, "secrets", "gcloud")
+	// RUN's paths are joined as the script's strings were, not cleaned: an
+	// empty RUN is the root's, as `$run/secrets/gcloud` made it, never the
+	// caller's working directory, and a `..` in RUN is the kernel's to
+	// resolve, through whatever links it passes.
+	keyPath := run + "/secrets/gcloud"
 	raw, err := os.ReadFile(keyPath)
 	if err != nil {
 		say("no key at %s", keyPath)
@@ -176,7 +179,12 @@ func Mint(ctx context.Context, cfg Config, run, sa string, stderr io.Writer) Out
 	// frisket re-reads the file when it is replaced, and must never read
 	// half of one: it is written beside itself and renamed over, the
 	// user's alone.
-	if err := files.WriteAtomic(filepath.Join(run, "gcloud-token.json"), out.Bytes(), 0o600); err != nil {
+	//
+	// What could not be written is said, as mktemp and mv said it: a full
+	// disk or an unwritable RUN is otherwise only "trying again in a
+	// minute" in the unit's journal. The error names paths, never the token.
+	if err := files.WriteAtomic(run+"/gcloud-token.json", out.Bytes(), 0o600); err != nil {
+		say("%v", err)
 		return Transient
 	}
 	say("minted for %s, expiring %s", email, time.Unix(int64(expiry/1000), 0).Format("2006-01-02T15:04:05-07:00"))
@@ -271,8 +279,13 @@ func granted(body []byte, sent int64) (token string, expiry float64, ok bool) {
 }
 
 // refusal is Google's error and its description, as its error envelope
-// gives them, or "?" if the body is not one.
+// gives them, or "?" if the body is not one. An empty body is nothing at
+// all: jq read no input, said nothing, and exited 0, so the script's
+// refusal ended at its colon.
 func refusal(body []byte) string {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return ""
+	}
 	var v any
 	if json.Unmarshal(body, &v) != nil {
 		return "?"

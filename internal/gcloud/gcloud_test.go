@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/danielbodart/chase/internal/gcloud/gcloudtest"
 )
 
@@ -326,6 +328,9 @@ func TestGooglesRefusalIsSaidAsJqSaidIt(t *testing.T) {
 		`<html>`:                                                "?",
 		`{"error": {"code": 400}}`:                              `{"code":400}: `,
 		`{"error": 7, "error_description": false}`: "7: ",
+		// jq given no input says nothing, and succeeds.
+		``:       "",
+		" \n\t ": "",
 	} {
 		if got := refusal([]byte(body)); got != want {
 			t.Errorf("%s: %q, want %q", body, got, want)
@@ -363,7 +368,7 @@ func (c *fakeClock) Sleep(_ context.Context, d time.Duration) {
 func runLoop(t *testing.T, f *fixture, run string, clock Clock) {
 	done := make(chan struct{})
 	go func() {
-		Loop(context.Background(), f.cfg, run, f.said, clock)
+		Loop(context.Background(), f.cfg, run, "", f.said, clock)
 		close(done)
 	}()
 	select {
@@ -504,6 +509,152 @@ func TestTheLoopNapsInStepsOfTenSeconds(t *testing.T) {
 			t.Errorf("%s: expiry %d, want %d", body, got, want)
 		}
 	}
+}
+
+// A token that cannot be written is transient, and why is said, as mktemp
+// said it; the token is not.
+func TestAnUnwritableRunIsSaid(t *testing.T) {
+	f := newFixture(t)
+	run := f.session(f.key, sa)
+	if err := os.Chmod(run, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(run, 0o700) })
+	if os.WriteFile(filepath.Join(run, "probe"), nil, 0o600) == nil {
+		t.Skip("the run directory is writable anyway (root?)")
+	}
+	f.mint(Transient, run, sa)
+	if said := f.said.String(); !strings.Contains(said, run+"/.gcloud-token.json") || !strings.Contains(said, "permission denied") {
+		t.Errorf("the failed write was not said: %s", said)
+	}
+}
+
+// RUN is joined as the script's strings were: an empty one is the root's,
+// never the working directory's.
+func TestAnEmptyRunIsTheRoots(t *testing.T) {
+	f := newFixture(t)
+	f.mint(Minted, f.session(f.key, sa), "")
+	t.Chdir(f.session(f.key, sa))
+	f.mint(BadKey, "", "")
+	if !strings.Contains(f.said.String(), "chase-gcloud-renew: no key at /secrets/gcloud\n") {
+		t.Errorf("an empty RUN was not the root's: %s", f.said)
+	}
+	if _, err := os.Stat("gcloud-token.json"); err == nil {
+		t.Error("a token was written in the working directory")
+	}
+}
+
+// A loop given a service account checks it on every mint, as the script's
+// loop called the same mint: another account's key is never sent.
+func TestTheLoopChecksTheAccountItIsGiven(t *testing.T) {
+	f := newFixture(t)
+	f.mint(Minted, f.session(f.key, sa), "")
+	n := f.google.Requests()
+	run := f.session(f.key, sa)
+	clock := &fakeClock{now: time.Now()}
+	clock.tick = func(slept time.Duration) {
+		if slept >= 120*time.Second {
+			os.RemoveAll(run)
+		}
+	}
+	done := make(chan struct{})
+	go func() {
+		Loop(context.Background(), f.cfg, run, "other@demo.iam.gserviceaccount.com", f.said, clock)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the loop outlived its run directory")
+	}
+	if f.google.Requests() != n {
+		t.Error("the loop sent another account's key")
+	}
+	if c := strings.Count(f.said.String(), "the key is "+sa+"'s, not other@demo.iam.gserviceaccount.com's\nchase-gcloud-renew: trying again in a minute\n"); c != 2 {
+		t.Errorf("the loop refused %d times, not twice: %s", c, f.said)
+	}
+}
+
+// Stopped mid-nap -- systemctl stop's SIGTERM -- the loop ends there, and
+// mints nothing more.
+func TestTheLoopEndsWhenItIsStopped(t *testing.T) {
+	f := newFixture(t)
+	f.mint(Minted, f.session(f.key, sa), "")
+	run := f.session(f.key, sa)
+	start := time.Now()
+	soon, _ := json.Marshal(map[string]any{"access_token": "soon", "expiry": start.UnixMilli() + 630000})
+	os.WriteFile(filepath.Join(run, "gcloud-token.json"), soon, 0o600)
+	n := f.google.Requests()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	steps := 0
+	clock := &fakeClock{now: start}
+	clock.tick = func(time.Duration) {
+		steps++
+		cancel()
+	}
+	Loop(ctx, f.cfg, run, "", f.said, clock)
+	if steps != 1 || f.google.Requests() != n {
+		t.Errorf("a stopped loop napped %d steps and sent %d requests", steps, f.google.Requests()-n)
+	}
+}
+
+// `loop RUN` as the unit runs it: to its end, with exit 0, once RUN is gone
+// or it is stopped; each of its mints checks $CHASE_GCLOUD_SA; and all of
+// it under umask 077.
+func TestRunLoopIsTheScriptsLoop(t *testing.T) {
+	f := newFixture(t)
+	f.mint(Minted, f.session(f.key, sa), "")
+	n := f.google.Requests()
+	env := func(k string) string {
+		if k == "CHASE_GCLOUD_SA" {
+			return "other@demo.iam.gserviceaccount.com"
+		}
+		return ""
+	}
+	prev := unix.Umask(0o022)
+	t.Cleanup(func() { unix.Umask(prev) })
+
+	var b syncBuffer
+	if got := Run(context.Background(), []string{"loop", filepath.Join(t.TempDir(), "gone")}, env, &b, f.cfg); got != 0 {
+		t.Errorf("a loop without its run directory exited %d", got)
+	}
+	if got := unix.Umask(0o022); got != 0o077 {
+		t.Errorf("the umask was %#o, not 077", got)
+	}
+	stopped, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := Run(stopped, []string{"loop", f.session(f.key, sa)}, env, &b, f.cfg); got != 0 {
+		t.Errorf("a stopped loop exited %d", got)
+	}
+
+	// With the real clock: the first mint refuses the other account's key,
+	// and the loop is stopped in the minute's wait that follows.
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	exited := make(chan int)
+	go func() { exited <- Run(ctx, []string{"loop", f.session(f.key, sa)}, env, &b, f.cfg) }()
+	deadline := time.After(30 * time.Second)
+	for !strings.Contains(b.String(), "trying again in a minute") {
+		select {
+		case <-deadline:
+			t.Fatalf("the loop said nothing: %s", b.String())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	stop()
+	select {
+	case got := <-exited:
+		if got != 0 {
+			t.Errorf("the stopped loop exited %d", got)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the loop outlived its stop")
+	}
+	if f.google.Requests() != n || !strings.Contains(b.String(), "not other@demo.iam.gserviceaccount.com's") {
+		t.Errorf("the loop did not check $CHASE_GCLOUD_SA: %d requests, said %s", f.google.Requests()-n, b.String())
+	}
+	f.said.Write([]byte(b.String()))
 }
 
 func TestRunIsTheScriptsCommandLine(t *testing.T) {

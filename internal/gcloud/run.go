@@ -20,7 +20,10 @@ const Usage = 64
 //	          0 minted, 1 transient, 2 Google refused the grant, 3 the key
 //	          is not a usable key of $CHASE_GCLOUD_SA, where that is set.
 //	loop RUN  keeps it minted until RUN is gone, as
-//	          chase-gcloud-renew@<machine>, and exits 0.
+//	          chase-gcloud-renew@<machine>, and exits 0 once RUN is gone or
+//	          ctx is done (SIGTERM, as systemctl stop sends it). Each of its
+//	          mints checks $CHASE_GCLOUD_SA too, where that is set, as the
+//	          script's did.
 //
 // getenv is os.Getenv, or a check's. Everything it writes is the user's
 // alone: the process's umask is 077, as the script's was.
@@ -36,9 +39,10 @@ func Run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		return usage(args[0] + " RUN")
 	}
 	unix.Umask(0o077)
+	sa := getenv("CHASE_GCLOUD_SA")
 	if args[0] == "mint" {
-		return int(Mint(ctx, cfg, args[1], getenv("CHASE_GCLOUD_SA"), stderr))
+		return int(Mint(ctx, cfg, args[1], sa, stderr))
 	}
-	Loop(ctx, cfg, args[1], stderr, RealClock{})
+	Loop(ctx, cfg, args[1], sa, stderr, RealClock{})
 	return 0
 }
