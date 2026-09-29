@@ -123,6 +123,35 @@ func TestCopyTrackedRefusesALinkAboveATrackedFile(t *testing.T) {
 	}
 }
 
+// What the property below once found, kept as an example: a/a a link to the
+// host's a, and a/a/a listed. The copier refuses at a/a, and makes nothing
+// for it in the copy -- a is made, since it is a directory of the checkout's,
+// but a/a, which only the link would have given, is not.
+func TestADirectoryIsNeverMadeInTheCopyForALink(t *testing.T) {
+	root := t.TempDir()
+	hostA := filepath.Join(root, "host", "a")
+	must(t, os.MkdirAll(filepath.Join(hostA, "a"), 0o755))
+	must(t, os.WriteFile(filepath.Join(hostA, "a", "a"), []byte(topsecret), 0o644))
+	ws, out := filepath.Join(root, "ws"), filepath.Join(root, "out")
+	must(t, os.MkdirAll(filepath.Join(ws, "a"), 0o755))
+	must(t, os.Mkdir(out, 0o755))
+	must(t, os.Symlink(hostA, filepath.Join(ws, "a", "a")))
+	err := CopyTracked(ws, out, []string{"a/a/a"})
+	r, ok := err.(*Refused)
+	if !ok || r.Reason != "a/a is a link, so what is tracked under it would be copied from wherever it points" {
+		t.Errorf("%#v", err)
+	}
+	if st, err := os.Lstat(filepath.Join(out, "a")); err != nil || !st.IsDir() {
+		t.Errorf("out/a: %v %v", st, err)
+	}
+	if _, err := os.Lstat(filepath.Join(out, "a", "a")); !os.IsNotExist(err) {
+		t.Errorf("out/a/a was made: %v", err)
+	}
+	if l := leaked(t, out); len(l) > 0 {
+		t.Errorf("the host's bytes are in %v", l)
+	}
+}
+
 // A directory made a file is refused, and is not called a link; a tracked
 // file missing from the work tree is refused, as tar refused it; and what is
 // not a file, a link or a directory is refused, whatever it is.

@@ -158,9 +158,17 @@ func copyLeaf(ws, src int, name, path string) error {
 		if err != nil {
 			return fmt.Errorf("create %s: %w", path, err)
 		}
-		defer unix.Close(out)
 		if err := pour(out, fd); err != nil {
+			unix.Close(out)
 			return fmt.Errorf("copy %s: %w", path, err)
+		}
+		// Where the copy is written -- NFS, FUSE, a home with a quota -- a
+		// write may fail only when it is closed, and a copy cut short is
+		// what would be compared, evaluated and decrypted: the copier this
+		// replaces died of it, and so does this. Close is not retried on
+		// EINTR: on Linux the descriptor is gone either way.
+		if err := unix.Close(out); err != nil {
+			return fmt.Errorf("close %s: %w", path, err)
 		}
 		return nil
 	default:
