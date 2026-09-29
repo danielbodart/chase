@@ -80,6 +80,20 @@ app="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../apps" && pwd)/$name
     exit 2
 }
 source="$app/source.json"
+
+# What a person writes and reviews is read as they read it. jq, like every
+# JSON reader here, keeps the LAST of a key given twice, so a reviewer could
+# read the first while the second took effect: a key given twice, at any
+# depth, is refused. jq --stream walks the text, duplicates and all; tostream
+# walks what was parsed, so the two agree only where no key repeats.
+for hand in "$source" "$app/exceptions.json" "$app/admit.json"; do
+    [ -f "$hand" ] || continue
+    if [ "$(jq -c --stream . "$hand" | wc -l)" != "$(jq -c tostream "$hand" | wc -l)" ]; then
+        echo "operations: $hand gives a key twice in one object, and only the last would count" >&2
+        exit 1
+    fi
+done
+
 url=$(jq -r .url "$source")
 sha256=$(jq -r .sha256 "$source")
 server=$(jq -r '.server // empty' "$source")

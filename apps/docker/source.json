@@ -1,0 +1,7 @@
+{
+  "url": "https://raw.githubusercontent.com/moby/moby/3ce5872b7950c63ba2ffbc5123101019ff3e6682/api/swagger.yaml",
+  "sha256": "f09a22ad220d551dca5d6c402052204d3e9fd1f16943cd78ba6677ea1266616f",
+  "format": "swagger2-yaml",
+  "basePath": "/v1.56",
+  "apiVersions": {"min": "1.55", "max": "1.56", "unversioned": ["/_ping"]}
+}

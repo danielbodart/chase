@@ -1206,6 +1206,13 @@
           # basePath, its own HEAD, its bodies walked into known.json, and an
           # app admitted rather than classed. What would make it generate for
           # a spec it was not pinned to is refused.
+          #
+          # Then Docker's own: the Engine API spec its source.json pins,
+          # fetched by that hash rather than vendored (it is 470 KB of YAML),
+          # which makes it a fixed-output input and so as reproducible as a
+          # vendored one. What it generates must be what is committed, so
+          # the operations.json and known.json a person reviews are the
+          # spec's and admit.json's and nothing else.
           operations = pkgs.runCommand "operations"
             { nativeBuildInputs = [ pkgs.jq (pkgs.python3.withPackages (p: [ p.pyyaml ])) ]; }
             ''
@@ -1215,7 +1222,8 @@
                 rm -rf t && mkdir -p t/scripts t/apps
                 cp ${./scripts/operations.sh} t/scripts/operations.sh
                 cp -r ${./tests/operations/demo} t/apps/demo
-                cp -r ${./tests/operations/legacy} t/apps/legacy && chmod -R u+w t
+                cp -r ${./tests/operations/legacy} t/apps/legacy
+                cp -r ${./apps/docker} t/apps/docker && chmod -R u+w t
               }
               repin() { edit source.json ".sha256 = \"$(sha256sum "$app/$1" | cut -d' ' -f1)\""; }
               generate() { bash t/scripts/operations.sh demo 2>$TMPDIR/err; }
@@ -1277,6 +1285,14 @@
               refuses "HEAD admitted as a GET's where the spec has its own" "admit.json gives Ping"
               fresh; edit admit.json '.Version = {"docker": {"owned": "none"}}'
               refuses "an admitted operation with no methods" "needs its methods and a docker block"
+              # A key given twice is refused wherever a person writes it: jq
+              # would keep the last, and a reviewer may read the first.
+              fresh; sed -i 's/^}$/,"Version": {"methods": ["GET"], "docker": {"owned": "list", "query": {"all": "any"}}}\n}/' $app/admit.json
+              refuses "an operation admitted twice, the later one winning" "admit.json gives a key twice"
+              fresh; sed -i 's/"owned": "container", "param": 1/"owned": "container", "param": 1, "owned": "none"/' $app/admit.json
+              refuses "a docker block that gives a field twice" "admit.json gives a key twice"
+              fresh; sed -i '0,/{/s//{"basePath": "\/v1.3",/' $app/source.json
+              refuses "a pin that gives a field twice" "source.json gives a key twice"
               fresh; edit admit.json '.ThingInspect.docker.body = "ThingInspect"'
               refuses "a body table for an operation with no body" "the spec gives it 0 bodies"
               fresh; edit source.json '.apiVersions.max = "1.3"'
@@ -1321,6 +1337,44 @@
               fresh; edit source.json '.server = "https://api.example.invalid/api/v4"'
               ! bash t/scripts/operations.sh legacy 2>$TMPDIR/err && grep -qF 'servers is ["https://api.example.invalid/api/v3"], not https://api.example.invalid/api/v4' $TMPDIR/err \
                 || fail "a server that is not the spec's was not refused: $(cat $TMPDIR/err)"
+
+              # Docker, from the pinned Engine API spec: what is committed is
+              # what it generates, byte for byte.
+              app=t/apps/docker
+              fresh
+              bash t/scripts/operations.sh docker ${pkgs.fetchurl { inherit (builtins.fromJSON (builtins.readFile ./apps/docker/source.json)) url sha256; }} 2>$TMPDIR/err || fail "Docker did not generate from its pinned spec: $(cat $TMPDIR/err)"
+              cmp -s $app/operations.json ${./apps/docker/operations.json} \
+                || fail "apps/docker/operations.json is not what the pinned spec generates: run scripts/operations.sh docker"
+              cmp -s $app/known.json ${./apps/docker/known.json} \
+                || fail "apps/docker/known.json is not what the pinned spec generates: run scripts/operations.sh docker"
+
+              # Each admitted operation is one rule, with exactly the methods
+              # and docker block admit.json gives it; every other operation is
+              # a refusal that names what it refused.
+              jq -e --slurpfile admit $app/admit.json '
+                  ([.[] | select(.docker != null) | .operation.id] | sort) == ($admit[0] | keys)
+                  and all(.[] | select(.docker != null); $admit[0][.operation.id] == { methods, docker })' \
+                $app/operations.json >/dev/null || fail "an operation admit.json names is not exactly one rule with its methods and docker block"
+              jq -e 'all(.[] | select(.docker == null); .refuse == true and (.operation.id | type) == "string" and .operation.id != "")' \
+                $app/operations.json >/dev/null || fail "an operation admit.json does not name is not refused with its operation id"
+              [ "$(rule HEAD /_ping | jq -r .operation.id)" = SystemPingHead ] && [ "$(rule GET /_ping | jq -r .operation.id)" = SystemPing ] \
+                && [ "$(jq '[.[] | select(.path == "/_ping")] | length' $app/operations.json)" = 2 ] \
+                || fail "/_ping is not a HEAD rule and a GET rule of their own: $(jq -c '.[] | select(.path == "/_ping")' $app/operations.json)"
+              jq -e 'all(.[]; .path // .prefix | startswith("/v1.") | not)' $app/operations.json >/dev/null \
+                || fail "a template still carries the API version"
+              [ "$(jq -c 'keys' $app/known.json)" = '["ContainerCreate","ExecCreate","ExecStart","NetworkCreate","VolumeCreate"]' ] \
+                || fail "known.json does not hold exactly the admitted body tables: $(jq -c keys $app/known.json)"
+              # What was compared above is admit.json as jq parsed it, which
+              # keeps the last of a repeated key: so, apart from the
+              # generator's own refusal, the text itself names each admitted
+              # operation once, and no pinned or admitted field twice.
+              for f in admit.json source.json; do
+                [ "$(jq -c --stream . $app/$f | wc -l)" = "$(jq -c tostream $app/$f | wc -l)" ] \
+                  || fail "apps/docker/$f gives a key twice in one object"
+              done
+              [ "$(grep -cE '^"[A-Za-z]+": ' $app/admit.json)" = "$(jq 'keys | length' $app/admit.json)" ] \
+                && [ "$(jq 'keys | length' $app/admit.json)" = 31 ] \
+                || fail "admit.json does not name 31 operations, each once on its own line"
               touch $out
             '';
 
