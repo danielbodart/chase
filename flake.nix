@@ -807,6 +807,15 @@
             new='{"secrets": "s.yaml", "bindings": {"github": {"allow": ["x"]}}}'
             [ "$(normal <<< "$old")" = "$(normal <<< "$new")" ] || fail "an envelope approved before reads as another: $(normal <<< "$old")"
             [ "$(normal <<< '{"secrets": "s.yaml"}')" = '{"secrets":"s.yaml"}' ] || fail "an envelope without bindings was changed"
+            # Docker's binding is new: an envelope that names no image and no
+            # port reads as one approved before there was a binding to name.
+            old='{"secrets": "s.yaml", "bindings": {"github": {"allow": ["x"]}}}'
+            new='{"secrets": "s.yaml", "bindings": {"github": {"allow": ["x"]}, "docker": {"images": [], "ports": []}}}'
+            [ "$(normal <<< "$old")" = "$(normal <<< "$new")" ] || fail "an envelope without Docker reads as another: $(normal <<< "$new")"
+            jq -e '.bindings.docker == {"images": ["postgres:18"]}' <<< "$(normal <<< '{"bindings": {"docker": {"images": ["postgres:18"], "ports": []}}}')" >/dev/null \
+              || fail "an envelope's Docker images were not kept"
+            jq -e '.bindings.docker == {"ports": [5432]}' <<< "$(normal <<< '{"bindings": {"docker": {"images": [], "ports": [5432]}}}')" >/dev/null \
+              || fail "an envelope's Docker ports were not kept"
             touch $out
           '';
 
@@ -1510,6 +1519,79 @@
                 || fail "lib.docker gave an address or names to $(jq -c . "$acceptedByNixPath")"
               for slug in a/b/c evil/../data-lab a/rép /x; do refuses "$slug"; done
 
+              touch $out
+            '';
+
+          # WHAT AN ENVELOPE MAY NAME FOR DOCKER (docs/docker.md, 3.4): each
+          # image in the one form frisket compares against, never at a
+          # registry the host's loopback or an address would answer for, and
+          # ports frisket can listen on in the session. options.nix is
+          # evaluated alone, as chase-envelope evaluates it, so a bad value
+          # has to fail the evaluation itself.
+          docker-envelope =
+            let
+              lib = nixpkgs.lib;
+              # A binding is either the value of chase.bindings.docker or a
+              # project module of its own, evaluated beside options.nix as
+              # chase-envelope evaluates a project's chaseModules.default.
+              docker = binding: (lib.evalModules {
+                modules = [ ./project/options.nix (if binding ? module then binding.module else { chase.bindings.docker = binding; }) ];
+              }).config.chase.bindings.docker;
+              evaluates = binding: (builtins.tryEval (builtins.deepSeq (docker binding) true)).success;
+              digest = lib.concatStrings (lib.replicate 8 "0123abcd");
+              refused = [
+                { images = [ "docker.io/postgres:18" ]; }
+                { images = [ "index.docker.io/x:1" ]; }
+                { images = [ "library/postgres:18" ]; }
+                { images = [ "postgres" ]; }
+                { images = [ "127.0.0.1:5000/x:1" ]; }
+                { images = [ "10.0.0.1/x:1" ]; }
+                { images = [ "localhost/x:1" ]; }
+                # Names and spellings that resolve to the host's loopback.
+                { images = [ "registry.localhost/x:1" ]; }
+                { images = [ "localhost.localdomain/x:1" ]; }
+                { images = [ "0x7f.1/x:1" ]; }
+                { images = [ "127.1/x:1" ]; }
+                { images = [ "a.internal/x:1" ]; }
+                { images = [ "127.0.0.1.nip.io/x:1" ]; }
+                { images = [ "evil.eu.gcr.io.example/x:1" ]; }
+                { images = [ "a.b-docker.pkg.dev/x:1" ]; }
+                # A project module that declares the option again, to put
+                # its own value past the check.
+                {
+                  name = "a module that redeclares images with an apply";
+                  module = { lib, ... }: {
+                    options.chase.bindings.docker.images = lib.mkOption { apply = _: [ "127.0.0.1:5000/x:1" ]; };
+                  };
+                }
+                {
+                  name = "a module that redeclares ports as any int, for port 80";
+                  module = { lib, ... }: {
+                    options.chase.bindings.docker.ports = lib.mkOption { type = lib.types.listOf lib.types.int; };
+                    config.chase.bindings.docker.ports = [ 80 ];
+                  };
+                }
+                {
+                  name = "a module that redeclares ports as 0 to 70000, for ports 0 and 99999";
+                  module = { lib, ... }: {
+                    options.chase.bindings.docker.ports = lib.mkOption { type = lib.types.listOf (lib.types.ints.between 0 70000); };
+                    config.chase.bindings.docker.ports = [ 0 99999 ];
+                  };
+                }
+                { ports = [ 80 ]; }
+                { ports = [ 15001 ]; }
+                { ports = [ 5432 5432 ]; }
+                { ports = lib.range 2000 2064; }
+              ];
+              accepted = [
+                { images = [ "postgres:18" "bitnami/postgresql:16" "ghcr.io/o/x:1" "postgres@sha256:${digest}" "eu.gcr.io/p/x:1" "europe-west2-docker.pkg.dev/p/r/x:1" ]; ports = [ 5432 ]; }
+                { ports = lib.range 2000 2063; }
+                { }
+              ];
+              wrong = builtins.filter evaluates refused ++ builtins.filter (b: ! evaluates b) accepted;
+            in
+            pkgs.runCommand "docker-envelope" { wrong = builtins.toJSON (map (b: b.name or b) wrong); passAsFile = [ "wrong" ]; } ''
+              [ "$(cat "$wrongPath")" = "[]" ] || { echo "docker-envelope: evaluated wrongly: $(cat "$wrongPath")" >&2; exit 1; }
               touch $out
             '';
 
