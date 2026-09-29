@@ -207,6 +207,17 @@ carries (`apps.gcloud.apis`), a project adds or removes, and each request is
 answered by an allowlist generated from Google's own descriptions. Only in a
 tier that takes envelopes. See [docs/gcloud.md](docs/gcloud.md).
 
+**Docker.** The Docker CLI and Compose, against `chase.user`'s rootless daemon,
+for a project that names its images and ports in its envelope. The project is
+its checkout's GitHub origin, approved with the envelope, and frisket admits
+only what is that project's own: containers, volumes and networks it labelled
+when they were made, the images named, and ports published on the project's
+own loopback address, which a session reaches as `localhost` and as
+`<repo>.internal`. Only in a tier that takes envelopes, with direct egress.
+chase runs no daemon: the machine runs rootless Docker for the user, with its
+socket at `/run/user/<uid>/docker.sock`, as NixOS's
+`virtualisation.docker.rootless` does. See [docs/docker.md](docs/docker.md).
+
 Anything else is yours. An app is an ordinary NixOS module written against
 the options above — it reads `config.chase`, extends `chase.tiers.<tier>.apps`
 with its own switch, and adds whatever binds or container configuration it

@@ -309,6 +309,7 @@ in
     ./apps/cloudflare.nix
     ./apps/huggingface.nix
     ./apps/gcloud.nix
+    ./apps/docker.nix
     ./apps/gcloud-renew.nix
     ./project
   ] ++ map

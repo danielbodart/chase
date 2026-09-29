@@ -315,6 +315,33 @@
               && ! lib.elem "*.googleapis.com" policy.allow
               && ! config.containers.agent-strict.config.environment.variables ? CLOUDSDK_CONFIG)
               || throw "assertions: gcloud in trusted did not hold together";
+            # Docker is only ever a project's, and only where a session has
+            # the network a container on the host's daemon has anyway.
+            assert refused "Docker in a tier with no network but frisket"
+              { chase.tiers.strict = { envelope = true; apps.docker.enable = true; }; } "chase.tiers.strict.apps.docker is enabled, but the tier's egress is not direct";
+            assert refused "Docker in a tier that takes no envelope"
+              { chase.tiers.open = { egress = "direct"; apps.docker.enable = true; }; } "chase.tiers.open.apps.docker is enabled, but the tier takes no envelope";
+            # trusted publishes what a session listens on ("auto"), which
+            # Docker's relay is not refused over: it listens on nothing a
+            # session's pasta would see. The tier gets the CLI and the CA it
+            # verifies frisket by, and nothing in its own document: the
+            # route is made per launch, for a project.
+            assert
+              (let
+                config = configWith { chase.tiers.trusted.apps.docker.enable = true; };
+                env = config.containers.agent-trusted.config.environment;
+                policy = config.services.frisket.policies.trusted;
+                failed = map (a: a.message) (lib.filter (a: ! a.assertion) config.assertions);
+              in
+              failed == [ ]
+              && config.chase.tiers.trusted.forwardPorts == "auto"
+              && lib.any (p: lib.getName p == "docker") env.systemPackages
+              && env.etc."chase/docker/ca.pem".source == "/etc/frisket/ca.crt"
+              && ! policy.routes ? docker
+              && ! lib.elem "docker.frisket.internal" policy.allow
+              && ! lib.any (p: lib.getName p == "docker") config.containers.agent-strict.config.environment.systemPackages
+              && ! config.containers.agent-strict.config.environment.etc ? "chase/docker/ca.pem")
+              || throw "assertions: Docker in trusted did not hold together";
             # A CLASS IS ANSWERED AS THE TIER AND THE APP SAY (PLAN.md,
             # decision 18). By default a read is allowed, a write asks and a
             # guarded operation is refused; the tier's settings are every
@@ -2428,6 +2455,138 @@
               [ "$(cat run/chase/m3/probe.project)" = set: ] || fail "prepare was given a project with no Docker: $(cat run/chase/m3/probe.project)"
               [ "$(jq -c . run/chase/m3/probe.stdin)" = '{"x":2}' ] || fail "prepare was not given the binding"
               [ ! -e sops.log ] || fail "a secret was decrypted: $(cat sops.log)"
+
+              touch $out
+            '';
+
+          # DOCKER, LAUNCHED (docs/docker.md): a checkout whose envelope binds
+          # Docker gets a route to the rootless daemon, as the project approve
+          # staged -- its address, its names, every spelling of its images,
+          # its ports and the tables its bodies are judged by -- and the
+          # variables that point the CLI at it; frisket loads the document.
+          # A checkout that binds nothing of Docker's gets no route, and a
+          # binding in a tier without Docker is said and adds nothing.
+          docker-launch =
+            let
+              root = "/chase-docker-launch-test";
+              frisketPackage = frisket.packages.${system}.default;
+            in
+            pkgs.runCommand "docker-launch" { nativeBuildInputs = [ pkgs.git pkgs.jq frisketPackage ]; } ''
+              export HOME=$TMPDIR
+              fail() { echo "docker-launch: $*" >&2; exit 1; }
+              ${envelopeHarness {
+                chase = {
+                  tiers.trusted = {
+                    match = [ { checkouts."triptease/data-lab" = "${root}/p/data-lab"; } ];
+                    apps.docker.enable = true;
+                  };
+                  tiers.plain = { egress = "direct"; envelope = true; };
+                };
+                rewrite = { hosts = "$PWD/docker-hosts.json"; policies = "$PWD/policies"; };
+              }}
+              r=$(cd "$TMPDIR" && pwd -P)/root
+              baked=$(sed -n 's/^checkouts=//p' chase-envelope)
+              sed "s|${root}|$r|g" "$baked" > checkouts.json
+              sed -i "s|^checkouts=.*|checkouts=$PWD/checkouts.json|" chase-envelope
+              grep -q "^checkouts=$PWD/checkouts.json$" chase-envelope || fail "checkouts is not one line of chase-envelope's"
+              jq -e '.docker.credential == false and (.docker.prepare | endswith("/bin/chase-docker-prepare"))' "$(sed -n 's/^apps=//p' chase-envelope)" >/dev/null \
+                || fail "docker is not an app with no credential and a prepare"
+
+              mkdir policies
+              for t in trusted plain; do
+                printf '{"name": "%s", "allow": ["github.com"], "routes": []}\n' "$t" > "policies/$t.json"
+              done
+
+              ws=$r/p/data-lab
+              git init -q "$ws"
+              git -C "$ws" config remote.origin.url git@github.com:TripTease/Data-Lab.git
+              printf '{ outputs = _: { chaseModules.default = { }; }; }\n' > "$ws/flake.nix"
+              git -C "$ws" add flake.nix
+              envfile=state/env/$(printf '%s' "$ws" | sha256sum | cut -c1-32)/env
+
+              launched() { # TIER MACHINE ENVELOPE
+                ENVELOPE=$3 bash ./chase-envelope approve "$ws" "$2" "$1" >/dev/null 2>err || fail "$2 was not approved: $(cat err)"
+                jq -r '.result.dockerProject // empty' "run/chase/.envelope/$2.json" > "staged.$2"
+                bash ./chase-envelope launch "$1" "$ws" "$2" 2>err || fail "$2 was not launched: $(cat err)"
+              }
+              docker='{"bindings": {"docker": {"images": ["postgres:18", "bitnami/redis:7", "ghcr.io/o/x:1"], "ports": [64320, 64321]}}}'
+
+              # THE ROUTE, as data-lab was approved: its address and names
+              # are the project's, never the envelope's, and every spelling
+              # the CLI could send of each image is there.
+              launched trusted m1 "$docker"
+              [ "$(cat staged.m1)" = triptease/data-lab ] || fail "approve did not stage the project: $(cat staged.m1)"
+              grep -qxF "chase: $ws: docker from no credential" err || fail "where docker came from was not said: $(cat err)"
+              policy=run/chase/m1/policy.json
+              [ "$(jq '[.routes[] | select(.name == "docker")] | length' $policy)" = 1 ] || fail "there is not one docker route: $(jq -c '[.routes[].name]' $policy)"
+              route=$(jq -c '.routes[] | select(.name == "docker")' $policy)
+              jq -e --argjson admit "$(cat ${./apps/docker/admit.json})" --argjson fields "$(cat ${./apps/docker/fields.json})" '
+                .host == "docker.frisket.internal" and .upstream == "unix:///run/user/1000/docker.sock"
+                and .unmatched == "refuse" and (has("credentialFile") | not)
+                and .docker.project == "triptease/data-lab"
+                and .docker.address == "127.1.191.78"
+                and .docker.names == ["data-lab.internal", "data-lab.triptease.internal"]
+                and .docker.images == ["postgres:18", "library/postgres:18", "docker.io/postgres:18", "docker.io/library/postgres:18",
+                                       "bitnami/redis:7", "docker.io/bitnami/redis:7", "ghcr.io/o/x:1"]
+                and .docker.ports == [64320, 64321]
+                and .docker.apiVersions == {min: "1.55", max: "1.56", unversioned: ["/_ping"]}
+                and .docker.maxBody == 262144
+                and .docker.bodies == ($fields | with_entries(select(.key as $k | [$admit[] | .docker.body // empty] | index($k))))
+                and (.docker.bodies | keys) == ["ContainerCreate", "ExecCreate", "ExecStart", "NetworkCreate", "VolumeCreate"]
+                and all(.paths[]; has("operation") and (.operation | has("description") | not))
+                and ([.paths[] | select(.refuse | not) | {key: .operation.id, value: {methods, docker}}] | from_entries) == $admit
+                and ([.paths[] | select(.refuse | not)] | length) == ($admit | length)
+                and all(.paths[]; (.ask // false) | not)' <<< "$route" >/dev/null \
+                || fail "the route is not data-lab's: $(jq -c 'del(.paths, .docker.bodies)' <<< "$route")"
+              jq -e '.allow == ["docker.frisket.internal", "github.com"]' $policy >/dev/null || fail "docker.frisket.internal was not allowed: $(jq -c .allow $policy)"
+              frisket check $policy || fail "frisket refused the document"
+
+              # THE ENVIRONMENT: the CLI pointed at frisket, verifying it by
+              # the session's CA, and the project said for a person to read.
+              for line in \
+                "export DOCKER_HOST='tcp://docker.frisket.internal:2376'" \
+                "export DOCKER_TLS_VERIFY='1'" \
+                "export DOCKER_CERT_PATH='/etc/chase/docker'" \
+                "export CHASE_DOCKER_PROJECT='triptease/data-lab'" \
+                "export CHASE_DOCKER_ADDRESS='127.1.191.78'" \
+                "export CHASE_DOCKER_NAMES='data-lab.internal data-lab.triptease.internal'" \
+                "export CHASE_DOCKER_PORTS='64320 64321'"; do
+                grep -qxF "$line" "$envfile" || fail "the env file has no $line: $(cat "$envfile")"
+              done
+
+              # Images alone, with no ports, still route: no port is
+              # published, and nothing relayed.
+              launched trusted m2 '{"bindings": {"docker": {"images": ["postgres:18"]}}}'
+              jq -e '.routes[] | select(.name == "docker") | .docker.ports == []' run/chase/m2/policy.json >/dev/null || fail "no ports did not route with none"
+              grep -qxF "export CHASE_DOCKER_PORTS='''" "$envfile" || fail "no ports was not said as none: $(cat "$envfile")"
+              frisket check run/chase/m2/policy.json || fail "frisket refused a route with no ports"
+
+              # Ports alone name nothing a container could run, so the launch
+              # ends there rather than frisket refusing the document.
+              ENVELOPE='{"bindings": {"docker": {"ports": [64320]}}}' bash ./chase-envelope approve "$ws" m3 trusted >/dev/null 2>err || fail "m3 was not approved: $(cat err)"
+              if bash ./chase-envelope launch trusted "$ws" m3 2>err; then fail "Docker with no images was launched"; fi
+              grep -qF "chase: $ws: docker: no images" err || fail "no images was not said: $(cat err)"
+
+              # NO BINDING, NO ROUTE, and nothing of Docker's in the session.
+              launched trusted m4 '{"bindings": {"gcloud": {"serviceAccount": "a@p.iam.gserviceaccount.com"}}}'
+              jq -e '.routes == [] and .allow == ["github.com"]' run/chase/m4/policy.json >/dev/null || fail "a checkout with no binding got a route: $(cat run/chase/m4/policy.json)"
+              ! grep -q DOCKER "$envfile" || fail "a checkout with no binding got Docker's variables: $(cat "$envfile")"
+              ! grep -q "docker" err || fail "docker was said with no binding: $(cat err)"
+
+              # A TIER WITHOUT DOCKER says so, and adds nothing.
+              launched plain m5 "$docker"
+              grep -qxF "chase: $ws: docker ignored: plain has no docker" err || fail "the tier without Docker did not say so: $(cat err)"
+              jq -e '.routes == [] and .allow == ["github.com"]' run/chase/m5/policy.json >/dev/null || fail "a tier without Docker got a route: $(cat run/chase/m5/policy.json)"
+
+              # NO PROJECT, NO ROUTE: approve always stages one for a Docker
+              # binding, so the prepare is run as launch would with none.
+              prepare=$(jq -r .docker.prepare "$(sed -n 's/^apps=//p' chase-envelope)")
+              if printf '{"images": ["postgres:18"]}' | chase_project= "$prepare" trusted "$ws" run envdir > out 2>err; then
+                fail "a route was prepared with no project: $(cat out)"
+              fi
+              grep -qF "chase: $ws: docker: no project was approved" err || fail "no project was not said: $(cat err)"
+              [ ! -s out ] || fail "the refusal printed something for the launch: $(cat out)"
+              ! grep -q DOCKER "$envfile" || fail "a tier without Docker got Docker's variables: $(cat "$envfile")"
 
               touch $out
             '';
