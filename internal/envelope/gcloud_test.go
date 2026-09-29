@@ -1,0 +1,132 @@
+package envelope_test
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/danielbodart/chase/internal/apps"
+	appsgcloud "github.com/danielbodart/chase/internal/apps/gcloud"
+	"github.com/danielbodart/chase/internal/envelope"
+	renew "github.com/danielbodart/chase/internal/gcloud"
+	"github.com/danielbodart/chase/internal/gcloud/gcloudtest"
+)
+
+// The launcher-level parts of the ported gcloud-launch check (the prepare's
+// own are internal/apps/gcloud's): GOOGLE CLOUD AT LAUNCH, bound with the
+// project's own key, decrypted by sops from the approved file; its routes
+// merged into the tier's document and the project's lists applied to them;
+// the renewer started by systemctl, with the user's runtime directory; and,
+// at the session's end, stopped before the directory its key is in goes.
+func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
+	h := newHarness(t)
+	const sa = "agent@p.iam.gserviceaccount.com"
+	catalogue, err := filepath.Abs(filepath.Join("..", "..", "apps", "gcloud"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.cfg.Gcloud = &appsgcloud.Config{
+		Tiers: map[string]appsgcloud.Tier{
+			"trusted": {Writes: "ask", Guarded: "refuse", Unmatched: "ask", APIs: []string{"bigquery", "storage"}},
+		},
+		Catalogue:   catalogue,
+		Every:       []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"},
+		Placeholder: "proxy-injected",
+		RuntimeDir:  h.cfg.Runtime,
+		Systemctl:   h.dir + "/bin/systemctl",
+	}
+	var minted []string
+	var said strings.Builder
+	app := appsgcloud.New(*h.cfg.Gcloud, &said)
+	app.Mint = func(_ context.Context, run, account string) renew.Outcome {
+		minted = append(minted, account+" mint "+run)
+		os.WriteFile(filepath.Join(run, "gcloud-token.json"), []byte(`{"access_token": "t", "expiry": 1}`), 0o600)
+		return renew.Minted
+	}
+	h.registry = map[string]apps.App{"gcloud": app}
+	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["github.com"], "routes": []}`)
+
+	k, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets, _ := json.Marshal(map[string]string{"gcloud-key": string(gcloudtest.Key(k, sa, "p"))})
+	ws := h.root() + "/w"
+	h.checkout(ws)
+	write(t, ws+"/secrets.json", string(secrets))
+	h.fx.Run("-C", ws, "add", "secrets.json")
+	h.launched(ws, "m1", "trusted", `{"secrets": "secrets.json", "bindings": {"gcloud": {
+		"serviceAccount": "`+sa+`", "credential": {"secret": "gcloud-key"},
+		"apis": {"add": ["pubsub"], "remove": ["storage"]},
+		"allow": ["category:bigquery"], "ask": ["pubsub.projects.topics.delete"]}}}`)
+	run := h.dir + "/run/chase/m1"
+	if !h.said("chase: " + ws + ": gcloud from secrets.json:gcloud-key") {
+		t.Errorf("where gcloud came from was not said: %s", h.err)
+	}
+	if !slices.Equal(minted, []string{sa + " mint " + run}) {
+		t.Errorf("no first token was minted: %q", minted)
+	}
+	if log := h.log("systemctl.log"); !slices.Equal(log, []string{h.cfg.Runtime + " --user start chase-gcloud-renew@m1.service"}) {
+		t.Errorf("the renewer was not started: %q", log)
+	}
+	d := h.policyDoc("m1")
+	var names []string
+	for _, r := range d.Routes {
+		names = append(names, r.Name)
+	}
+	if !slices.Equal(names, []string{"gcloud", "gcloud-mtls"}) || !slices.Equal(d.Allow, []string{"*.googleapis.com", "github.com"}) {
+		t.Fatalf("the routes were not merged: %q %q", names, d.Allow)
+	}
+	if d.Routes[0].CredentialFile != run+"/gcloud-token.json" {
+		t.Errorf("the route does not carry the session's token: %s", d.Routes[0].CredentialFile)
+	}
+	answer := func(id string) string {
+		for _, r := range d.Routes[0].Paths {
+			if r.Operation != nil && r.Operation.ID == id {
+				switch {
+				case r.Refuse:
+					return "refuse"
+				case r.Ask:
+					return "ask"
+				}
+				return "allow"
+			}
+		}
+		return "absent"
+	}
+	for id, want := range map[string]string{
+		"bigquery.datasets.get":                                       "allow",
+		"bigquery.datasets.insert":                                    "allow",
+		"bigquery.datasets.delete":                                    "allow",
+		"pubsub.projects.topics.delete":                               "ask",
+		"iamcredentials.projects.serviceAccounts.generateAccessToken": "refuse",
+	} {
+		if got := answer(id); got != want {
+			t.Errorf("%s is answered %s, not %s", id, got, want)
+		}
+	}
+	env := read(t, h.envfile(ws))
+	made := h.dir + "/state/env/" + key(ws) + "/gcloud-key-"
+	if !strings.HasPrefix(env, "export CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE='"+made) || !strings.Contains(env, "\nexport GOOGLE_APPLICATION_CREDENTIALS='"+made) {
+		t.Errorf("the session's key is not in its environment: %q", env)
+	}
+	frisketCheck(t, run+"/policy.json")
+
+	// The session's end: the renewer stopped, while the key it signs with
+	// is still there, and then the session's directory gone.
+	if rc := envelope.RunPostStop(context.Background(), h.cfg, h.registry, []string{"m1"}, nil, &strings.Builder{}, &strings.Builder{}); rc != 0 {
+		t.Fatalf("postStop failed: %d", rc)
+	}
+	if log := h.log("systemctl.log"); len(log) != 2 || log[1] != h.cfg.Runtime+" --user stop chase-gcloud-renew@m1.service" {
+		t.Errorf("postStop did not stop the renewer first: %q", log)
+	}
+	if _, err := os.Stat(run); err == nil {
+		t.Error("the session's directory outlived it")
+	}
+}
