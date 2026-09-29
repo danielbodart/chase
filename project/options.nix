@@ -53,6 +53,11 @@ let
   # else; frisket refuses any other when a session opens. `localhost` with
   # no dot, which the pattern reads as a Docker Hub user, the daemon reads
   # as a registry, and it is refused too.
+  #
+  # The daemon takes sha256:<hex>, and a bare 64-hex string, for an image's
+  # ID, and sha256:<prefix> for any image whose ID begins so, and would run
+  # whatever local image has it, made or loaded by anyone. So no part of an
+  # image's name may be sha256 or 64 hex, as frisket's ValidImage has it.
   image =
     let
       pattern = "([a-z0-9-]+(\\.[a-z0-9-]+)+/)?[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}|@sha256:[0-9a-f]{64})";
@@ -67,8 +72,12 @@ let
       registry = s:
         let f = first s; in
         if builtins.length (lib.splitString "/" s) > 1 && lib.hasInfix "." f then f else null;
+      # Each /-separated part's name, before its :tag or @digest.
+      names = s: map (c: builtins.head (lib.splitString ":" (builtins.head (lib.splitString "@" c)))) (lib.splitString "/" s);
+      isID = n: n == "sha256" || builtins.match "[0-9a-f]{64}" n != null;
       problem = s:
         if builtins.match pattern s == null then "is not a familiar name with a :tag or @sha256:<64 hex>"
+        else if lib.any isID (names s) then "names an image by its ID, which runs whatever local image has it; name it by its repository"
         else if lib.elem (first s) [ "docker.io" "index.docker.io" "registry-1.docker.io" "library" ] then "spells out Docker Hub; name it as `docker pull` shortens it"
         else if first s == "localhost" && lib.hasInfix "/" s then "is from a registry on the host's own loopback"
         else if registry s != null && !(lib.elem (registry s) registries || underSuffix (registry s))

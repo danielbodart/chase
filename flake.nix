@@ -1835,6 +1835,13 @@
                 { images = [ "127.0.0.1.nip.io/x:1" ]; }
                 { images = [ "evil.eu.gcr.io.example/x:1" ]; }
                 { images = [ "a.b-docker.pkg.dev/x:1" ]; }
+                # An image's ID, or a prefix of one, for whatever local image
+                # has it.
+                { images = [ "sha256:${digest}" ]; }
+                { images = [ "sha256:0123abcd" ]; }
+                { images = [ "${digest}:1" ]; }
+                { images = [ "o/${digest}:1" ]; }
+                { images = [ "o/sha256:1" ]; }
                 # A project module that declares the option again, to put
                 # its own value past the check.
                 {
@@ -2586,6 +2593,17 @@
               fi
               grep -qF "chase: $ws: docker: no project was approved" err || fail "no project was not said: $(cat err)"
               [ ! -s out ] || fail "the refusal printed something for the launch: $(cat out)"
+
+              # AN IMAGE'S ID is refused by the prepare too, though the
+              # envelope's options refuse it first: every spelling the route
+              # gets is made from what reaches it.
+              for img in "sha256:${nixpkgs.lib.concatStrings (nixpkgs.lib.replicate 8 "0123abcd")}" sha256:0123abcd \
+                         "${nixpkgs.lib.concatStrings (nixpkgs.lib.replicate 8 "0123ABCD")}:1" o/sha256:1; do
+                if printf '{"images": ["%s"]}' "$img" | chase_project=triptease/data-lab "$prepare" trusted "$ws" run envdir > out 2>err; then
+                  fail "a route was prepared for $img: $(cat out)"
+                fi
+                grep -qF "chase: $ws: docker: an image named by its ID" err || fail "$img was not refused as an ID: $(cat err)"
+              done
               ! grep -q DOCKER "$envfile" || fail "a tier without Docker got Docker's variables: $(cat "$envfile")"
 
               touch $out

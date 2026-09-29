@@ -77,6 +77,11 @@ let
       [ -n "''${chase_project:-}" ] || die "no project was approved for it, so its containers could be nobody's"
       jq -e '(.images // []) != []' <<< "$binding" >/dev/null \
         || die "no images: say which the project's containers may run"
+      # As options.nix refuses it, again here, since every spelling below is
+      # made from it: an image's ID, or sha256:<prefix>, which the daemon
+      # answers with whatever local image has it.
+      jq -e 'all(.images[]; split("/") | all(.[]; split("@")[0] | split(":")[0] | ascii_downcase | (. == "sha256" or test("^[0-9a-f]{64}$")) | not))' <<< "$binding" >/dev/null \
+        || die "an image named by its ID: name it by its repository and a tag or digest"
       who=$(chase-docker-address "$chase_project") || die "$chase_project has no address"
 
       # frisket compares an image as the string a client sends, and the CLI

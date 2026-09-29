@@ -280,6 +280,19 @@ in
                            "| docker compose exec -T db psql -v ON_ERROR_STOP=1 -U data_lab -d data_lab")
           assert "through frisket" in out, out
 
+      with subtest("the container's network went to the daemon as its ID, and a second up with nothing changed recreates nothing"):
+          # frisket names a network by the ID it checked, never by its name,
+          # which the daemon would resolve again at every start. Compose
+          # judges drift by its config hash and each network's ID, so the ID
+          # where it sent a name moves nothing.
+          netid = host_docker("network inspect data-lab_default --format '{{.Id}}'").strip()
+          assert host_docker("inspect data-lab-db-1 --format '{{.HostConfig.NetworkMode}}'").strip() == netid
+          before = host_docker("ps -q --no-trunc --filter name=data-lab-db-1").strip()
+          out = session_ok("docker compose up -d", timeout=300)
+          assert "Recreate" not in out and "Created" not in out, out
+          assert host_docker("ps -q --no-trunc --filter name=data-lab-db-1").strip() == before, out
+          assert host_docker("network inspect data-lab_default --format '{{.Id}}'").strip() == netid
+
       with subtest("the session reaches the database as localhost, ::1, its .internal name and its address"):
           # pg_isready inside the container can answer before the server
           # listens on TCP: the image's first start runs one on its socket alone.
@@ -386,6 +399,25 @@ in
               assert refused, (what, new)
               assert all(m["decision"] == "refused" and m["status"] == 403 and m.get("operation") in ops for m in refused), (what, refused)
               assert any(why in m.get("reason", "") + " " + m.get("docker", "") for m in refused), (what, refused)
+
+      with subtest("a container whose network is deleted before it starts never joins another of that name"):
+          # The project makes a network and a container on it, not started,
+          # then deletes the network, which has no endpoint yet; someone
+          # else -- another project, or here the host -- makes one of the
+          # same name. The create named the network by its ID, so the start
+          # finds no such network rather than joining theirs.
+          session_ok("printf 'services:\n  x:\n    image: postgres:18\n' > cmd/attack.yaml && docker compose -p attack -f cmd/attack.yaml create", timeout=300)
+          ours = host_docker("network inspect attack_default --format '{{.Id}}'").strip()
+          assert host_docker("inspect attack-x-1 --format '{{.HostConfig.NetworkMode}}'").strip() == ours
+          session_ok("docker network rm attack_default")
+          theirs = host_docker("network create attack_default").strip()
+          assert theirs != ours
+          rc, out = session("docker start attack-x-1")
+          assert rc != 0 and ours in out, out
+          assert host_docker("network inspect attack_default --format '{{len .Containers}}'").strip() == "0"
+          assert host_docker("inspect attack-x-1 --format '{{.State.Status}}'").strip() == "created"
+          session_ok("docker rm attack-x-1")
+          host_docker("network rm attack_default")
 
       with subtest("nothing refused was made, and the container of nobody's is still there"):
           names = host_docker("ps -a --format '{{.Names}}'").split()

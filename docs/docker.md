@@ -181,7 +181,11 @@ frisket's own checks:
 - `Image` — one of the project's images, required;
 - `HostConfig.NetworkMode` and each `EndpointsConfig` key — `none`, or a
   network of the project's own, required: `""` and `default` are the shared
-  bridge;
+  bridge. frisket sends each upstream as the full 64-hex ID it looked up
+  under the network's name lock, not as the name: the daemon resolves a
+  name again at every start, so a container created on a project's `X`,
+  after `X` is deleted and another project creates its own `X`, would start
+  on the other project's network;
 - `HostConfig.Binds` — `<volume>:<container path>[:rw|ro]` only, the volume
   existing and the project's own: one that does not exist the daemon would
   create without a label;
@@ -223,7 +227,10 @@ and `tag` that spell an image in the project's list: the pull is the one
 request where the daemon, not the session, reaches the network, as a
 fixed-output derivation does for Nix. Images are matched as strings. The
 envelope names each once, in the form `docker pull` shortens it to, with a
-tag or digest, and chase's `prepare` writes a Docker Hub image's other
+tag or digest, and never by an image's ID: `sha256:<hex>`, `sha256:<prefix>`
+or a 64-hex component in any part of the name is refused, by chase and by
+frisket, since the daemon would run whatever local image has that ID, made
+or loaded by anyone. chase's `prepare` writes a Docker Hub image's other
 spellings (`library/postgres:18`, `docker.io/library/postgres:18`, …) into
 the route. A registry is Docker Hub or one of a fixed few public ones
 (`ghcr.io`, `quay.io`, `gcr.io` and its regions, Artifact Registry's
@@ -335,10 +342,12 @@ data-lab's Compose files for everyone.
 **13. frisket changes the request on this route, and says so.** Its
 decision 13 — what goes upstream is what was read — gets a written
 exception: on a `docker` route frisket forwards its own encoding of the
-query and body, puts a verified full ID in the path, stamps its label on
-what is created and into list filters, binds an unspecified or loopback
-published address to the project's own, and caps the `Api-Version` it
-answers. Each only narrows what the daemon is asked, and each is logged.
+query and body, puts a verified full ID in the path, names each network a
+created container attaches to by the full ID it checked rather than by
+name, stamps its label on what is created and into list filters, binds an
+unspecified or loopback published address to the project's own, and caps
+the `Api-Version` it answers. Each only narrows what the daemon is asked,
+and each is logged.
 
 **14. A project's address and names are a function of its name, computed
 the same way everywhere.** Take the project's `owner/repo`, lower-cased, and
