@@ -430,8 +430,10 @@ func owner(p string) (int, bool) {
 // RunCheckout is `chase-checkout [--ignoring ROOT] [DIR]`: the checkout DIR
 // (the working directory without one) is in, as one line of
 // ROOT<TAB>HOLDER<TAB>KIND<TAB>GITCOMMON<TAB>GITDIR on stdout, and 0; or why
-// it cannot be sorted, as a line on stdout, and 1.
+// it cannot be sorted, as a line on stdout, and 1. It closes g before it
+// returns, as every entry point does: see gitsafe.Git.Close.
 func RunCheckout(ctx context.Context, g *gitsafe.Git, args []string, stdout, stderr io.Writer) int {
+	defer g.Close()
 	var q Query
 	if len(args) > 0 && args[0] == "--ignoring" {
 		if len(args) < 2 {

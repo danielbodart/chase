@@ -2,6 +2,7 @@ package gitsafe_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,29 +65,127 @@ func TestOnlyLeadingAssignmentsAreGitsEnvironment(t *testing.T) {
 	}
 }
 
-func TestTheEmptyRepositoriesAreOfTheirFormatAndPrivate(t *testing.T) {
-	g := gitsafetest.Safe(t)
+// made is a git with no empty repositories given, so it makes its own under
+// a $XDG_RUNTIME_DIR of the test's.
+func made(t *testing.T) (*gitsafe.Git, string) {
+	t.Helper()
+	runtime := gitsafetest.Dir(t)
+	t.Setenv("XDG_RUNTIME_DIR", runtime)
+	g, err := gitsafe.New(gitsafe.Config{Git: gitsafetest.GitPath(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { g.Close() })
+	return g, runtime
+}
+
+func TestTheEmptyRepositoriesAreOfTheirFormatPrivateAndReadOnly(t *testing.T) {
+	g, runtime := made(t)
 	for _, format := range []string{"sha1", "sha256"} {
 		d, err := g.Empty(format)
 		if err != nil {
 			t.Fatal(err)
 		}
+		if filepath.Dir(filepath.Dir(d)) != runtime {
+			t.Errorf("%s is not made in $XDG_RUNTIME_DIR %s", d, runtime)
+		}
 		r := g.Run(context.Background(), "GIT_DIR="+d, "rev-parse", "--show-object-format", "--is-bare-repository")
 		if got := string(r.Stdout); got != format+"\ntrue\n" {
 			t.Errorf("%s: %q %s", format, got, r.Stderr)
 		}
-		fi, err := os.Stat(filepath.Dir(d))
-		if err != nil || fi.Mode().Perm() != 0o700 {
-			t.Errorf("%s is not private: %v %v", filepath.Dir(d), fi.Mode(), err)
+		for p, want := range map[string]os.FileMode{
+			filepath.Dir(d): 0o500, d: 0o500, d + "/objects": 0o500, d + "/refs": 0o500,
+			d + "/HEAD": 0o400, d + "/config": 0o400,
+		} {
+			fi, err := os.Stat(p)
+			if err != nil || fi.Mode().Perm() != want {
+				t.Errorf("%s is %v (%v), want %v", p, fi.Mode().Perm(), err, want)
+			}
 		}
 	}
 	if _, err := g.Empty("md5"); err == nil {
 		t.Error("an empty repository of an unknown format was made")
 	}
 	d, _ := g.Empty("sha1")
-	g.Close()
+	if err := g.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Stat(d); !os.IsNotExist(err) {
 		t.Errorf("Close left %s", d)
+	}
+	// Used again after Close, it makes them again.
+	if r := g.Run(context.Background(), "version"); !r.OK() {
+		t.Errorf("git after Close: %d %s %v", r.Status, r.Stderr, r.Err)
+	}
+	g.Close()
+	if left, _ := os.ReadDir(runtime); len(left) != 0 {
+		t.Errorf("Close left %v", left)
+	}
+}
+
+// Not in the temporary directory, which a session may share: with no
+// $XDG_RUNTIME_DIR and none given, git is not run at all.
+func TestWithNowherePrivateGitIsNotRun(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	g, err := gitsafe.New(gitsafe.Config{Git: gitsafetest.GitPath(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	r := g.Run(context.Background(), "version")
+	if r.OK() || !errors.Is(r.Err, gitsafe.ErrNoPrivateDir) {
+		t.Errorf("git ran with no private directory: %d %v", r.Status, r.Err)
+	}
+}
+
+// The module's empty repositories are used as they are, and never removed.
+func TestTheModulesEmptyRepositoriesAreUsedAndKept(t *testing.T) {
+	c := gitsafetest.Config(t)
+	g, err := gitsafe.New(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for format, want := range map[string]string{"sha1": c.EmptySHA1, "sha256": c.EmptySHA256} {
+		if d, err := g.Empty(format); err != nil || d != want {
+			t.Errorf("Empty(%s) = %s %v, want %s", format, d, err, want)
+		}
+	}
+	r := g.Run(context.Background(), "rev-parse", "--show-object-format")
+	if string(r.Stdout) != "sha1\n" {
+		t.Errorf("the given sha1 repository is not git's: %q %s", r.Stdout, r.Stderr)
+	}
+	g.Close()
+	if _, err := os.Stat(c.EmptySHA1 + "/HEAD"); err != nil {
+		t.Errorf("Close removed the module's repository: %v", err)
+	}
+	for _, bad := range []gitsafe.Config{
+		{Git: c.Git, EmptySHA1: c.EmptySHA1},
+		{Git: c.Git, EmptySHA256: c.EmptySHA256},
+		{Git: c.Git, EmptySHA1: "sha1", EmptySHA256: c.EmptySHA256},
+		{Git: c.Git, EmptySHA1: c.EmptySHA1, EmptySHA256: "/nonexistent"},
+	} {
+		if _, err := gitsafe.New(bad); err == nil {
+			t.Errorf("%+v was taken", bad)
+		}
+	}
+}
+
+// Something git started that still holds its output once git has exited is
+// not waited on for long, and what was read then is not taken for all of it.
+func TestOutputHeldPastGitIsAFailure(t *testing.T) {
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal("no sleep on PATH")
+	}
+	g := gitsafetest.Safe(t)
+	gitsafe.SetTimeout(g, 10*time.Second, 300*time.Millisecond)
+	start := time.Now()
+	r := sh(g, sleep+" 5 & echo partial")
+	if r.OK() {
+		t.Errorf("a call whose output was held open succeeded: %q", r.Stdout)
+	}
+	if d := time.Since(start); d > 4*time.Second {
+		t.Errorf("the held output was waited on for %s", d)
 	}
 }
 
@@ -147,7 +246,7 @@ func realpath(t *testing.T, p string) (string, bool) {
 
 func TestRealpathIsRealpathE(t *testing.T) {
 	if _, err := exec.LookPath("realpath"); err != nil {
-		t.Skip("no realpath")
+		t.Fatal("no realpath on PATH")
 	}
 	d := gitsafetest.Dir(t)
 	for _, p := range []string{"real/sub", "real/sub/deep"} {

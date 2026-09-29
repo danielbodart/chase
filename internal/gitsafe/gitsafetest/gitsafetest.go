@@ -13,13 +13,25 @@ import (
 	"github.com/danielbodart/chase/internal/gitsafe"
 )
 
-// GitPath is the absolute path of the git on PATH, which the devShell and
-// the flake's checks provide.
+// GitPath is the absolute path of the git the tests run: $CHASE_TEST_GIT when
+// it is set, as a build that knows its git can say, and otherwise the one on
+// PATH, which the devShell provides.
+//
+// No git fails the test rather than skipping it. Almost every assertion of
+// the selector check runs git, and a build that skipped them for want of
+// one would pass with nothing checked: git must be among the build's check
+// inputs.
 func GitPath(t testing.TB) string {
 	t.Helper()
+	if p := os.Getenv("CHASE_TEST_GIT"); p != "" {
+		if !filepath.IsAbs(p) {
+			t.Fatalf("CHASE_TEST_GIT is %q, which is not an absolute path", p)
+		}
+		return p
+	}
 	p, err := exec.LookPath("git")
 	if err != nil {
-		t.Skip("no git on PATH")
+		t.Fatal("no git on PATH, and no CHASE_TEST_GIT: the selector's tests need one")
 	}
 	p, err = filepath.Abs(p)
 	if err != nil {
@@ -28,10 +40,31 @@ func GitPath(t testing.TB) string {
 	return p
 }
 
-// Safe is gitsafe's git, closed when the test ends.
+// Config is gitsafe's configuration as the module gives it: GitPath, and
+// empty repositories of each format made read-only in the test's own
+// directory, as emptyGit's store paths are.
+func Config(t testing.TB) gitsafe.Config {
+	t.Helper()
+	d := Dir(t)
+	c := gitsafe.Config{Git: GitPath(t), EmptySHA1: filepath.Join(d, "sha1"), EmptySHA256: filepath.Join(d, "sha256")}
+	for format, p := range map[string]string{"sha1": c.EmptySHA1, "sha256": c.EmptySHA256} {
+		if err := gitsafe.WriteEmpty(p, format); err != nil {
+			t.Fatal(err)
+		}
+		// Writable again for the test's directory to be removed.
+		t.Cleanup(func() {
+			for _, sub := range []string{"", "objects", "refs"} {
+				os.Chmod(filepath.Join(p, sub), 0o700)
+			}
+		})
+	}
+	return c
+}
+
+// Safe is gitsafe's git of Config, closed when the test ends.
 func Safe(t testing.TB) *gitsafe.Git {
 	t.Helper()
-	g, err := gitsafe.New(gitsafe.Config{Git: GitPath(t)})
+	g, err := gitsafe.New(Config(t))
 	if err != nil {
 		t.Fatal(err)
 	}

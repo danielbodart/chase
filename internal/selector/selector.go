@@ -15,10 +15,14 @@
 package selector
 
 import (
+	"bufio"
 	"context"
+	"io"
 	"os"
 	"regexp"
 	"strings"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/danielbodart/chase/internal/checkout"
 	"github.com/danielbodart/chase/internal/gitsafe"
@@ -46,7 +50,9 @@ func New(c Config) (*Selector, error) {
 	return &Selector{cfg: c, rules: compile(c), git: g}, nil
 }
 
-// Close releases what the selector's git made.
+// Close releases what the selector's git made. RunAgentTier, RunGuard and
+// Launch close it themselves; any other caller closes it before it exits or
+// execs, as gitsafe.Git.Close says.
 func (s *Selector) Close() error { return s.git.Close() }
 
 // Git is the selector's git, for what else is asked of a checkout in the same
@@ -340,25 +346,48 @@ func (a *asking) headCommit() (string, bool) {
 // packedRef is the object packed-refs gives ref: of the lines that have " ref"
 // in them, as `grep -F` finds them, the first whose second field is ref. A
 // file with a NUL in it is one grep calls binary and prints no line of.
+//
+// It was looked at before -- a plain file of at most PackedRefsSize -- but a
+// session can write its .git while this runs, and swap in a link, a pipe or
+// a sparse file of a hundred gigabytes after that look. grep streamed the
+// file; this process has no address-space limit of its own and no timeout
+// here. So it is opened without following a link or waiting on a pipe, must
+// still be a plain file, and is read a line at a time and no further than
+// PackedRefsSize: a file that has grown past it since is one not read.
 func packedRef(packed, ref string) string {
-	b, err := os.ReadFile(packed)
-	if err != nil || strings.IndexByte(string(b), 0) >= 0 {
+	fd, err := unix.Open(packed, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
 		return ""
 	}
-	lines := strings.Split(string(b), "\n")
-	if lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
+	f := os.NewFile(uintptr(fd), packed)
+	defer f.Close()
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
+		return ""
 	}
-	for _, l := range lines {
-		if !strings.Contains(l, " "+ref) {
-			continue
+	limited := &io.LimitedReader{R: f, N: gitsafe.PackedRefsSize + 1}
+	r := bufio.NewReader(limited)
+	found, matched := "", false
+	for {
+		l, err := r.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return ""
 		}
-		f := gitsafe.Fields(l, gitsafe.Blank, 2)
-		if f[1] == ref {
-			return f[0]
+		if limited.N == 0 || strings.IndexByte(l, 0) >= 0 {
+			return ""
+		}
+		// grep ends the last line with a newline if the file does not. The
+		// first match is the answer, but the rest is still read: a NUL
+		// anywhere makes the whole file one grep prints nothing of.
+		l = strings.TrimSuffix(l, "\n")
+		if !matched && strings.Contains(l, " "+ref) {
+			if fields := gitsafe.Fields(l, gitsafe.Blank, 2); fields[1] == ref {
+				found, matched = fields[0], true
+			}
+		}
+		if err == io.EOF {
+			return found
 		}
 	}
-	return ""
 }
 
 // firstCommitBy is every root commit's author at one of the domains, since a

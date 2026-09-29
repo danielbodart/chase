@@ -33,7 +33,7 @@ type world struct {
 func newWorld(t *testing.T) *world {
 	r := filepath.Join(gitsafetest.Dir(t), "root")
 	cfg := selector.Config{
-		Config:   gitsafe.Config{Git: gitsafetest.GitPath(t)},
+		Config:   gitsafetest.Config(t),
 		Order:    []string{"host", "strict", "trusted"},
 		Fallback: "strict",
 		Tiers: map[string]selector.Tier{

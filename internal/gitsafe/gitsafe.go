@@ -24,8 +24,9 @@
 //     commit id resolved here reads the checkout's objects through
 //     GIT_OBJECT_DIRECTORY and nothing else of it -- no config, index,
 //     hooks, attributes, grafts, replace refs, shallow file or promisor
-//     remote. It was a store path; it is now made by this package, in a
-//     directory of the process's own that nothing else is told of;
+//     remote. It is a store path the module gives, as it was, or, when
+//     the module gives none, one made by this package under
+//     $XDG_RUNTIME_DIR, read-only, for the process's life (see Empty);
 //
 //   - every config-driven command git has for the reads made here
 //     overridden besides, for a call added later that reads more;
@@ -49,6 +50,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -108,11 +110,19 @@ type Config struct {
 	// Git is the absolute path of the git binary every call runs,
 	// ${pkgs.git}/bin/git: never looked up on PATH, which is the caller's.
 	Git string `json:"git"`
+
+	// EmptySHA1 and EmptySHA256 are the absolute paths of the empty
+	// repositories of each object format, `emptyGit "sha1"` and `emptyGit
+	// "sha256"`: store paths, which nothing can write, as the shell had
+	// them. Both or neither. When neither is given they are made by this
+	// package instead, as Empty says, which is weaker: a directory the user
+	// could write, for as long as the process runs.
+	EmptySHA1   string `json:"emptySha1,omitempty"`
+	EmptySHA256 string `json:"emptySha256,omitempty"`
 }
 
 // Git runs git as described in the package comment. Its empty repositories
-// are made on first use, in a directory only the user can read, and removed
-// by Close.
+// are the module's, or made on first use and removed by Close.
 type Git struct {
 	path string
 	self string
@@ -122,9 +132,11 @@ type Git struct {
 	timeout   time.Duration
 	killAfter time.Duration
 
-	once  sync.Once
+	// given is the module's empty repositories, by format, when it gave
+	// them; dir is the directory the made ones are in, while there is one.
+	given map[string]string
+	mu    sync.Mutex
 	dir   string
-	dirOK error
 }
 
 // New is git at c.Git, which must be an absolute path to an executable file.
@@ -142,37 +154,92 @@ func New(c Config) (*Git, error) {
 	if !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 {
 		return nil, fmt.Errorf("git is %s, which is not an executable file", c.Git)
 	}
+	var given map[string]string
+	switch {
+	case c.EmptySHA1 == "" && c.EmptySHA256 == "":
+	case c.EmptySHA1 == "" || c.EmptySHA256 == "":
+		return nil, errors.New("one empty repository is given without the other")
+	default:
+		given = map[string]string{"sha1": c.EmptySHA1, "sha256": c.EmptySHA256}
+		for _, format := range []string{"sha1", "sha256"} {
+			d := given[format]
+			if !filepath.IsAbs(d) {
+				return nil, fmt.Errorf("the empty %s repository is %q, which is not an absolute path", format, d)
+			}
+			if fi, err := os.Stat(d); err != nil || !fi.IsDir() {
+				return nil, fmt.Errorf("the empty %s repository %s is not a directory", format, d)
+			}
+		}
+	}
 	self, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("finding this binary to limit git with: %w", err)
 	}
-	return &Git{path: c.Git, self: self, timeout: Timeout, killAfter: KillAfter}, nil
+	return &Git{path: c.Git, self: self, timeout: Timeout, killAfter: KillAfter, given: given}, nil
 }
 
-// Close removes the empty repositories, if any were made.
+// Close removes the empty repositories this package made, if it made any;
+// the module's are never touched. A call after it makes them again.
+//
+// Every entry point that runs git closes its Git before it returns, because
+// what calls it then exits or execs, and neither runs a deferred call: an
+// entry point that left it to its caller would leave a directory behind on
+// every launch. Close must not be called while a call of Run is running.
 func (g *Git) Close() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	if g.dir == "" {
 		return nil
 	}
-	return os.RemoveAll(g.dir)
+	dir := g.dir
+	g.dir = ""
+	// Made unwritable, as a store path is; writable again to be removed.
+	filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			os.Chmod(p, 0o700)
+		}
+		return nil
+	})
+	return os.RemoveAll(dir)
 }
 
-// Empty is the empty repository of an object format, sha1 or sha256, made
-// here once: a bare repository with no objects, no refs, a HEAD naming a
-// branch that does not exist, and a config that says only its format. It is
-// both GIT_DIR and HOME of every call, so git finds neither a repository nor
-// a user's config of anybody's.
+// ErrNoPrivateDir is an empty repository that would have been made where
+// something else might write it: the module gave none, and there is no
+// $XDG_RUNTIME_DIR.
+var ErrNoPrivateDir = errors.New("no empty repository was given, and there is no $XDG_RUNTIME_DIR to make one in")
+
+// Empty is the empty repository of an object format, sha1 or sha256: a bare
+// repository with no objects, no refs, a HEAD naming a branch that does not
+// exist, and a config that says only its format. It is both GIT_DIR and HOME
+// of every call, so git finds neither a repository nor a user's config of
+// anybody's.
 //
-// It is made under $XDG_RUNTIME_DIR when there is one, which no session sees,
-// and the temporary directory otherwise, in a directory of its own that only
-// the user can read.
+// It is the module's, a store path, when the module gave them. Otherwise it
+// is made here once, under $XDG_RUNTIME_DIR, in a directory of its own, and
+// left read-only as a store path is. Never in the temporary directory: git
+// reads more of its GIT_DIR than the -c overrides reach -- a shallow file
+// or info/grafts, which would make any commit a root, and a config -- so
+// whatever could write that directory while git runs, a session sharing
+// the host's /tmp, say, would choose which commit's author is read as the
+// first. The modes stop nothing running as the user, which can make them
+// writable again: where it is made is what keeps a session out, and
+// $XDG_RUNTIME_DIR is the user's and no session's. Without one there is
+// nowhere, and every call fails, which falls to the fallback.
 func (g *Git) Empty(format string) (string, error) {
 	if format != "sha1" && format != "sha256" {
 		return "", fmt.Errorf("no empty repository of object format %q", format)
 	}
-	g.once.Do(func() { g.dir, g.dirOK = makeEmpties() })
-	if g.dirOK != nil {
-		return "", g.dirOK
+	if g.given != nil {
+		return g.given[format], nil
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.dir == "" {
+		dir, err := makeEmpties()
+		if err != nil {
+			return "", err
+		}
+		g.dir = dir
 	}
 	return filepath.Join(g.dir, format), nil
 }
@@ -180,39 +247,56 @@ func (g *Git) Empty(format string) (string, error) {
 func makeEmpties() (string, error) {
 	base := os.Getenv("XDG_RUNTIME_DIR")
 	if !filepath.IsAbs(base) {
-		base = ""
-	} else if fi, err := os.Stat(base); err != nil || !fi.IsDir() {
-		base = ""
+		return "", ErrNoPrivateDir
+	}
+	if fi, err := os.Stat(base); err != nil || !fi.IsDir() {
+		return "", ErrNoPrivateDir
 	}
 	dir, err := os.MkdirTemp(base, "chase-git-")
 	if err != nil {
 		return "", err
 	}
 	for _, format := range []string{"sha1", "sha256"} {
-		d := filepath.Join(dir, format)
-		for _, sub := range []string{"objects", "refs"} {
-			if err := os.MkdirAll(filepath.Join(d, sub), 0o700); err != nil {
-				os.RemoveAll(dir)
-				return "", err
-			}
-		}
-		head := "ref: refs/heads/none\n"
-		config := fmt.Sprintf("[core]\n\trepositoryformatversion = 1\n\tbare = true\n[extensions]\n\tobjectFormat = %s\n", format)
-		if err := os.WriteFile(filepath.Join(d, "HEAD"), []byte(head), 0o600); err != nil {
-			os.RemoveAll(dir)
-			return "", err
-		}
-		if err := os.WriteFile(filepath.Join(d, "config"), []byte(config), 0o600); err != nil {
+		if err := WriteEmpty(filepath.Join(dir, format), format); err != nil {
 			os.RemoveAll(dir)
 			return "", err
 		}
 	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
 	return dir, nil
+}
+
+// WriteEmpty makes d the empty repository of format, as emptyGit made its
+// store path, and leaves it read-only: its directories 0500, its files
+// 0400. A directory holding d must be made writable again to remove it.
+func WriteEmpty(d, format string) error {
+	for _, sub := range []string{"objects", "refs"} {
+		if err := os.MkdirAll(filepath.Join(d, sub), 0o700); err != nil {
+			return err
+		}
+	}
+	head := "ref: refs/heads/none\n"
+	config := fmt.Sprintf("[core]\n\trepositoryformatversion = 1\n\tbare = true\n[extensions]\n\tobjectFormat = %s\n", format)
+	if err := os.WriteFile(filepath.Join(d, "HEAD"), []byte(head), 0o400); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(d, "config"), []byte(config), 0o400); err != nil {
+		return err
+	}
+	for _, sub := range []string{"objects", "refs", ""} {
+		if err := os.Chmod(filepath.Join(d, sub), 0o500); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Result is what a call of git gave: everything it wrote, and its exit
 // status as the shell would have seen it. Err is set, and Status is not 0,
-// when git could not be run at all.
+// when git could not be run at all, or all it wrote could not be read.
 type Result struct {
 	Stdout []byte
 	Stderr []byte
@@ -324,6 +408,17 @@ func (g *Git) Run(ctx context.Context, args ...string) Result {
 	}
 	if werr != nil && !errors.As(werr, new(*exec.ExitError)) {
 		r.Err = werr
+	}
+	if errors.Is(werr, exec.ErrWaitDelay) {
+		// git is gone, but something it started still held its output
+		// KillAfter later, and the pipes were closed on it: what was read
+		// may be cut short, and a call cut short is one that failed. The
+		// shell waited for all of that output; it never took less than
+		// all of it for a success. What is left of the group is killed.
+		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	if r.Err != nil && r.Status == 0 {
+		r.Status = StatusCannot
 	}
 	return r
 }

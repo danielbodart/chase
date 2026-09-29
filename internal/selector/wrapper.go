@@ -24,8 +24,11 @@ type Wrapper struct {
 // the host command for a bare tier, its launcher and the agent for a sandbox
 // tier, and the fallback's launcher for anything unexpected -- a tier with no
 // entry, or one agent-tier could not give. Argv[0] is an absolute path, or,
-// for a bare tier's HostCommand, what exec looks up on PATH.
+// for a bare tier's HostCommand, what exec looks up on PATH. It closes s
+// before it returns, since what it returns is exec'd and no deferred call
+// of the caller's would run.
 func (s *Selector) Launch(ctx context.Context, dir string, w Wrapper, args []string) []string {
+	defer s.Close()
 	return s.launch(s.Tier(ctx, dir), w, args)
 }
 

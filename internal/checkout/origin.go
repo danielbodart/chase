@@ -36,8 +36,9 @@ func (f *Finder) Origin(ctx context.Context, dir string) (Checkout, string, erro
 // RunOrigin is `chase-origin DIR`: ROOT<TAB>HOLDER<TAB>KIND<TAB>GITCOMMON, as
 // chase-checkout gives them, then each of origin's URLs on a line of its
 // own, and 0; or why the directory cannot be sorted, or its config read, as
-// a line, and 1. A usage error is 2.
+// a line, and 1. A usage error is 2. It closes g before it returns.
 func RunOrigin(ctx context.Context, g *gitsafe.Git, args []string, stdout, stderr io.Writer) int {
+	defer g.Close()
 	if len(args) != 1 {
 		fmt.Fprintln(stdout, "usage: chase-origin DIR")
 		return 2

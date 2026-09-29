@@ -17,7 +17,7 @@ import (
 
 func newSelector(t *testing.T, c selector.Config) *selector.Selector {
 	t.Helper()
-	c.Git = gitsafetest.GitPath(t)
+	c.Config = gitsafetest.Config(t)
 	s, err := selector.New(c)
 	if err != nil {
 		t.Fatal(err)

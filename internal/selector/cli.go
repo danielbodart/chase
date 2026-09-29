@@ -45,8 +45,14 @@ func (s *Selector) IfGone(ctx context.Context, dir string) string {
 //	agent-tier --dry-run DIR... a table of each DIR, its tier and why
 //
 // It prints and exits as the script did; what it prints for a person is
-// cleaned of control bytes first.
+// cleaned of control bytes first, which the script's was not. term.Clean
+// takes every byte from 0x80 to 0x9f for a C1 control, and those are also
+// the continuation bytes of many UTF-8 letters (ł, ř, ā, much of Cyrillic
+// and Greek), so a path or a tier with one prints with a '?' for that byte,
+// and a --dry-run row padded before it was cleaned can be out of line. It closes s before it returns: see
+// gitsafe.Git.Close.
 func RunAgentTier(ctx context.Context, s *Selector, args []string, stdout, stderr io.Writer) int {
+	defer s.Close()
 	switch {
 	case len(args) > 0 && args[0] == "--if-gone":
 		if len(args) < 2 {

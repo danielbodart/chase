@@ -15,7 +15,8 @@ import (
 func bash(t *testing.T) string {
 	p, err := exec.LookPath("bash")
 	if err != nil {
-		t.Skip("no bash")
+		// Failed, not skipped, as gitsafetest.GitPath says.
+		t.Fatal("no bash on PATH")
 	}
 	return p
 }
