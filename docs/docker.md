@@ -584,6 +584,29 @@ address.
 - **What frisket cannot see.** Containers run outside flong: their DNS is
   not frisket's, they have no pids or memory limit unless the project sets
   one, and their egress is the user's.
+- **A project's containers reach every host listener bound to all
+  addresses, and its session does not.** The rootless daemon's slirp4netns
+  refuses only `127/8` and its gateway (`--disable-host-loopback`). A
+  container that dials one of the host's other addresses, such as its LAN
+  address, leaves through slirp4netns as a connection by dan and arrives on
+  the host's loopback, past the firewall. Measured: a `postgres:18`
+  container on a user-defined network reached a host listener on
+  `0.0.0.0:47123` at `10.0.0.219`, while a session namespace built the way
+  flong builds a trusted one (`pasta --config-net --no-map-gw`) was refused
+  at the same address, because pasta copies the address into the session
+  and the session dials itself. So project A's containers, with the image
+  and command from A's envelope and Compose file, reach the host's wildcard
+  services that the LAN is firewalled from, other auto-tier sessions'
+  forwarded `*:P` listeners (another project's dev server) and frisket's
+  `*:15001`. rootlesskit's pasta driver does not close it: it gives the
+  namespace `10.0.2.100`, not the host's address, so the same probe still
+  connected, and its only port driver, `implicit`, publishes
+  `127.1.191.78:P` as the host's `0.0.0.0:P`, which would undo each
+  project's address. A firewall rule for the daemon's traffic has nothing
+  stable to match: its cgroup's ID changes on every restart, and
+  `IPAddressDeny=` and `NFTSet=` do nothing in a user unit (measured:
+  `IPAddressDeny=any` in `systemd-run --user` still connected). Not fixed
+  yet.
 - **Inspect shows host paths** — `GraphDriver`, a volume's `Mountpoint`,
   `LogPath` — as information, not access.
 - **An image's own labels count as the container's.** A container dan runs
