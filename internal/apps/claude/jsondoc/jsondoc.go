@@ -9,6 +9,15 @@
 // document the scripts refused was part of what they did: `.k` of an object
 // is its member or null, of null is null, and of anything else an error; `.k
 // = v` makes an object of null and is an error on anything but an object.
+//
+// One place the layout is not jq's byte for byte: numbers. jq 1.8 keeps a
+// number's literal only where decNumber would print it the same way, and
+// prints the rest in decNumber's scientific form -- a literal with an
+// exponent (1e3 as 1E+3, 100e-2 as 1.00, 12e0 as 12) and a decimal smaller
+// than a millionth written without one (0.0000001 as 1E-7). This keeps
+// every literal as written. The value is the same either way, and neither
+// file these edit holds such a number today; TestNumbersJqRewrites tracks
+// each difference against the real jq.
 package jsondoc
 
 import (

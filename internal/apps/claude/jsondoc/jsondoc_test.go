@@ -57,6 +57,38 @@ func TestMarshalIsWhatJqPrints(t *testing.T) {
 	}
 }
 
+// The numbers whose literal jq rewrites and this keeps: the one known
+// difference from jq's layout, said in the package comment. If jq starts or
+// stops rewriting one of them, this says so.
+func TestNumbersJqRewrites(t *testing.T) {
+	for literal, jqs := range map[string]string{
+		"1e3":       "1E+3",
+		"1E+3":      "1E+3",
+		"1.5e-10":   "1.5E-10",
+		"100e-2":    "1.00",
+		"12e0":      "12",
+		"0.0000001": "1E-7",
+	} {
+		d := `{"n":` + literal + `}`
+		v, err := Parse([]byte(d))
+		if err != nil {
+			t.Fatalf("%s: %v", d, err)
+		}
+		if got := string(v.Marshal()); got != "{\n  \"n\": "+literal+"\n}" {
+			t.Errorf("%s: kept as %q", literal, got)
+		}
+		if want, ok := jq(t, d, "-c", ".n"); !ok || want != jqs+"\n" {
+			t.Errorf("%s: jq now prints %q, not %s", literal, want, jqs)
+		}
+	}
+	// And those it keeps as written, as this does.
+	for _, literal := range []string{"1.0", "0.000001", "-0", "-0.0", "0.10", "1759999999999"} {
+		if want, ok := jq(t, `{"n":`+literal+`}`, "-c", ".n"); !ok || want != literal+"\n" {
+			t.Errorf("%s: jq now prints %q", literal, want)
+		}
+	}
+}
+
 func TestParseRefusesWhatJqRefuses(t *testing.T) {
 	for _, d := range []string{``, ` `, `1 2`, `{} {}`, `{`, `{"a":}`, `{"a":1}x`, `{a:1}`, `[1,]`} {
 		if _, err := Parse([]byte(d)); err == nil {

@@ -113,6 +113,10 @@ func TestSleepsUntilFourMinutesBefore(t *testing.T) {
 		{now + 240_000 + 1_999, time.Second}, // whole seconds, rounded down
 		{now + 240_000 + 300_000, 300 * time.Second},
 		{now + 240_000 + 86_400_000, 300 * time.Second},
+		// Far enough that its seconds overflow a Duration's nanoseconds:
+		// still 5 minutes, not a negative sleep and a spin.
+		{17_000_000_000_000, 300 * time.Second},
+		{1 << 62, 300 * time.Second},
 	} {
 		fc := &fakeClaude{}
 		r, errb, cred := newRefresher(t, fc)
@@ -242,6 +246,36 @@ func TestRunClaudeGivesTheShellsStatus(t *testing.T) {
 		if got := runClaude(context.Background(), c.bin, Args); got != c.want {
 			t.Errorf("%s: %d, want %d", c.name, got, c.want)
 		}
+	}
+}
+
+// A stop asks claude to end, with SIGTERM, and waits for it: a claude that
+// is writing its rotated login finishes the write.
+func TestAStopLetsClaudeFinish(t *testing.T) {
+	dir := t.TempDir()
+	bin := script(t, `trap 'echo written > `+dir+`/cred; exit 3' TERM; touch `+dir+`/started; while :; do sleep 0.01; done`)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int)
+	go func() { done <- runClaude(ctx, bin, Args) }()
+	for {
+		if _, err := os.Stat(dir + "/started"); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if got := <-done; got != 3 {
+		t.Errorf("exited %d", got)
+	}
+	if b, _ := os.ReadFile(dir + "/cred"); string(b) != "written\n" {
+		t.Errorf("claude did not finish: %q", b)
+	}
+}
+
+// Killed only once systemd would not have waited any longer itself.
+func TestClaudeIsKilledOnlyInsideSystemdsStopTimeout(t *testing.T) {
+	if stopGrace <= 0 || stopGrace >= 90*time.Second {
+		t.Errorf("grace %v", stopGrace)
 	}
 }
 

@@ -178,6 +178,10 @@ func TestSleepsUntilADayBefore(t *testing.T) {
 		{epoch.Unix() + 86400 + 300, 300 * time.Second},
 		{epoch.Unix() + 86400 + 301, 300 * time.Second},
 		{epoch.Unix() + 30*86400, 300 * time.Second},
+		// Far enough that its seconds overflow a Duration's nanoseconds:
+		// still 5 minutes, not a negative sleep and a spin.
+		{16_800_000_000, 300 * time.Second},
+		{1 << 62, 300 * time.Second},
 	} {
 		r, errb, cfg := newRefresher(t, srv.URL)
 		writeAuth(t, cfg, authWith(jwt(fmt.Sprintf(`{"exp":%d}`, c.exp)), "r0"))
@@ -491,19 +495,44 @@ func TestExchangeBodyEscapesAsJqDid(t *testing.T) {
 }
 
 // codex rewrites auth.json in place, and a container may have it bound: the
-// refresh writes the same inode and never through a link.
+// refresh writes the same inode and never through a link. And since the
+// refresh token is single-use, a link is refused before it is sent, not
+// after: nothing reaches the endpoint, the token is still good, and the
+// link's target is as it was.
 func TestAuthIsNeverWrittenThroughALink(t *testing.T) {
-	_, srv := newTokenServer(t, "r0")
-	r, _, c := newRefresher(t, srv.URL)
+	ts, srv := newTokenServer(t, "r0")
+	r, errb, c := newRefresher(t, srv.URL)
 	real := c.Auth + ".real"
 	writeAuth(t, c, due("r0"))
 	os.Rename(c.Auth, real)
 	os.Symlink(real, c.Auth)
-	if _, err := r.step(context.Background()); err == nil {
-		t.Error("wrote through a link")
+	for range 2 {
+		d, err := r.step(context.Background())
+		if err != nil || d != 60*time.Second {
+			t.Fatalf("slept %v, %v", d, err)
+		}
+	}
+	if len(ts.requests) != 0 {
+		t.Errorf("the refresh token was sent: %v", ts.requests)
+	}
+	if !ts.valid["r0"] {
+		t.Error("the refresh token was spent")
 	}
 	if b, _ := os.ReadFile(real); string(b) != due("r0") {
 		t.Errorf("the link's target became %s", b)
+	}
+	want := "codex-refresh: " + c.Auth + " is a link, which is not written through; trying again in a minute\n"
+	if errb.String() != want+want {
+		t.Errorf("said %q", errb.String())
+	}
+	// Once the link is gone the login refreshes as ever.
+	os.Remove(c.Auth)
+	os.Rename(real, c.Auth)
+	if d, err := r.step(context.Background()); err != nil || d != 0 {
+		t.Fatalf("slept %v, %v", d, err)
+	}
+	if b, _ := os.ReadFile(c.Auth); !strings.Contains(string(b), "refresh-1") {
+		t.Errorf("auth.json is %s", b)
 	}
 }
 

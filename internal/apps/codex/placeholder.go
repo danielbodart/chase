@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielbodart/chase/internal/apps/claude/jsondoc"
 	"github.com/danielbodart/chase/internal/files"
+	"golang.org/x/sys/unix"
 )
 
 // WritePlaceholder writes the placeholder auth.json, made from the host's
@@ -41,11 +42,28 @@ func WritePlaceholder(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if err := files.WriteInPlace(cfg.Placeholder, append(out, '\n'), 0o600); err != nil {
+	// An existing file keeps its mode through a write in place, so it is
+	// made 0600 first -- before it holds the host's claims, where the script
+	// chmodded after -- and through the file it opened, never through a
+	// path looked up again, which a link swapped in between would redirect.
+	if err := tighten(cfg.Placeholder); err != nil {
 		return err
 	}
-	// An existing file keeps its mode through a write in place.
-	return os.Chmod(cfg.Placeholder, 0o600)
+	return files.WriteInPlace(cfg.Placeholder, append(out, '\n'), 0o600)
+}
+
+// tighten makes path 0600, creating it empty if it is not there, by the
+// file it opens and not by its name, and follows no link at path.
+func tighten(path string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // placeholder is the placeholder made from the host's login r.

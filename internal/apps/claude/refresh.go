@@ -33,6 +33,10 @@ const (
 	step = 300 * time.Second
 	// retry is how long after a refresh that did not move expiresAt.
 	retry = 60 * time.Second
+	// stopGrace is how long claude has to end after being asked to, before
+	// it is killed: inside systemd's default TimeoutStopSec of 90 seconds,
+	// so it is this and not systemd that kills it.
+	stopGrace = 75 * time.Second
 )
 
 // RunRefresh is the claude-refresh service: it wakes 4 minutes before the
@@ -89,7 +93,7 @@ func (r *refresher) step(ctx context.Context) (time.Duration, error) {
 	}
 	// Wake 4 minutes before expiry, in steps short enough to survive suspend.
 	if wait := (exp-lead)/1000 - r.now().Unix(); wait > 0 {
-		return min(time.Duration(wait)*time.Second, step), nil
+		return sleepFor(wait), nil
 	}
 	if code := r.claude(ctx, r.cfg.Claude, Args); code != 0 {
 		r.say("claude exited %d", code)
@@ -100,6 +104,17 @@ func (r *refresher) step(ctx context.Context) (time.Duration, error) {
 	}
 	r.say("refreshed")
 	return 0, nil
+}
+
+// sleepFor is wait seconds, at most step. Compared before it is made a
+// Duration, as the script's `wait < 300` was: an expiresAt far enough away
+// would overflow a Duration's nanoseconds and come out negative, which would
+// be no sleep at all and a loop that spins without a word.
+func sleepFor(wait int64) time.Duration {
+	if wait >= int64(step/time.Second) {
+		return step
+	}
+	return time.Duration(wait) * time.Second
 }
 
 // expiresAt is claudeAiOauth.expiresAt as written, if it is a number.
@@ -128,6 +143,14 @@ func expiresAt(path string) (string, bool) {
 // found and 126 for one not runnable.
 func runClaude(ctx context.Context, bin string, args []string) int {
 	cmd := exec.CommandContext(ctx, bin, args...)
+	// Claude Code rotates its refresh token during this run, and a stop
+	// that killed it between receiving the new tokens and writing
+	// .credentials.json would leave the host logged out. So a stop asks it
+	// to end, as systemd's SIGTERM to the whole cgroup did for the script,
+	// and only kills it once it has had most of the 90 seconds systemd's
+	// default TimeoutStopSec would have given it.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = stopGrace
 	err := cmd.Run()
 	if err == nil {
 		return 0

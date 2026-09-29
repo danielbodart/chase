@@ -96,7 +96,20 @@ func (r *refresher) step(ctx context.Context) (time.Duration, error) {
 	}
 	// Wake a day before expiry, in steps short enough to survive suspend.
 	if wait := exp - early - r.now().Unix(); wait > 0 {
-		return min(time.Duration(wait)*time.Second, step), nil
+		return sleepFor(wait), nil
+	}
+
+	// The refresh token is single-use: once it is sent, the tokens that come
+	// back are the only login there is, and they must be written. auth.json
+	// is written in place and never through a link (a link there would send
+	// the host's tokens wherever it points), so a link is refused here,
+	// before the exchange, rather than after it with the new tokens lost and
+	// the old one spent -- which every retry would then send again, for an
+	// invalid_grant, forever. The script's `printf > "$auth"` followed a
+	// link; this says so and looks again, until the link is gone.
+	if fi, err := os.Lstat(r.cfg.Auth); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		r.say("%s is a link, which is not written through; trying again in a minute", r.cfg.Auth)
+		return retry, nil
 	}
 
 	refreshToken, ok := readRefreshToken(r.cfg.Auth)
@@ -125,6 +138,17 @@ func (r *refresher) step(ctx context.Context) (time.Duration, error) {
 	}
 	r.say("refreshed")
 	return 0, nil
+}
+
+// sleepFor is wait seconds, at most step. Compared before it is made a
+// Duration, as the script's `wait < 300` was: an exp far enough away would
+// overflow a Duration's nanoseconds and come out negative, which would be no
+// sleep at all and a loop that spins without a word.
+func sleepFor(wait int64) time.Duration {
+	if wait >= int64(step/time.Second) {
+		return step
+	}
+	return time.Duration(wait) * time.Second
 }
 
 // accessExpiry is `exp`, as written, out of the access token's own claims.
