@@ -43,16 +43,18 @@ jobs:
         if: matrix.check != 'rest'
         run: nix build --print-build-logs --no-link '.#checks.x86_64-linux.${{ matrix.check }}'
 
-      # Every output evaluated as `nix flake check` evaluates them, then every
-      # check the other jobs do not build, and chase-generate, so the release
-      # below pulls it from the cache rather than compiling it.
-      - name: nix flake check --no-build, and the other checks
+      # Every check the other jobs do not build, and the other outputs `nix
+      # flake check` would evaluate, built rather than only evaluated: one
+      # evaluation, where `nix flake check --no-build` first would be two, and
+      # the assertions check alone is a minute of it. chase-generate is among
+      # them so the release below pulls it from the cache.
+      - name: the other checks and outputs
         if: matrix.check == 'rest'
         run: |
-          nix flake check --no-build
           nix eval --json '.#checks.x86_64-linux' --apply 'cs: builtins.attrNames (removeAttrs cs [ "docker-session" "gcloud-session" "race" "test" ])' \
             | jq -r '.[] | ".#checks.x86_64-linux." + .' \
-            | xargs nix build --print-build-logs --no-link .#chase-generate
+            | xargs nix build --print-build-logs --no-link \
+                .#packages.x86_64-linux.chase-generate .#devShells.x86_64-linux.default .#formatter.x86_64-linux
 
   # CONTINUOUS RELEASE. Trunk-based: every push to trunk that passes the check
   # above is published, with no manual step and no tag to cut by hand. Gated on

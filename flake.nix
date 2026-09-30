@@ -108,6 +108,8 @@
           # module's, and never on a host.
           chase-generate = chase.overrideAttrs (old: {
             pname = "chase-generate";
+            # The binary's modules, not a download of its own under its name.
+            inherit (chase) goModules;
             subPackages = [ "cmd/chase-generate" ];
             excludedPackages = [ ];
             doCheck = false;

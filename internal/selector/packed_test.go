@@ -78,7 +78,12 @@ func TestPackedRefsSwappedAfterItsLookIsNotRead(t *testing.T) {
 		t.Errorf("a sparse file was read: %q", got)
 	}
 	// Its match first and blank lines after: only its size is what fails
-	// a file one byte over.
+	// a file one byte over. Each is 64 MiB read a line at a time, which the
+	// race detector takes most of a minute over, so checks.test holds the
+	// size and checks.race does not.
+	if race {
+		return
+	}
 	line := commitA + " refs/heads/main\n"
 	over := filepath.Join(d, "over")
 	os.WriteFile(over, []byte(line+strings.Repeat("\n", gitsafe.PackedRefsSize+1-len(line))), 0o600)
