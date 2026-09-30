@@ -34,10 +34,10 @@ func key(ws string) string {
 	return hex.EncodeToString(h[:])[:32]
 }
 
-// envDir is the checkout's environment directory, bound read-only into its
-// sessions: where the launch writes its environment, and an app keeps what
-// must outlive one launch.
-func envDir(c Config, ws string) string { return c.state() + "/env/" + key(ws) }
+// checkoutDir is the checkout's own directory, bound into no session, where
+// an app keeps what must outlive one launch: Google Cloud's session key,
+// which each session is given a copy of in its home.
+func checkoutDir(c Config, ws string) string { return c.state() + "/checkouts/" + key(ws) }
 
 // staged is where approve leaves an approved result for launch: one file per
 // launch, named for the session flong gives both, under <runtime>/chase,

@@ -57,12 +57,6 @@ let
   '';
 
   bind = path: readOnly: { hostPath = path; isReadOnly = readOnly; };
-
-  # An isolated tier's CODEX_HOME, one per workspace. Everything codex keeps --
-  # the thread index, history, memories -- is one file per directory at the top
-  # of it, with nothing per project to pick out the way ~/.claude/projects has,
-  # so a workspace gets a whole home of its own or it shares all of it.
-  isolatedHome = ''codex_home=${stateDir}/''${workspace//[^A-Za-z0-9]/-}'';
 in
 {
   options.chase.bindings.codex.package = mkOption {
@@ -91,8 +85,14 @@ in
     chase.internal.config = {
       # An isolated tier's home per workspace, made on the host and mounted
       # at its own path, given the placeholder login afresh each launch, so
-      # nothing a session leaves behind is what the next authenticates with
-      # (internal/session).
+      # nothing a session leaves behind is what the next authenticates with,
+      # and named to codex as CODEX_HOME (internal/session). A whole home,
+      # because everything codex keeps -- the thread index, history,
+      # memories -- is one file per directory at the top of it, with nothing
+      # per project to pick out the way ~/.claude/projects has, so a
+      # workspace gets a home of its own or it shares all of it. codex runs
+      # with its own sandbox bypassed, the session being the sandbox, and the
+      # workspace trusted by a -c override, since config.toml is the host's.
       session.tiers = lib.mapAttrs (_: tier: {
         codex = { inherit (tier.apps.codex) state; inherit stateDir; placeholder = placeholderFile; };
       }) (lib.filterAttrs (_: t: !t.bare && t.apps.codex.state != null) cfg.tiers);
@@ -154,35 +154,5 @@ in
           codex-auth = refusedRoute;
         };
       }) cfg.tiers;
-
-    chase.internal.tiers = lib.mapAttrs (_: tier: mkIf (tier.apps.codex.state != null) {
-      setupLines = lib.optional (tier.apps.codex.state == "isolated") ''
-        ${isolatedHome}
-        export CODEX_HOME=$codex_home
-      '';
-
-      # Trust as a -c override, since config.toml is the host's. The workspace
-      # is escaped because it lands inside a TOML string.
-      #
-      # ignore_default_excludes is codex's own default, set here because the
-      # container depends on it: the excludes it would otherwise apply are
-      # *KEY*, *SECRET* and *TOKEN*, which take GH_TOKEN off every command and
-      # leave gh quietly unauthenticated.
-      launchers.codex = ''
-        codex)
-          toml_workspace=''${workspace//\\/\\\\}
-          toml_workspace=''${toml_workspace//\"/\\\"}
-          codex_dirs=()
-          for d in ''${add_dirs[@]+"''${add_dirs[@]}"}; do
-            codex_dirs+=(--add-dir "$d")
-          done
-          set -- codex \
-            --dangerously-bypass-approvals-and-sandbox \
-            -c "projects.\"$toml_workspace\".trust_level=\"trusted\"" \
-            -c shell_environment_policy.ignore_default_excludes=true \
-            ''${codex_dirs[@]+"''${codex_dirs[@]}"} "$@"
-          ;;
-      '';
-    }) cfg.tiers;
   };
 }

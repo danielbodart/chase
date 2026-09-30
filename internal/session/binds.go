@@ -1,7 +1,3 @@
-// Package session is what a tier's session is given on the host before it
-// starts: the directories bound into it beside the workspace (Binds, flong's
-// binds hook), made or refreshed as the caller, so that nothing a session
-// needs is left to be made inside it.
 package session
 
 import (
@@ -16,47 +12,6 @@ import (
 	"github.com/danielbodart/chase/internal/files"
 	"github.com/danielbodart/chase/internal/term"
 )
-
-// Config is the session section of chase's configuration.
-type Config struct {
-	// Home is chase.home, the user's home on both sides of the boundary.
-	Home string `json:"home"`
-	// Runtime is the user's runtime directory, /run/user/<chase.uid>.
-	Runtime string `json:"runtime"`
-	// WorkspaceGroups is chase.workspaceGroups: checkouts worked on
-	// together, each member bound beside the others, read-write.
-	WorkspaceGroups [][]string `json:"workspaceGroups,omitempty"`
-	// Tiers is what each sandbox tier binds, by tier name.
-	Tiers map[string]Tier `json:"tiers"`
-}
-
-// Tier is what one sandbox tier's apps bind.
-type Tier struct {
-	// Claude is the tier's apps.claude.state: "shared", "isolated", or
-	// empty for no Claude Code.
-	Claude string `json:"claude,omitempty"`
-	// Codex is the tier's apps.codex.state, as Claude is.
-	Codex *Codex `json:"codex,omitempty"`
-	// Cloudflare is the tier's account-id directory, when it has one.
-	Cloudflare *Cloudflare `json:"cloudflare,omitempty"`
-}
-
-// Codex is codex in a tier: its state, and for an isolated tier where each
-// workspace's CODEX_HOME is made and what login it is given.
-type Codex struct {
-	State string `json:"state"`
-	// StateDir is where each workspace's CODEX_HOME is made.
-	StateDir string `json:"stateDir"`
-	// Placeholder is the placeholder login each home is given afresh.
-	Placeholder string `json:"placeholder"`
-}
-
-// Cloudflare is the account id a tier's sessions read: copied from the
-// user's own file into a directory of the tier's, bound read-only.
-type Cloudflare struct {
-	Dir           string `json:"dir"`
-	AccountIDFile string `json:"accountIdFile"`
-}
 
 // Binds is flong's binds hook for tier, as the caller: each directory the
 // session is given beside its workspace, one PATH or PATH:rw a line on out,
@@ -87,7 +42,7 @@ func Binds(c Config, tier, workspace string, out io.Writer) error {
 	}
 
 	claudeDir := filepath.Join(c.Home, ".claude")
-	switch t.Claude {
+	switch t.Claude.state() {
 	case "isolated":
 		// This workspace's transcripts only, written to the host so
 		// `claude --resume` finds them later, where Claude Code itself keeps
@@ -131,16 +86,6 @@ func Binds(c Config, tier, workspace string, out io.Writer) error {
 			return err
 		}
 		lines = append(lines, home+":rw")
-	}
-
-	if cf := t.Cloudflare; cf != nil {
-		if err := os.MkdirAll(cf.Dir, 0o777); err != nil {
-			return err
-		}
-		if err := install(cf.AccountIDFile, filepath.Join(cf.Dir, "account-id")); err != nil {
-			return err
-		}
-		lines = append(lines, cf.Dir)
 	}
 
 	for _, l := range lines {

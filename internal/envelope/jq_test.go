@@ -156,26 +156,6 @@ func TestTheApproversDocumentIsJqs(t *testing.T) {
 	}
 }
 
-// @sh is jq's.
-func TestShIsJqs(t *testing.T) {
-	for _, e := range []string{`"it's"`, `""`, `"a'b'c"`, `5`, `1.50`, `true`, `null`, `["a", 1, "b'c"]`, `[]`} {
-		v, _ := parseJSON([]byte(e))
-		got, err := sh(v)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if want := jq(t, e, "-r", "@sh"); got+"\n" != want {
-			t.Errorf("@sh of %s: %q, not %q", e, got, want)
-		}
-	}
-	for _, e := range []string{`{"a": 1}`, `[[1]]`} {
-		v, _ := parseJSON([]byte(e))
-		if _, err := sh(v); err == nil {
-			t.Errorf("@sh of %s was escaped", e)
-		}
-	}
-}
-
 // Values are ordered as jq orders them: what `sort` gives is what
 // namedTwice's groups are in.
 func TestValuesAreOrderedAsJqOrdersThem(t *testing.T) {

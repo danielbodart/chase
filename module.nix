@@ -12,65 +12,6 @@ let
   # can answer with.
   sandboxes = lib.filterAttrs (_: t: !t.bare) cfg.tiers;
   operations = import ./lib/operations.nix { inherit lib; };
-  lines = builtins.concatStringsSep "\n";
-  chomp = lib.removeSuffix "\n";
-  indent = s: lines (map (l: if l == "" then l else "  " + l) (lib.splitString "\n" s));
-
-  # flong's `command`: runs in the container as the user, in the workspace,
-  # and execs the agent named by the first argument.
-  mkCommand = tier: contributions: pkgs.writeShellApplication {
-    name = "agent-command-${tier}";
-    text = ''
-      workspace=$PWD
-
-      ${lines (map chomp contributions.setupLines)}
-
-      if [ $# -eq 0 ]; then
-        echo "agent-container: no agent named" >&2
-        exit 1
-      fi
-      agent=$1
-      shift
-
-      # Group mounts are passed to the agent as --add-dir. Only :rw ones:
-      # codex's --add-dir means writable. Not ~/.claude, which is storage.
-      add_dirs=()
-      while IFS= read -r bind; do
-        case $bind in
-          ${cfg.home}/.claude/*) ;;
-          *:rw) add_dirs+=("''${bind%:rw}") ;;
-        esac
-      done <<< "''${FLONG_BINDS:-}"
-
-      # A closed list, so this cannot exec anything else on the container's PATH.
-      case $agent in
-        # `chase shell`: the session as an agent gets it, with no agent.
-        # A project with Docker is told where its containers' ports are,
-        # from what its prepare exported: the names are the session's own,
-        # which frisket answers, and a port relayed to 127.0.0.1 too.
-        shell)
-          if [ -n "''${CHASE_DOCKER_ADDRESS:-}" ]; then
-            docker_name=''${CHASE_DOCKER_NAMES:-}
-            docker_name=''${docker_name%% *}
-            if [ -n "''${CHASE_DOCKER_PORTS:-}" ]; then
-              echo "docker: ''${docker_name:+$docker_name → }$CHASE_DOCKER_ADDRESS, ports $CHASE_DOCKER_PORTS; localhost works too" >&2
-            else
-              echo "docker: ''${docker_name:+$docker_name → }$CHASE_DOCKER_ADDRESS, no ports" >&2
-            fi
-          fi
-          set -- bash -l "$@"
-          ;;
-      ${indent (lines (map chomp (lib.attrValues contributions.launchers)))}
-        *)
-          echo "agent-container: unknown agent '$agent'" >&2
-          exit 1
-          ;;
-      esac
-
-      exec "$@"
-    '';
-  };
-
   # "owner/name", as a remote URL carries it. Narrow because selector.nix
   # parses every entry as one, and a malformed slug would otherwise sit in the
   # configuration matching nothing until the day you wondered why. Compared
@@ -391,18 +332,6 @@ in
         container, a flong launcher and a frisket policy of the same name.
       '';
     };
-    # What apps add to each tier's command and binds. Separate from `tiers`,
-    # which apps read, so contributing to it does not recurse.
-    internal.tiers = mkOption {
-      internal = true;
-      default = { };
-      type = types.attrsOf (types.submodule {
-        options = {
-          setupLines = mkOption { type = types.listOf types.lines; default = [ ]; };
-          launchers = mkOption { type = types.attrsOf types.lines; default = { }; };
-        };
-      });
-    };
     package = mkOption {
       type = types.package;
       default = self.packages.${pkgs.stdenv.hostPlatform.system}.chase;
@@ -467,10 +396,19 @@ in
         }
       ]) cfg.tiers);
 
+    # What each sandbox tier's sessions are given on the host before they
+    # start (internal/session): its binds, and its payload, which flong's
+    # exec prints, the apps adding what they run and seed. The container's
+    # environment is what flong computes the payload's from, as its
+    # environment.variables are evaluated here: flong refuses an exec that
+    # sets any name of it, so exec is told them, to say which of its own the
+    # container already has, rather than have flong refuse the launch.
     chase.internal.config.session = {
-      inherit (cfg) home workspaceGroups;
+      inherit (cfg) home workspaceGroups placeholder;
       runtime = "/run/user/${toString cfg.uid}";
-      tiers = lib.mapAttrs (_: _: { }) sandboxes;
+      tiers = lib.mapAttrs (name: _: {
+        environment = config.containers."agent-${name}".config.environment.variables;
+      }) sandboxes;
     };
 
     environment.etc."chase/config.json".source = (pkgs.formats.json { }).generate "chase-config.json" cfg.internal.config;
@@ -513,7 +451,15 @@ in
     flong = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" ({
       inherit (tier) seccomp;
       user = cfg.user;
-      command = [ (lib.getExe (mkCommand name cfg.internal.tiers.${name})) ];
+      # The payload, worked out on the host after seccompPolicy, from the
+      # launcher's arguments -- the agent, one of a closed list, and its own
+      # -- and printed for flong, which execs it in the workspace with
+      # nothing between: its argument list, the variables it adds to the
+      # container's environment, and the files seeded into its home, Claude
+      # Code's placeholder login among them. Nothing of chase's runs in a
+      # session but the agent (internal/session). A tier that takes
+      # envelopes applies the approved one here first (./project).
+      exec = [ (lib.getExe cfg.package) "hook" "exec" name ];
       # The checkout's root, so all of it is mounted wherever you start;
       # otherwise the directory itself, which only a `paths` rule can place.
       # The root the selector sorted, never git's own answer, which a

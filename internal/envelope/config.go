@@ -3,20 +3,23 @@
 // project/default.nix built, and each of its steps is kept here, in its
 // order and with its words:
 //
-//	env-dir   the checkout's environment directory, bound read-only
 //	approve   seccompPolicy, before the session is built: snapshots the
 //	          checkout, has a person approve its flake and then what its
 //	          chaseModules.default evaluates to, stages the approved result
 //	          for this launch, and prints its syscall loosenings for flong
-//	launch    postStart, before frisket's steps: decrypts the secrets the
-//	          staged result binds, prepares each bound app, and writes the
-//	          session's policy document and its environment
-//	policy    frisket steer's -policy: the session's document, or the tier's
+//	launch    exec, after seccompPolicy and before the session is built:
+//	          decrypts the secrets the staged result binds, prepares each
+//	          bound app, writes the session's policy document where frisket
+//	          reads it, and gives the payload its environment and files
 //	project   a checkout's Docker project, as approve derives it
 //	docker    `chase docker`: a checkout's project, address, names and ports
 //
 // and postStop, which was a script of the module's own: each app's Stop,
 // then the session's run directory and anything staged for it removed.
+// The launch was postStart, writing an environment file each session
+// sourced; flong's exec gives the payload its variables directly, and
+// runs before frisket's steps, so frisket's document is always there by
+// the time it is read.
 //
 // All of it runs as the user who launched: a launcher has no privilege of
 // its own (PLAN.md, decision 2). The approval is split from the rest because
@@ -54,11 +57,12 @@ type Config struct {
 
 	// UID is chase.uid, the user every step runs as: Runtime's default.
 	UID int `json:"uid"`
-	// Home is chase.home, the user's home: a snapshot is taken under
+	// Home is chase.home, the user's home, and a session's at the same
+	// path, where an app's files are seeded: a snapshot is taken under
 	// Home/.cache/chase, and State defaults to Home/.local/state/chase.
 	Home string `json:"home"`
 	// State is where chase keeps what it approved (approved/<key>), each
-	// checkout's environment directory (env/<key>), and the Docker
+	// checkout's own directory (checkouts/<key>), and the Docker
 	// addresses already claimed (docker/addresses.json). Empty is
 	// Home/.local/state/chase.
 	State string `json:"state,omitempty"`

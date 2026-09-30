@@ -236,6 +236,7 @@ let
     mkdir -p "$out"
     env > "$out/env"
     cp "$GOOGLE_APPLICATION_CREDENTIALS" "$out/key.json"
+    stat -c %a "$GOOGLE_APPLICATION_CREDENTIALS" > "$out/key-mode"
     gcloud auth print-access-token > "$out/token" 2> "$out/token.err"
     gcloud storage cat gs://chase-test/hello.txt > "$out/cat" 2> "$out/cat.err"
     python3 ${grpcClient} placeholder GetTopic > "$out/grpc-placeholder" 2>&1
@@ -492,8 +493,14 @@ in
 
       with subtest("the session holds a fake key for the service account, and its environment points at it"):
           env = dict(l.split("=", 1) for l in machine.succeed(f"cat {out}/env").splitlines() if "=" in l)
+          # Seeded into the session's home by flong init, the user's alone;
+          # the checkout's own copy is kept on the host, bound into no session.
           key_path = env["GOOGLE_APPLICATION_CREDENTIALS"]
-          assert key_path.startswith("/home/alice/.local/state/chase/env/") and "/gcloud-key-" in key_path and key_path.endswith(".json"), key_path
+          assert key_path.startswith("/home/alice/.config/chase/gcloud-key-") and key_path.endswith(".json"), key_path
+          kept = machine.succeed(f"ls /home/alice/.local/state/chase/checkouts/*/{key_path.rsplit('/', 1)[1]}").strip()
+          assert machine.succeed(f"cat {kept}") == machine.succeed(f"cat {out}/key.json"), kept
+          assert machine.succeed(f"cat {out}/key-mode").strip() == "600", machine.succeed(f"cat {out}/key-mode")
+          machine.fail(f"test -e {key_path}")
           assert env["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"] == key_path, env
           assert env["CLOUDSDK_CONFIG"] == "/run/user/1000/gcloud", env
           assert env["CLOUDSDK_COMPONENT_MANAGER_DISABLE_UPDATE_CHECK"] == "1", env
@@ -571,6 +578,6 @@ in
           assert user_unit("is-active", f"chase-gcloud-renew@{name}.service") != "active"
           machine.succeed(f"test ! -e /run/user/1000/chase/.envelope/{name}.json")
           assert found("/run/user/1000", patterns) == [], found("/run/user/1000", patterns)
-          machine.succeed(f"test -e {key_path}")
+          machine.succeed(f"test -e {kept}")
     '';
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/danielbodart/chase/internal/apps"
 	"github.com/danielbodart/chase/internal/apps/docker"
 	"github.com/danielbodart/chase/internal/envelope"
+	"github.com/danielbodart/chase/internal/session"
 )
 
 // probe stands in for an app with no credential, as the project-launch
@@ -50,8 +51,6 @@ func (h *harness) policyDoc(machine string) policy.Document {
 	}
 	return d
 }
-
-func lines(s string) []string { return strings.Split(s, "\n") }
 
 func no() *bool { f := false; return &f }
 
@@ -92,19 +91,15 @@ func TestAnAppWithNoCredentialIsMadeFromItsBinding(t *testing.T) {
 	if r.Project != "example/shop" {
 		t.Errorf("prepare was not given the approved project: %q", r.Project)
 	}
-	if r.Tier != "trusted" || r.Workspace != ws || r.Run != h.dir+"/run/chase/m1" || r.EnvDir != h.dir+"/state/env/"+key(ws) {
+	if r.Tier != "trusted" || r.Workspace != ws || r.Run != h.dir+"/run/chase/m1" || r.Dir != h.dir+"/state/checkouts/"+key(ws) || r.Home != h.dir+"/home" {
 		t.Errorf("prepare was not given the session: %+v", r)
 	}
 	d := h.policyDoc("m1")
 	if !slices.Equal(d.Allow, []string{"probe.example"}) || len(d.Routes) != 0 {
 		t.Errorf("probe's patch was not merged: %+v", d)
 	}
-	env := read(t, h.envfile(ws))
-	if !slices.Contains(lines(env), "export PROBE='1'") {
-		t.Errorf("probe's env was not exported: %q", env)
-	}
-	if strings.Contains(env, "chase_project") {
-		t.Errorf("the session was given chase_project: %q", env)
+	if env := h.env(); !slices.Equal(env, []string{"PROBE=1"}) {
+		t.Errorf("probe's env, and nothing else, was not given the session: %q", env)
 	}
 	if !h.said("chase: " + ws + ": probe from no credential") {
 		t.Errorf("where probe came from was not said: %s", h.err)
@@ -160,7 +155,7 @@ func TestAnAppWithNoCredentialAndNoCodeIsRefused(t *testing.T) {
 
 	h.cfg.Apps["bad"] = envelope.App{Credential: no()}
 	h.approved(ws, "m1", "trusted", `{"bindings": {"bad": {"x": 1}}}`)
-	if h.run("launch", "trusted", ws, "m1") == 0 {
+	if h.launch("trusted", ws, "m1") == 0 {
 		t.Error("an app with no credential and no prepare was launched")
 	}
 	h.mustSay("chase: " + ws + ": bad has no credential and no prepare")
@@ -401,7 +396,7 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 		if got := h.stagedProject(machine); got != "example/shop" {
 			t.Errorf("approve did not stage the project: %v", got)
 		}
-		if h.run("launch", tier, ws, machine) != 0 {
+		if h.launch(tier, ws, machine) != 0 {
 			t.Fatalf("%s was not launched: %s", machine, h.err)
 		}
 	}
@@ -437,18 +432,18 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 	}
 	dockerRouteIsTheTemplates(t, h.dir+"/run/chase/m1/policy.json")
 	frisketCheck(t, h.dir+"/run/chase/m1/policy.json")
-	env := lines(read(t, h.envfile(ws)))
+	env := h.env()
 	for _, line := range []string{
-		"export DOCKER_HOST='tcp://docker.frisket.internal:2376'",
-		"export DOCKER_TLS_VERIFY='1'",
-		"export DOCKER_CERT_PATH='/etc/chase/docker'",
-		"export CHASE_DOCKER_PROJECT='example/shop'",
-		"export CHASE_DOCKER_ADDRESS='127.101.170.171'",
-		"export CHASE_DOCKER_NAMES='shop.internal shop.example.internal'",
-		"export CHASE_DOCKER_PORTS='64320 64321'",
+		"DOCKER_HOST=tcp://docker.frisket.internal:2376",
+		"DOCKER_TLS_VERIFY=1",
+		"DOCKER_CERT_PATH=/etc/chase/docker",
+		"CHASE_DOCKER_PROJECT=example/shop",
+		"CHASE_DOCKER_ADDRESS=127.101.170.171",
+		"CHASE_DOCKER_NAMES=shop.internal shop.example.internal",
+		"CHASE_DOCKER_PORTS=64320 64321",
 	} {
 		if !slices.Contains(env, line) {
-			t.Errorf("the env file has no %s: %q", line, env)
+			t.Errorf("the session's environment has no %s: %q", line, env)
 		}
 	}
 
@@ -459,15 +454,15 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 			t.Errorf("no ports did not route with none: %v", rt.Docker.Ports)
 		}
 	}
-	if !slices.Contains(lines(read(t, h.envfile(ws))), "export CHASE_DOCKER_PORTS=''") {
-		t.Errorf("no ports was not said as none: %s", read(t, h.envfile(ws)))
+	if !slices.Contains(h.env(), "CHASE_DOCKER_PORTS=") {
+		t.Errorf("no ports was not said as none: %q", h.env())
 	}
 	frisketCheck(t, h.dir+"/run/chase/m2/policy.json")
 
 	// Ports alone name nothing a container could run, so the launch ends
 	// there rather than frisket refusing the document.
 	h.approved(ws, "m3", "trusted", `{"bindings": {"docker": {"ports": [64320]}}}`)
-	if h.run("launch", "trusted", ws, "m3") == 0 {
+	if h.launch("trusted", ws, "m3") == 0 {
 		t.Error("Docker with no images was launched")
 	}
 	h.mustSay("chase: " + ws + ": docker: no images")
@@ -475,13 +470,13 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 
 	// NO BINDING, NO ROUTE, and nothing of Docker's in the session.
 	h.approved(ws, "m4", "trusted", `{"bindings": {"gcloud": {"serviceAccount": "a@p.iam.gserviceaccount.com"}}}`)
-	if h.run("launch", "trusted", ws, "m4") != 0 {
+	if h.launch("trusted", ws, "m4") != 0 {
 		t.Fatalf("m4 was not launched: %s", h.err)
 	}
 	if d := h.policyDoc("m4"); len(d.Routes) != 0 || !slices.Equal(d.Allow, []string{"github.com"}) {
 		t.Errorf("a checkout with no binding got a route: %+v", d)
 	}
-	if env := read(t, h.envfile(ws)); strings.Contains(env, "DOCKER") {
+	if env := strings.Join(h.env(), "\n"); strings.Contains(env, "DOCKER") {
 		t.Errorf("a checkout with no binding got Docker's variables: %q", env)
 	}
 	if strings.Contains(h.err, "docker") {
@@ -496,45 +491,68 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 	if d := h.policyDoc("m5"); len(d.Routes) != 0 || !slices.Equal(d.Allow, []string{"github.com"}) {
 		t.Errorf("a tier without Docker got a route: %+v", d)
 	}
-	if env := read(t, h.envfile(ws)); strings.Contains(env, "DOCKER") {
+	if env := strings.Join(h.env(), "\n"); strings.Contains(env, "DOCKER") {
 		t.Errorf("a tier without Docker got Docker's variables: %q", env)
 	}
 }
 
 // A launch consumes its stage: a second launch of the same approval, or one
 // seccompPolicy never approved, is refused. An approval of the tier as it is
-// removes the environment an earlier launch wrote.
+// still writes the session's document, the tier's own, where frisket's
+// policyFile names it for every session, and gives the session nothing of
+// its own.
 func TestALaunchAppliesOneApprovalOnce(t *testing.T) {
 	h, _, ws := newProjectLaunch(t)
 	h.launched(ws, "m1", "trusted", `{"bindings": {"probe": {"x": 1}}}`)
 	if _, err := os.Stat(h.dir + "/run/chase/.envelope/m1.json"); err == nil {
 		t.Error("the stage outlived its launch")
 	}
-	if h.run("launch", "trusted", ws, "m9") == 0 {
+	if fi, err := os.Stat(h.dir + "/run/chase/m1"); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("the session's directory is not the user's alone: %v", fi)
+	}
+	if h.launch("trusted", ws, "m9") == 0 {
 		t.Error("a launch nothing approved was applied")
 	}
 	if h.err != "chase: "+ws+": nothing was approved for this launch: the tier's seccompPolicy did not run\n" {
 		t.Errorf("an unapproved launch said: %q", h.err)
 	}
-	if fi, err := os.Stat(h.envfile(ws)); err != nil || fi.Mode().Perm() != 0o644 {
-		t.Errorf("the env file is not the session's to read: %v", fi)
+	if _, err := os.Stat(h.dir + "/run/chase/m9"); err == nil {
+		t.Error("a launch nothing approved made a session directory")
 	}
 	if fi, err := os.Stat(h.dir + "/run/chase/m1/policy.json"); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Errorf("the policy document is not the user's alone: %v", fi)
 	}
+	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["api.github.com"], "routes": [{"name": "github", "host": "api.github.com", "upstream": "https://api.github.com", "credentialFile": "/run/secrets/gh", "placeholder": "proxy-injected", "paths": [{"methods": ["GET"], "prefix": "/"}]}]}`)
 	write(t, ws+"/flake.nix", "{ outputs = _: { }; }\n")
 	h.approved(ws, "m2", "trusted", "")
 	if got := read(t, h.dir+"/run/chase/.envelope/m2.json"); got != "null\n" {
 		t.Errorf("a flake without chaseModules was staged as %q", got)
 	}
-	if h.run("launch", "trusted", ws, "m2") != 0 {
+	if h.launch("trusted", ws, "m2") != 0 {
 		t.Fatalf("the tier as it is was not launched: %s", h.err)
 	}
-	if _, err := os.Stat(h.envfile(ws)); err == nil {
-		t.Error("an earlier launch's environment was left")
+	if len(h.given.Env) != 0 || len(h.given.Files) != 0 {
+		t.Errorf("the tier as it is gave the session %+v", h.given)
 	}
-	if _, err := os.Stat(h.dir + "/run/chase/m2"); err == nil {
-		t.Error("the tier as it is has a session directory")
+	if h.err != "" {
+		t.Errorf("the tier as it is said %q", h.err)
+	}
+	d := h.policyDoc("m2")
+	if d.Name != "trusted" || !slices.Equal(d.Allow, []string{"api.github.com"}) || len(d.Routes) != 1 || d.Routes[0].CredentialFile != "/run/secrets/gh" {
+		t.Errorf("the tier as it is was not given the tier's own document: %+v", d)
+	}
+	if left, _ := os.ReadDir(h.dir + "/run/chase/m2"); len(left) != 1 {
+		t.Errorf("the tier as it is left more than its document: %v", left)
+	}
+	frisketCheck(t, h.dir+"/run/chase/m2/policy.json")
+
+	// A tier with no document of its own is no launch at all.
+	if err := os.Remove(h.cfg.Policies + "/trusted.json"); err != nil {
+		t.Fatal(err)
+	}
+	h.approved(ws, "m3", "trusted", "")
+	if h.launch("trusted", ws, "m3") == 0 {
+		t.Error("a tier with no document was launched")
 	}
 }
 
@@ -575,8 +593,8 @@ func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 	if len(d.Routes) != 1 || d.Routes[0].CredentialFile != h.dir+"/run/chase/m1/secrets/cloudflare" || !slices.Equal(d.Allow, []string{"api.cloudflare.com"}) {
 		t.Errorf("cloudflare's route was not bound with the project's secret: %+v", d)
 	}
-	if got := read(t, h.envfile(ws)); got != "export CLOUDFLARE_API_TOKEN='proxy-injected'\nexport CLOUDFLARE_ACCOUNT_ID='it'\\''s 023e'\n" {
-		t.Errorf("the environment is not what the shell was given: %q", got)
+	if got := h.env(); !slices.Equal(got, []string{"CLOUDFLARE_API_TOKEN=proxy-injected", "CLOUDFLARE_ACCOUNT_ID=it's 023e"}) {
+		t.Errorf("the session's environment is %q", got)
 	}
 
 	// The staged copy, changed after its digest was approved.
@@ -587,7 +605,7 @@ func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 	doc["secrets"].(map[string]any)["text"] = `{"cloudflare-token": "another"}`
 	b, _ := json.Marshal(doc)
 	write(t, p, string(b))
-	if h.run("launch", "trusted", ws, "m2") == 0 {
+	if h.launch("trusted", ws, "m2") == 0 {
 		t.Error("a changed sops file was launched")
 	}
 	if !h.said("chase: " + ws + ": the staged secrets.json is not the one approved") {
@@ -597,20 +615,20 @@ func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 	// A secret sops cannot give, and one it gives empty.
 	h.approved(ws, "m3", "trusted", env)
 	t.Setenv(sopsFails, "1")
-	if h.run("launch", "trusted", ws, "m3") == 0 || !h.said("chase: "+ws+": could not decrypt 'cloudflare-token'") {
+	if h.launch("trusted", ws, "m3") == 0 || !h.said("chase: "+ws+": could not decrypt 'cloudflare-token'") {
 		t.Errorf("a secret sops could not decrypt: %s", h.err)
 	}
 	t.Setenv(sopsFails, "")
 	write(t, ws+"/secrets.json", `{"cloudflare-token": ""}`)
 	h.fx.Run("-C", ws, "add", "secrets.json")
 	h.approved(ws, "m4", "trusted", env)
-	if h.run("launch", "trusted", ws, "m4") == 0 || !h.said("chase: "+ws+": 'cloudflare-token' is empty") {
+	if h.launch("trusted", ws, "m4") == 0 || !h.said("chase: "+ws+": 'cloudflare-token' is empty") {
 		t.Errorf("an empty secret: %s", h.err)
 	}
 
 	// A binding naming a secret, and no sops file.
 	h.approved(ws, "m5", "trusted", `{"bindings": {"cloudflare": {"credential": {"secret": "cloudflare-token"}}}}`)
-	if h.run("launch", "trusted", ws, "m5") == 0 || !h.said("chase: "+ws+": a binding names secret 'cloudflare-token', and chase.secrets names no file") {
+	if h.launch("trusted", ws, "m5") == 0 || !h.said("chase: "+ws+": a binding names secret 'cloudflare-token', and chase.secrets names no file") {
 		t.Errorf("a secret with no sops file: %s", h.err)
 	}
 }
@@ -639,29 +657,54 @@ func TestListsOfAnAppTheTierLacksOrHasAnonymouslyAreIgnored(t *testing.T) {
 	}
 }
 
-// Two launches' envelopes, and each app's environment, one group of lines an
-// app, as the script's exports were: an app with nothing to export is an
-// empty line.
-func TestTheEnvironmentIsAGroupOfLinesAnApp(t *testing.T) {
+// seeder is an app with no credential that seeds a file into the session's
+// home, as Google Cloud seeds its key.
+type seeder struct{}
+
+func (seeder) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
+	f := session.File{Path: r.Home + "/.config/seeder/key", Mode: 0o600, Content: "for " + r.Workspace}
+	return apps.Patch{Env: map[string]string{"SEEDER_KEY": f.Path}, Files: []session.File{f}}, nil
+}
+
+func (seeder) Stop(context.Context, string) error { return nil }
+
+// The session's environment is each bound app's variables, the apps in the
+// order of their names, and its files each app's own, handed back to the
+// payload rather than written anywhere a session would read them. An app
+// with nothing to give adds nothing.
+func TestTheSessionIsGivenEachAppsVariablesAndFiles(t *testing.T) {
 	h, _, ws := newProjectLaunch(t)
 	h.cfg.Apps["docker"] = envelope.App{Credential: no(), Env: map[string]string{"A": "1"}}
-	h.launched(ws, "m1", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"]}, "probe": {"x": 1}}}`)
-	if got := read(t, h.envfile(ws)); got != "export A='1'\nexport PROBE='1'\n" {
-		t.Errorf("the env file is %q", got)
+	h.cfg.Apps["seeder"] = envelope.App{Credential: no()}
+	h.registry["seeder"] = seeder{}
+	h.launched(ws, "m1", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"]}, "probe": {"x": 1}, "seeder": {"x": 1}}}`)
+	if got := h.env(); !slices.Equal(got, []string{"A=1", "PROBE=1", "SEEDER_KEY=" + h.dir + "/home/.config/seeder/key"}) {
+		t.Errorf("the session's environment is %q", got)
+	}
+	if got := h.given.Files; len(got) != 1 || got[0] != (session.File{Path: h.dir + "/home/.config/seeder/key", Mode: 0o600, Content: "for " + ws}) {
+		t.Errorf("the session's files are %+v", got)
 	}
 	h.cfg.Apps["docker"] = envelope.App{Credential: no()}
 	h.launched(ws, "m2", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"]}, "probe": {"x": 1}}}`)
-	if got := read(t, h.envfile(ws)); got != "\nexport PROBE='1'\n" {
-		t.Errorf("the env file is %q", got)
+	if got := h.env(); !slices.Equal(got, []string{"PROBE=1"}) {
+		t.Errorf("the session's environment is %q", got)
 	}
-	env, err := envelope.Launch(context.Background(), h.cfg, h.registry, "trusted", ws, "m3", &strings.Builder{})
+	if len(h.given.Files) != 0 {
+		t.Errorf("an unbound app's files were given: %+v", h.given.Files)
+	}
+	for _, left := range []string{h.dir + "/state/env", h.dir + "/home/.config"} {
+		if _, err := os.Stat(left); err == nil {
+			t.Errorf("the launch wrote %s, which is the payload's to be given", left)
+		}
+	}
+	given, err := envelope.Launch(context.Background(), h.cfg, h.registry, "trusted", ws, "m3", &strings.Builder{})
 	if err == nil {
-		t.Errorf("an unapproved launch gave %v", env)
+		t.Errorf("an unapproved launch gave %v", given)
 	}
 	h.approved(ws, "m3", "trusted", `{"bindings": {"probe": {"x": 1}}}`)
-	env, err = envelope.Launch(context.Background(), h.cfg, h.registry, "trusted", ws, "m3", &strings.Builder{})
-	if err != nil || len(env) != 1 || env[0] != (envelope.Var{Name: "PROBE", Value: "1"}) {
-		t.Errorf("the launch's environment is %v: %v", env, err)
+	given, err = envelope.Launch(context.Background(), h.cfg, h.registry, "trusted", ws, "m3", &strings.Builder{})
+	if err != nil || len(given.Env) != 1 || given.Env[0] != (session.Var{Name: "PROBE", Value: "1"}) {
+		t.Errorf("the launch's environment is %v: %v", given, err)
 	}
 }
 

@@ -403,27 +403,5 @@ func join(items []*value, sep string) (string, error) {
 	return strings.Join(parts, sep), nil
 }
 
-// sh is jq's `@sh`: a string single-quoted, with each ' in it closed,
-// escaped and opened again; a number, a boolean or null as JSON; an array
-// as each of its items so, separated by spaces; and anything else refused.
-func sh(v *value) (string, error) {
-	items := []*value{v}
-	if v.kind == '[' {
-		items = v.items
-	}
-	parts := make([]string, len(items))
-	for i, x := range items {
-		switch x.kind {
-		case '"':
-			parts[i] = "'" + strings.ReplaceAll(x.text, "'", `'\''`) + "'"
-		case '0', 't', 'f', 'n':
-			parts[i] = x.compact()
-		default:
-			return "", fmt.Errorf("%s can not be escaped for shell", x.describe())
-		}
-	}
-	return strings.Join(parts, " "), nil
-}
-
 // sortValues is jq's `sort`: stable, in jq's order.
 func sortValues(items []*value) { slices.SortStableFunc(items, compare) }

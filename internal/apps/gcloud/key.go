@@ -42,24 +42,24 @@ type sessionKeyFile struct {
 
 // keyPath is the checkout's key for email in project: one per account and
 // project, so a session launched with another leaves this one's alone.
-func keyPath(envdir, email, project string) string {
+func keyPath(dir, email, project string) string {
 	sum := sha256.Sum256([]byte(email + " " + project))
-	return filepath.Join(envdir, "gcloud-key-"+hex.EncodeToString(sum[:])[:16]+".json")
+	return filepath.Join(dir, "gcloud-key-"+hex.EncodeToString(sum[:])[:16]+".json")
 }
 
 // sessionKey is the checkout's key for email in project, made once and kept
-// in envdir, and its public half as PEM. It is made under the key's own
+// in dir, and its public half as PEM. It is made under the key's own
 // lock, so two launches of one checkout make one key between them.
-func sessionKey(envdir, email, project string) (path, public string, err error) {
-	if err := os.MkdirAll(envdir, 0o700); err != nil {
+func sessionKey(dir, email, project string) (path, public string, err error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", "", err
 	}
-	unlock, err := lockKeys(envdir)
+	unlock, err := lockKeys(dir)
 	if err != nil {
 		return "", "", err
 	}
 	defer unlock()
-	path = keyPath(envdir, email, project)
+	path = keyPath(dir, email, project)
 	b, err := os.ReadFile(path)
 	if err != nil || !names(b, email, project) {
 		if b, err = newKey(email, project); err != nil {
@@ -76,15 +76,15 @@ func sessionKey(envdir, email, project string) (path, public string, err error) 
 	return path, public, nil
 }
 
-// lockKeys holds envdir/.gcloud-key.lock, the script's own lock, until the
-// returned function is called. Not files.Lock's envdir/.lock: envdir is the
-// checkout's environment directory, which the launch writes too, and flock
-// conflicts between two opens of one file in one process as between two
-// processes. A launcher that held envdir's lock around Prepare, for its own
-// read-modify-write of the env file, would wait on itself here forever; a
-// lock of the key's own couples it to nothing else. It follows no link.
-func lockKeys(envdir string) (func(), error) {
-	f, err := os.OpenFile(filepath.Join(envdir, ".gcloud-key.lock"), os.O_WRONLY|os.O_CREATE|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+// lockKeys holds dir/.gcloud-key.lock, the script's own lock, until the
+// returned function is called. Not files.Lock's dir/.lock: dir is the
+// checkout's own directory, which another app may keep things in too, and
+// flock conflicts between two opens of one file in one process as between
+// two processes. A launch that held dir's lock around Prepare, for a
+// read-modify-write of its own, would wait on itself here forever; a lock of
+// the key's own couples it to nothing else. It follows no link.
+func lockKeys(dir string) (func(), error) {
+	f, err := os.OpenFile(filepath.Join(dir, ".gcloud-key.lock"), os.O_WRONLY|os.O_CREATE|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
 	if err != nil {
 		return nil, err
 	}

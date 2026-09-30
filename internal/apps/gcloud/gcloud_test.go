@@ -139,7 +139,7 @@ func binding(apis string) json.RawMessage {
 
 func (l *launch) prepare(tier, run string, b json.RawMessage) (apps.Patch, error) {
 	return l.app.Prepare(context.Background(), apps.Request{
-		Tier: tier, Workspace: "/ws", Run: run, EnvDir: filepath.Join(l.dir, "env"), Binding: b,
+		Tier: tier, Workspace: "/ws", Run: run, Dir: filepath.Join(l.dir, "checkout"), Home: filepath.Join(l.dir, "home"), Binding: b,
 	})
 }
 
@@ -281,16 +281,22 @@ func TestTheSessionsKeyIsTheCheckoutsAndNeverTheRealOne(t *testing.T) {
 	l := newLaunch(t)
 	run := l.session("agent-trusted-1-2", sa)
 	patch := l.prepared("trusted", run, binding(`{}`))
-	key := patch.Env["GOOGLE_APPLICATION_CREDENTIALS"]
-	if m, _ := filepath.Match(filepath.Join(l.dir, "env", "gcloud-key-*.json"), key); !m {
-		t.Fatalf("the key is not the checkout's: %s", key)
+	// The session is given a copy of the checkout's key, seeded into its
+	// home under the key's own name, and pointed at it.
+	seeded := patch.Env["GOOGLE_APPLICATION_CREDENTIALS"]
+	if m, _ := filepath.Match(filepath.Join(l.dir, "home", ".config", "chase", "gcloud-key-*.json"), seeded); !m {
+		t.Fatalf("the key is not seeded into the session's home: %s", seeded)
 	}
-	if patch.Env["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"] != key {
+	if patch.Env["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"] != seeded {
 		t.Error("gcloud is not given the key")
 	}
+	key := filepath.Join(l.dir, "checkout", filepath.Base(seeded))
 	b, err := os.ReadFile(key)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("the key is not kept in the checkout's directory: %v", err)
+	}
+	if len(patch.Files) != 1 || patch.Files[0].Path != seeded || patch.Files[0].Mode != 0o600 || patch.Files[0].Content != string(b) {
+		t.Errorf("the session is not given the checkout's key, the user's alone: %+v", patch.Files)
 	}
 	var k map[string]any
 	json.Unmarshal(b, &k)
@@ -327,10 +333,10 @@ func TestTheSessionsKeyIsTheCheckoutsAndNeverTheRealOne(t *testing.T) {
 	other := l.session("agent-trusted-3-4", "other@p.iam.gserviceaccount.com")
 	theirs := l.prepared("trusted", other, json.RawMessage(`{"serviceAccount": "other@p.iam.gserviceaccount.com", "credential": {"secret": "gcloud-key"}}`)).
 		Env["GOOGLE_APPLICATION_CREDENTIALS"]
-	tb, _ := os.ReadFile(theirs)
+	tb, _ := os.ReadFile(filepath.Join(l.dir, "checkout", filepath.Base(theirs)))
 	var tk map[string]any
 	json.Unmarshal(tb, &tk)
-	if theirs == key || tk["client_email"] != "other@p.iam.gserviceaccount.com" {
+	if theirs == seeded || tk["client_email"] != "other@p.iam.gserviceaccount.com" {
 		t.Error("another account took this one's key")
 	}
 	b, _ = os.ReadFile(key)

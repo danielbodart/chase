@@ -1,0 +1,384 @@
+package session
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+// printed is exec's output read back as flong's parseExec reads it: fields
+// each ended by a NUL, `env:NAME=VALUE`, `arg:WORD`, and `file:MODE:PATH`
+// followed by one field of content. What does not read is the test's
+// failure, as it would be the launch's.
+type printed struct {
+	env   []string
+	argv  []string
+	files []File
+}
+
+func parse(t *testing.T, out []byte) printed {
+	t.Helper()
+	if len(out) == 0 || out[len(out)-1] != 0 {
+		t.Fatalf("the output does not end with a NUL: %q", out)
+	}
+	fields := strings.Split(string(out[:len(out)-1]), "\x00")
+	var p printed
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		switch {
+		case strings.HasPrefix(f, "env:"):
+			if !strings.Contains(f, "=") {
+				t.Fatalf("an env: field with no '=': %q", f)
+			}
+			p.env = append(p.env, strings.TrimPrefix(f, "env:"))
+		case strings.HasPrefix(f, "arg:"):
+			p.argv = append(p.argv, strings.TrimPrefix(f, "arg:"))
+		case strings.HasPrefix(f, "file:"):
+			mode, path, ok := strings.Cut(strings.TrimPrefix(f, "file:"), ":")
+			m, err := strconv.ParseUint(mode, 8, 32)
+			if !ok || err != nil || len(mode) > 4 || m > 0o777 || i+1 == len(fields) {
+				t.Fatalf("a file: field flong refuses: %q", f)
+			}
+			i++
+			p.files = append(p.files, File{Path: path, Mode: os.FileMode(m), Content: fields[i]})
+		default:
+			t.Fatalf("an untagged field: %q", f)
+		}
+	}
+	if len(p.argv) == 0 || p.argv[0] == "" {
+		t.Fatalf("no program: %q", out)
+	}
+	return p
+}
+
+// fixture is a home and a Config with a tier of each kind: trusted with a
+// shared Claude Code, connectors, a shared codex and a Cloudflare account;
+// strict with an isolated Claude Code and codex; and bare-bones, with no
+// agent but the shell.
+type fixture struct {
+	home, settings, account string
+	c                       Config
+}
+
+func newFixture(t *testing.T) fixture {
+	root := t.TempDir()
+	f := fixture{home: filepath.Join(root, "home", "alice"), settings: "/nix/store/0000-claude-strict-settings.json", account: filepath.Join(root, "account-id")}
+	if err := os.WriteFile(f.account, []byte("023e105f4ecef8ad9ca31a8372d0c353\n\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.c = Config{
+		Home:        f.home,
+		Runtime:     "/run/user/1000",
+		Placeholder: "proxy-injected",
+		Tiers: map[string]Tier{
+			"trusted": {
+				Claude:      &Claude{State: "shared", Settings: "/nix/store/0000-claude-trusted-settings.json", Connectors: true},
+				Codex:       &Codex{State: "shared"},
+				Cloudflare:  &Cloudflare{AccountIDFile: f.account},
+				Environment: map[string]string{"CLOUDFLARE_API_TOKEN": "proxy-injected", "SSL_CERT_FILE": "/etc/frisket/ca-bundle.crt"},
+			},
+			"strict": {
+				Claude: &Claude{State: "isolated", Settings: f.settings},
+				Codex:  &Codex{State: "isolated", StateDir: filepath.Join(f.home, ".local/state/agents/codex"), Placeholder: "/x"},
+			},
+			"plain": {},
+		},
+	}
+	return f
+}
+
+// run is `chase hook exec TIER ARGS...` for workspace ws with binds: what
+// it printed, read back, and what it said.
+func (f fixture) run(t *testing.T, tier, ws, binds string, given Given, args ...string) (printed, string) {
+	t.Helper()
+	var stderr bytes.Buffer
+	e, err := Payload(f.c, tier, ws, binds, args, given, &stderr)
+	if err != nil {
+		t.Fatalf("%s %q was refused: %v", tier, args, err)
+	}
+	var out bytes.Buffer
+	if err := e.Write(&out); err != nil {
+		t.Fatal(err)
+	}
+	return parse(t, out.Bytes()), stderr.String()
+}
+
+func (f fixture) refused(t *testing.T, tier, ws, binds string, given Given, args ...string) string {
+	t.Helper()
+	var stderr bytes.Buffer
+	e, err := Payload(f.c, tier, ws, binds, args, given, &stderr)
+	if err == nil {
+		t.Fatalf("%s %q was not refused: %+v", tier, args, e)
+	}
+	return err.Error()
+}
+
+// The login each tier's Claude Code is given, byte for byte as Nix's
+// builtins.toJSON wrote it and printf '%s' put it in the file.
+func placeholderLogin(scopes string) string {
+	return `{"claudeAiOauth":{"accessToken":"proxy-injected","expiresAt":4102444800000,"refreshToken":"proxy-injected",` +
+		`"refreshTokenExpiresAt":4102444800000,"scopes":` + scopes + `,"subscriptionType":"max"}}`
+}
+
+// CLAUDE CODE: the tier's settings, its prompts skippable, one --add-dir for
+// every read-write bind but ~/.claude's, and the launcher's arguments after.
+// It is given the placeholder login, with the scopes the tier's connectors
+// need, the user's alone, and nothing else.
+func TestClaudeIsRunWithTheTiersSettingsAndItsWritableBinds(t *testing.T) {
+	f := newFixture(t)
+	binds := strings.Join([]string{
+		"/home/alice/Projects/api:rw",
+		"/home/alice/Projects/docs:ro",
+		f.home + "/.claude/projects/-w-shop:rw",
+		f.home + "/.local/state/agents/codex/-w-shop:rw",
+		"/home/alice/Projects/web:rw",
+	}, "\n")
+	p, said := f.run(t, "trusted", "/w/shop", binds, Given{}, "claude", "--resume", "a b")
+	want := []string{"claude", "--settings", "/nix/store/0000-claude-trusted-settings.json", "--allow-dangerously-skip-permissions",
+		"--add-dir", "/home/alice/Projects/api", f.home + "/.local/state/agents/codex/-w-shop", "/home/alice/Projects/web",
+		"--resume", "a b"}
+	if !slices.Equal(p.argv, want) {
+		t.Errorf("argv is %q, not %q", p.argv, want)
+	}
+	if said != "" {
+		t.Errorf("claude said %q", said)
+	}
+	if len(p.files) != 1 || p.files[0] != (File{Path: f.home + "/.claude/.credentials.json", Mode: 0o600,
+		Content: placeholderLogin(`["user:file_upload","user:inference","user:mcp_servers","user:profile","user:sessions:claude_code"]`)}) {
+		t.Errorf("a shared tier with connectors was given %+v", p.files)
+	}
+
+	// No writable bind, no --add-dir at all.
+	p, _ = f.run(t, "trusted", "/w/shop", "/home/alice/Projects/docs:ro", Given{}, "claude")
+	if !slices.Equal(p.argv, want[:4]) {
+		t.Errorf("argv with no writable bind is %q", p.argv)
+	}
+	p, _ = f.run(t, "trusted", "/w/shop", "", Given{}, "claude")
+	if !slices.Equal(p.argv, want[:4]) {
+		t.Errorf("argv with no binds is %q", p.argv)
+	}
+}
+
+// An isolated Claude Code is given inference alone, and a ~/.claude.json of
+// its own that has done onboarding and trusts the workspace, as `jq -n`
+// wrote it.
+func TestAnIsolatedClaudeTrustsItsWorkspace(t *testing.T) {
+	f := newFixture(t)
+	ws := `/w/it's "quoted" & <odd>`
+	p, _ := f.run(t, "strict", ws, "", Given{}, "claude")
+	if !slices.Equal(p.argv, []string{"claude", "--settings", f.settings, "--allow-dangerously-skip-permissions"}) {
+		t.Errorf("argv is %q", p.argv)
+	}
+	want := []File{
+		{Path: f.home + "/.claude/.credentials.json", Mode: 0o600, Content: placeholderLogin(`["user:inference"]`)},
+		{Path: f.home + "/.claude.json", Mode: 0o600, Content: "{\n  \"hasCompletedOnboarding\": true,\n  \"projects\": {\n" +
+			"    \"/w/it's \\\"quoted\\\" & <odd>\": {\n      \"hasTrustDialogAccepted\": true\n    }\n  }\n}\n"},
+	}
+	if !slices.Equal(p.files, want) {
+		t.Errorf("the files are %+v, not %+v", p.files, want)
+	}
+}
+
+// CODEX: its own sandbox bypassed, the workspace trusted by a -c override
+// whose TOML string holds it escaped as the script escaped it, the default
+// excludes off, and an --add-dir per writable bind. An isolated tier's
+// CODEX_HOME is the home Binds made for the workspace.
+func TestCodexIsTrustedInItsWorkspace(t *testing.T) {
+	f := newFixture(t)
+	ws := `/w/a "b" \c`
+	p, _ := f.run(t, "strict", ws, "/x:rw\n/y:ro\n/z:rw", Given{}, "codex", "exec", "hi")
+	want := []string{"codex", "--dangerously-bypass-approvals-and-sandbox",
+		"-c", `projects."/w/a \"b\" \\c".trust_level="trusted"`,
+		"-c", "shell_environment_policy.ignore_default_excludes=true",
+		"--add-dir", "/x", "--add-dir", "/z", "exec", "hi"}
+	if !slices.Equal(p.argv, want) {
+		t.Errorf("argv is %q, not %q", p.argv, want)
+	}
+	if home := filepath.Join(f.home, ".local/state/agents/codex", Munge(ws)); !slices.Equal(p.env, []string{"CODEX_HOME=" + home}) {
+		t.Errorf("an isolated codex's environment is %q", p.env)
+	}
+	// Shared, the host's own ~/.codex is its home.
+	p, _ = f.run(t, "trusted", ws, "", Given{}, "codex")
+	if slices.ContainsFunc(p.env, func(v string) bool { return strings.HasPrefix(v, "CODEX_HOME=") }) {
+		t.Errorf("a shared codex was given a home: %q", p.env)
+	}
+}
+
+// SHELL: `bash -l` and the launcher's arguments, in any tier, told nothing
+// unless the launch has Docker.
+func TestTheShellIsALoginBash(t *testing.T) {
+	f := newFixture(t)
+	p, said := f.run(t, "plain", "/w", "/x:rw", Given{}, "shell", "-c", "echo $HOME; exit 3")
+	if !slices.Equal(p.argv, []string{"bash", "-l", "-c", "echo $HOME; exit 3"}) {
+		t.Errorf("argv is %q", p.argv)
+	}
+	if said != "" || len(p.env) != 0 || len(p.files) != 0 {
+		t.Errorf("a plain shell was given %q, %+v, and told %q", p.env, p.files, said)
+	}
+	p, _ = f.run(t, "plain", "/w", "", Given{}, "shell")
+	if !slices.Equal(p.argv, []string{"bash", "-l"}) {
+		t.Errorf("argv is %q", p.argv)
+	}
+}
+
+// A shell whose launch has Docker is told, on stderr alone, where its
+// containers' ports are: by its first name, and relayed to localhost too.
+func TestAShellWithDockerIsToldWhereItsPortsAre(t *testing.T) {
+	f := newFixture(t)
+	docker := func(ports string) Given {
+		return Given{Env: []Var{
+			{"DOCKER_HOST", "tcp://docker.frisket.internal:2376"},
+			{"CHASE_DOCKER_ADDRESS", "127.101.170.171"},
+			{"CHASE_DOCKER_NAMES", "shop.internal shop.example.internal"},
+			{"CHASE_DOCKER_PORTS", ports},
+		}}
+	}
+	p, said := f.run(t, "plain", "/w", "", docker("64320 64321"), "shell")
+	if said != "docker: shop.internal → 127.101.170.171, ports 64320 64321; localhost works too\n" {
+		t.Errorf("said %q", said)
+	}
+	if !slices.Contains(p.env, "CHASE_DOCKER_PORTS=64320 64321") {
+		t.Errorf("the environment is %q", p.env)
+	}
+	if _, said = f.run(t, "plain", "/w", "", docker(""), "shell"); said != "docker: shop.internal → 127.101.170.171, no ports\n" {
+		t.Errorf("said %q", said)
+	}
+	given := docker("1")
+	given.Env[2].Value = ""
+	if _, said = f.run(t, "plain", "/w", "", given, "shell"); said != "docker: 127.101.170.171, ports 1; localhost works too\n" {
+		t.Errorf("with no names, said %q", said)
+	}
+	// Only the shell is told.
+	if _, said = f.run(t, "trusted", "/w", "", docker("1"), "claude"); said != "" {
+		t.Errorf("claude said %q", said)
+	}
+}
+
+// A CLOSED LIST: an agent the tier does not run, an agent that is not one,
+// and no agent at all are refused, so no launcher's argument runs anything
+// else on the container's PATH. So is a tier that is not a sandbox's.
+func TestOnlyTheTiersAgentsRun(t *testing.T) {
+	f := newFixture(t)
+	for _, c := range []struct {
+		tier string
+		args []string
+		want string
+	}{
+		{"plain", []string{"claude"}, "unknown agent 'claude': plain runs shell"},
+		{"plain", []string{"codex", "x"}, "unknown agent 'codex': plain runs shell"},
+		{"strict", []string{"sh", "-c", "id"}, "unknown agent 'sh': strict runs claude, codex, shell"},
+		{"strict", []string{"/bin/bash"}, "unknown agent '/bin/bash': strict runs claude, codex, shell"},
+		{"strict", nil, "no agent named: the launcher's first argument is the agent, one of claude, codex, shell"},
+		{"host", []string{"shell"}, "host is not a sandbox tier"},
+	} {
+		if got := f.refused(t, c.tier, "/w", "", Given{}, c.args...); got != c.want {
+			t.Errorf("%s %q: %q, not %q", c.tier, c.args, got, c.want)
+		}
+	}
+}
+
+// CLOUDFLARE: the account id is read on the host at each launch, without the
+// newlines a command substitution took off, and given as a variable. A
+// project's own account, from its envelope, is the session's instead, in
+// the tier's place; what else the envelope gives follows, and its files
+// after the tier's own.
+func TestTheCloudflareAccountIsReadOnTheHostAndAProjectsWins(t *testing.T) {
+	f := newFixture(t)
+	p, _ := f.run(t, "trusted", "/w", "", Given{}, "shell")
+	if !slices.Equal(p.env, []string{"CLOUDFLARE_ACCOUNT_ID=023e105f4ecef8ad9ca31a8372d0c353"}) {
+		t.Errorf("the environment is %q", p.env)
+	}
+	given := Given{
+		Env:   []Var{{"PROBE", "1"}, {"CLOUDFLARE_ACCOUNT_ID", "the project's"}, {"EMPTY", ""}},
+		Files: []File{{Path: f.home + "/.config/chase/key.json", Mode: 0o600, Content: "{}\n"}},
+	}
+	p, _ = f.run(t, "trusted", "/w", "", given, "claude")
+	if !slices.Equal(p.env, []string{"CLOUDFLARE_ACCOUNT_ID=the project's", "PROBE=1", "EMPTY="}) {
+		t.Errorf("the environment is %q", p.env)
+	}
+	if len(p.files) != 2 || p.files[0].Path != f.home+"/.claude/.credentials.json" || p.files[1] != given.Files[0] {
+		t.Errorf("the files are %+v", p.files)
+	}
+
+	// An account the host cannot read is no launch.
+	os.Remove(f.account)
+	if got := f.refused(t, "trusted", "/w", "", Given{}, "shell"); !strings.HasPrefix(got, "the Cloudflare account id: ") {
+		t.Errorf("an unreadable account id: %q", got)
+	}
+}
+
+// WHAT THE CONTAINER SETS IS THE CONTAINER'S. flong refuses an exec that
+// sets a name the container's environment sets, so a variable the launch
+// would set to what the container already has is left to the container,
+// and one it would set to anything else refuses the launch, by name: a
+// project's Cloudflare token placeholder in a tier that has its own, say,
+// and a project that would point the session's CA elsewhere.
+func TestWhatTheContainerSetsIsTheContainers(t *testing.T) {
+	f := newFixture(t)
+	p, _ := f.run(t, "trusted", "/w", "", Given{Env: []Var{{"CLOUDFLARE_API_TOKEN", "proxy-injected"}, {"PROBE", "1"}}}, "shell")
+	if !slices.Equal(p.env, []string{"CLOUDFLARE_ACCOUNT_ID=023e105f4ecef8ad9ca31a8372d0c353", "PROBE=1"}) {
+		t.Errorf("the environment is %q", p.env)
+	}
+	got := f.refused(t, "trusted", "/w", "", Given{Env: []Var{{"SSL_CERT_FILE", "/home/alice/ca.crt"}}}, "shell")
+	if got != `trusted's container sets SSL_CERT_FILE to "/etc/frisket/ca-bundle.crt", and the launch would set it to "/home/alice/ca.crt"` {
+		t.Errorf("a variable the container sets otherwise: %q", got)
+	}
+	// The same name in a tier whose container does not set it is the
+	// launch's to give.
+	p, _ = f.run(t, "plain", "/w", "", Given{Env: []Var{{"SSL_CERT_FILE", "/home/alice/ca.crt"}}}, "shell")
+	if !slices.Equal(p.env, []string{"SSL_CERT_FILE=/home/alice/ca.crt"}) {
+		t.Errorf("the environment is %q", p.env)
+	}
+}
+
+// What flong's protocol cannot carry, or would carry as something else, is
+// refused before anything is printed: a NUL in any field, a name flong would
+// split elsewhere, and a file that is not in the home.
+func TestWhatTheProtocolCannotCarryIsRefused(t *testing.T) {
+	f := newFixture(t)
+	for _, c := range []struct {
+		what  string
+		given Given
+		args  []string
+		want  string
+	}{
+		{"a NUL in an argument", Given{}, []string{"shell", "a\x00b"}, `an argument "a\x00b" has a NUL in it`},
+		{"a NUL in a value", Given{Env: []Var{{"A", "x\x00"}}}, []string{"shell"}, `"A"="x\x00" cannot be a variable of the session's`},
+		{"an = in a name", Given{Env: []Var{{"A=B", "x"}}}, []string{"shell"}, `"A=B"="x" cannot be a variable of the session's`},
+		{"an empty name", Given{Env: []Var{{"", "x"}}}, []string{"shell"}, `""="x" cannot be a variable of the session's`},
+		{"a file outside the home", Given{Files: []File{{Path: "/etc/passwd", Mode: 0o600}}}, []string{"shell"}, `"/etc/passwd" is not a file in ` + f.home},
+		{"the home itself", Given{Files: []File{{Path: f.home, Mode: 0o600}}}, []string{"shell"}, fmt.Sprintf("%q is not a file in %s", f.home, f.home)},
+		{"a way out of the home", Given{Files: []File{{Path: f.home + "/../bob/x", Mode: 0o600}}}, []string{"shell"}, fmt.Sprintf("%q is not a file in %s", f.home+"/../bob/x", f.home)},
+		{"a sibling of the home", Given{Files: []File{{Path: f.home + "2/x", Mode: 0o600}}}, []string{"shell"}, fmt.Sprintf("%q is not a file in %s", f.home+"2/x", f.home)},
+		{"a setuid file", Given{Files: []File{{Path: f.home + "/x", Mode: 0o600 | os.ModeSetuid}}}, []string{"shell"}, f.home + "/x: mode urw------- is not permission bits alone"},
+		{"a NUL in a file", Given{Files: []File{{Path: f.home + "/x", Mode: 0o600, Content: "a\x00"}}}, []string{"shell"}, f.home + "/x has a NUL in it"},
+	} {
+		if got := f.refused(t, "plain", "/w", "", c.given, c.args...); got != c.want {
+			t.Errorf("%s: %q, not %q", c.what, got, c.want)
+		}
+	}
+}
+
+// The payload as flong reads it, byte for byte: every variable, then every
+// word, then every file and its content, each field ended by a NUL, and an
+// empty word or value as its tag alone.
+func TestWriteIsFlongsProtocol(t *testing.T) {
+	var out bytes.Buffer
+	e := Exec{
+		Argv:  []string{"bash", "-l", "", "a b"},
+		Env:   []Var{{"A", "1=2"}, {"B", ""}},
+		Files: []File{{Path: "/h/.x", Mode: 0o600, Content: "line\n"}, {Path: "/h/y", Mode: 0o7, Content: ""}},
+	}
+	if err := e.Write(&out); err != nil {
+		t.Fatal(err)
+	}
+	want := "env:A=1=2\x00env:B=\x00arg:bash\x00arg:-l\x00arg:\x00arg:a b\x00file:0600:/h/.x\x00line\n\x00file:0007:/h/y\x00\x00"
+	if out.String() != want {
+		t.Errorf("wrote %q, not %q", out.String(), want)
+	}
+}

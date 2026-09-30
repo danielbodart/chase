@@ -15,6 +15,8 @@ import (
 	"encoding/json"
 
 	"github.com/danielbodart/frisket/policy"
+
+	"github.com/danielbodart/chase/internal/session"
 )
 
 // Request is what an app is prepared from: which session, where it may keep
@@ -28,9 +30,13 @@ type Request struct {
 	// which no session sees: the app's decrypted secret is at
 	// Run/secrets/<app>, and anything it makes that holds a secret goes here.
 	Run string
-	// EnvDir is the checkout's environment directory, bound read-only into
-	// its sessions, where an app keeps what must outlive one launch.
-	EnvDir string
+	// Dir is the checkout's own directory on the host, bound into no
+	// session, where an app keeps what must outlive one launch. What a
+	// session needs of it is a file of the Patch's, seeded into its home.
+	Dir string
+	// Home is the user's home, which a session has at the same path: where
+	// a Patch's files are seeded, and what its variables name them by.
+	Home string
 	// Project is the Docker project approved for the checkout, from its
 	// origin and never from anything its envelope says; empty if its
 	// envelope binds no Docker.
@@ -39,12 +45,15 @@ type Request struct {
 	Binding json.RawMessage
 }
 
-// Patch is what an app adds to the session's policy document and
-// environment. Its routes replace any of the same name the tier had.
+// Patch is what an app adds to the session's policy document, its
+// environment and its home. Its routes replace any of the same name the tier
+// had.
 type Patch struct {
 	Routes []policy.Route    `json:"routes,omitempty"`
 	Allow  []string          `json:"allow,omitempty"`
 	Env    map[string]string `json:"env,omitempty"`
+	// Files are seeded into the session's home (see session.File).
+	Files []session.File `json:"-"`
 }
 
 // App is an app whose routes are made at launch. An error from Prepare ends

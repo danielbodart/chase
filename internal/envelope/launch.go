@@ -20,124 +20,138 @@ import (
 	"github.com/danielbodart/frisket/policy"
 
 	"github.com/danielbodart/chase/internal/apps"
-	"github.com/danielbodart/chase/internal/files"
 	"github.com/danielbodart/chase/internal/policydoc"
+	"github.com/danielbodart/chase/internal/session"
 	"github.com/danielbodart/chase/internal/term"
 )
 
-// Var is one variable a launch exports into the session's environment.
-type Var struct {
-	Name  string
-	Value string
-}
-
-// Env is the session's environment, as the launch exported it: each
-// variable, in the order the env file has it. A value that was not a string
-// in the envelope is as the shell took it -- a number or a boolean as
-// written, a list as its items separated by spaces.
-type Env []Var
-
-// Launch is postStart: what seccompPolicy staged for this launch, applied.
-// It consumes the stage, so a launch applies one approval once; re-checks
-// that the sops file beside it is the one whose digest was approved;
-// decrypts the secret each bound app names; prepares each bound app, by its
-// code in registry or from its Config.Apps entry; merges each into the
-// tier's policy document, with the project's lists for each app applied
-// last; and writes the document and the environment. Nothing staged, or an
-// approval of the tier as it is, is no document and no environment.
+// Launch is the envelope's half of flong's exec hook, run on the host after
+// seccompPolicy and before the session is built: what seccompPolicy staged
+// for this launch, applied. It consumes the stage, so a launch applies one
+// approval once; re-checks that the sops file beside it is the one whose
+// digest was approved; decrypts the secret each bound app names; prepares
+// each bound app, by its code in registry or from its Config.Apps entry;
+// merges each into the tier's policy document, with the project's lists for
+// each app applied last; and writes the document where frisket reads the
+// session's, <runtime>/chase/<machine>/policy.json. What it returns is the
+// session's own, for the payload's environment and home: each app's
+// variables, in order, and its files.
+//
+// The document is written for every launch, an approval of the tier as it
+// is too, when it is the tier's own: frisket's policyFile names this one
+// path for every session of a tier that takes envelopes, so there is no
+// choosing between two when frisket steers the session, and so nothing to
+// run then.
 //
 // Everything written is the user's alone, decrypted secrets above all: the
-// process's umask is 077 while it runs, as the script's was. Only the env
-// file is 0644, since a session reads it.
-func Launch(ctx context.Context, c Config, registry map[string]apps.App, tier, ws, machine string, stderr io.Writer) (Env, error) {
+// process's umask is 077 while it runs, as the script's was.
+func Launch(ctx context.Context, c Config, registry map[string]apps.App, tier, ws, machine string, stderr io.Writer) (session.Given, error) {
 	old := unix.Umask(0o077)
 	defer unix.Umask(old)
-	envfile := envDir(c, ws) + "/env"
 	stage := staged(c, machine)
 	if !regular(stage) {
-		return nil, refuse("%s: nothing was approved for this launch: the tier's seccompPolicy did not run", ws)
+		return session.Given{}, refuse("%s: nothing was approved for this launch: the tier's seccompPolicy did not run", ws)
 	}
 	b, err := os.ReadFile(stage)
 	if err != nil {
-		return nil, err
+		return session.Given{}, err
 	}
 	if err := os.Remove(stage); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
+		return session.Given{}, err
 	}
-	if strings.TrimRight(string(b), "\n") == "null" {
-		if err := os.Remove(envfile); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, err
+	run := c.runtime() + "/chase/" + machine
+	if err := os.Mkdir(run, 0o700); err != nil {
+		return session.Given{}, err
+	}
+	pb, err := os.ReadFile(c.Policies + "/" + tier + ".json")
+	if err != nil {
+		return session.Given{}, err
+	}
+	var pd policy.Document
+	if err := policy.Decode(pb, &pd); err != nil {
+		return session.Given{}, err
+	}
+	var given session.Given
+	if strings.TrimRight(string(b), "\n") != "null" {
+		if given, err = apply(ctx, c, registry, &pd, b, run, tier, ws, stderr); err != nil {
+			return session.Given{}, err
 		}
-		return nil, nil
 	}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(pd); err != nil {
+		return session.Given{}, err
+	}
+	if err := os.WriteFile(run+"/policy.json", out.Bytes(), 0o666); err != nil {
+		return session.Given{}, err
+	}
+	return given, nil
+}
+
+// apply is the staged approval b, applied to the tier's document pd for the
+// session whose directory is run: its secrets decrypted there, each bound
+// app prepared and merged in, and the project's lists applied last.
+func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *policy.Document, b []byte, run, tier, ws string, stderr io.Writer) (session.Given, error) {
+	var given session.Given
 	doc, err := parseJSON(b)
 	if err != nil {
-		return nil, err
+		return given, err
 	}
 	result, err := doc.index("result")
 	if err != nil {
-		return nil, err
+		return given, err
 	}
 	secrets, err := result.optional("secrets")
 	if err != nil {
-		return nil, err
+		return given, err
 	}
-	run := c.runtime() + "/chase/" + machine
-	for _, d := range []string{run, run + "/secrets"} {
-		if err := os.Mkdir(d, 0o700); err != nil {
-			return nil, err
-		}
+	if err := os.Mkdir(run+"/secrets", 0o700); err != nil {
+		return given, err
 	}
 	file := ""
 	if secrets != "" {
 		dir, err := os.MkdirTemp(run, "sops.")
 		if err != nil {
-			return nil, err
+			return given, err
 		}
 		staged, err := doc.index("secrets")
 		if err != nil {
-			return nil, err
+			return given, err
 		}
 		name, err := staged.optional("name")
 		if err != nil {
-			return nil, err
+			return given, err
 		}
 		text, err := staged.index("text")
 		if err != nil {
-			return nil, err
+			return given, err
 		}
 		file = dir + "/" + name
 		if err := os.WriteFile(file, []byte(text.raw()), 0o666); err != nil {
-			return nil, err
+			return given, err
 		}
 		approved, err := result.optional("secretsSHA256")
 		if err != nil {
-			return nil, err
+			return given, err
 		}
 		d := sha256.Sum256([]byte(text.raw()))
 		if hex.EncodeToString(d[:]) != approved {
-			return nil, refuse("%s: the staged %s is not the one approved", ws, secrets)
+			return given, refuse("%s: the staged %s is not the one approved", ws, secrets)
 		}
 	}
 
-	pb, err := os.ReadFile(c.Policies + "/" + tier + ".json")
-	if err != nil {
-		return nil, err
-	}
-	var pd policy.Document
-	if err := policy.Decode(pb, &pd); err != nil {
-		return nil, err
-	}
 	// The Docker project approve derived and staged, which is what was
 	// approved: read, never derived again here. An app is given it, and the
 	// session is not.
 	project, err := result.optional("dockerProject")
 	if err != nil {
-		return nil, err
+		return given, err
 	}
 	bindings, err := result.index("bindings")
 	if err != nil {
-		return nil, err
+		return given, err
 	}
 	names := slices.Sorted(maps.Keys(c.Apps))
 	for name := range registry {
@@ -146,12 +160,10 @@ func Launch(ctx context.Context, c Config, registry map[string]apps.App, tier, w
 		}
 	}
 	slices.Sort(names)
-	var exports strings.Builder
-	var env Env
 	for _, app := range names {
 		binding, err := bindings.index(app)
 		if err != nil {
-			return nil, err
+			return given, err
 		}
 		if !binding.truthy() {
 			continue
@@ -165,22 +177,22 @@ func Launch(ctx context.Context, c Config, registry map[string]apps.App, tier, w
 		if conf.hasCredential() {
 			cred, err := binding.index("credential")
 			if err != nil {
-				return nil, err
+				return given, err
 			}
 			secret, err := cred.optional("secret")
 			if err != nil {
-				return nil, err
+				return given, err
 			}
 			if secret == "" {
 				continue
 			}
 			if err := decrypt(ctx, c, ws, file, secret, run+"/secrets/"+app, stderr); err != nil {
-				return nil, err
+				return given, err
 			}
 			from = secrets + ":" + secret
 		} else {
 			if !isCode {
-				return nil, refuse("%s: %s has no credential and no prepare", ws, app)
+				return given, refuse("%s: %s has no credential and no prepare", ws, app)
 			}
 			from = "no credential"
 		}
@@ -190,55 +202,34 @@ func Launch(ctx context.Context, c Config, registry map[string]apps.App, tier, w
 		var patch apps.Patch
 		if isCode {
 			patch, err = code.Prepare(ctx, apps.Request{
-				Tier: tier, Workspace: ws, Run: run, EnvDir: envDir(c, ws),
+				Tier: tier, Workspace: ws, Run: run, Dir: checkoutDir(c, ws), Home: c.Home,
 				Project: project, Binding: json.RawMessage(binding.compact()),
 			})
 			if err != nil {
 				// What the app's own prepare said as it died, and then the
 				// launch's own die.
 				term.Say(stderr, "%v", err)
-				return nil, refuse("%s: %s could not be prepared", ws, app)
+				return given, refuse("%s: %s could not be prepared", ws, app)
 			}
 		} else if patch, err = staticPatch(conf, tier, run+"/secrets/"+app); err != nil {
-			return nil, err
+			return given, err
 		}
-		policydoc.Merge(&pd, patch)
-		lines, vars, err := exportsOf(conf, patch, binding)
+		policydoc.Merge(pd, patch)
+		vars, err := exportsOf(conf, patch, binding)
 		if err != nil {
-			return nil, err
+			return given, err
 		}
-		exports.WriteString(lines + "\n")
-		env = append(env, vars...)
+		given.Env = append(given.Env, vars...)
+		given.Files = append(given.Files, patch.Files...)
 		term.Say(stderr, "%s: %s from %s", ws, app, from)
 	}
 	if file != "" {
 		os.RemoveAll(filepath.Dir(file))
 	}
-	if err := applyLists(&pd, bindings, ws, tier, stderr); err != nil {
-		return nil, err
+	if err := applyLists(pd, bindings, ws, tier, stderr); err != nil {
+		return given, err
 	}
-	var out bytes.Buffer
-	enc := json.NewEncoder(&out)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(pd); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(run+"/policy.json", out.Bytes(), 0o666); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(envfile), 0o777); err != nil {
-		return nil, err
-	}
-	// Written beside itself under a name of its own, and renamed over, as
-	// the stage is: the script's fixed env.new was shared by every launch
-	// of the checkout, on any machine, so one launch could truncate what
-	// another was renaming into place, and a session source half an
-	// environment. 0644, whatever the umask: a session reads it.
-	if err := files.WriteAtomic(envfile, []byte(exports.String()), 0o644); err != nil {
-		return nil, err
-	}
-	return env, nil
+	return given, nil
 }
 
 // decrypt is the secret an app binds, decrypted from the staged copy of the
@@ -295,11 +286,12 @@ func staticPatch(a App, tier, cred string) (apps.Patch, error) {
 	return p, nil
 }
 
-// exportsOf is what an app puts in the session's environment, as `export
-// NAME=<@sh>` lines: its own env, then what its patch adds, then each
-// variable it takes from a field of the binding that is there, a later one
-// in place of an earlier of the same name.
-func exportsOf(a App, patch apps.Patch, binding *value) (string, Env, error) {
+// exportsOf is what an app puts in the session's environment: its own env,
+// then what its patch adds, then each variable it takes from a field of the
+// binding that is there, a later one in place of an earlier of the same
+// name. A value that was not a string in the envelope is its JSON: a number
+// or a boolean as written.
+func exportsOf(a App, patch apps.Patch, binding *value) ([]session.Var, error) {
 	merged := jobject()
 	for _, k := range slices.Sorted(maps.Keys(a.Env)) {
 		merged.set(k, jstr(a.Env[k]))
@@ -310,42 +302,24 @@ func exportsOf(a App, patch apps.Patch, binding *value) (string, Env, error) {
 	for _, k := range slices.Sorted(maps.Keys(a.EnvFromBinding)) {
 		v, err := binding.index(a.EnvFromBinding[k])
 		if err != nil {
-			return "", nil, err
+			return nil, err
 		}
 		switch v.kind {
 		case 'n':
 		case '[', '{':
-			// A list would be exported as more than one shell word, the
-			// rest of them names of variables of their own.
-			return "", nil, refuse("%s: %s is not one value, so %s cannot be it", k, a.EnvFromBinding[k], k)
+			// One variable is one value: a list has no one way to be a
+			// string, and the shell that once exported these made the rest
+			// of one names of variables of their own.
+			return nil, refuse("%s: %s is not one value, so %s cannot be it", k, a.EnvFromBinding[k], k)
 		default:
 			merged.set(k, v)
 		}
 	}
-	var lines []string
-	var env Env
+	var env []session.Var
 	for _, k := range merged.keys {
-		v := merged.members[k]
-		quoted, err := sh(v)
-		if err != nil {
-			return "", nil, err
-		}
-		lines = append(lines, "export "+k+"="+quoted)
-		env = append(env, Var{Name: k, Value: shellValue(v)})
+		env = append(env, session.Var{Name: k, Value: merged.members[k].tostring()})
 	}
-	return strings.Join(lines, "\n"), env, nil
-}
-
-// shellValue is what a shell makes a variable of from @sh's text.
-func shellValue(v *value) string {
-	if v.kind != '[' {
-		return v.tostring()
-	}
-	parts := make([]string, len(v.items))
-	for i, x := range v.items {
-		parts[i] = x.tostring()
-	}
-	return strings.Join(parts, " ")
+	return env, nil
 }
 
 // applyLists is what the project names in each app's lists, applied to the

@@ -2,25 +2,29 @@
 #
 # For a tier that takes envelopes, each launch:
 #
-#   binds          makes the checkout's environment directory, bound read-only
 #   seccompPolicy  before the session is built: evaluates the checkout's
 #                  `chaseModules.default` against ./options.nix; asks
 #                  `chase.approver` if the result is not the one last
 #                  approved for this checkout; stages the approved result for
-#                  this launch's postStart, and prints its syscall
-#                  loosenings for flong
-#   postStart      before frisket's steps: decrypts the secrets the staged
-#                  result binds into /run/user/<uid>/chase/<machine>/;
+#                  this launch's exec, and prints its syscall loosenings for
+#                  flong
+#   exec           still before the session is built: decrypts the secrets
+#                  the staged result binds into /run/user/<uid>/chase/<machine>/;
 #                  prepares each bound app; writes the session's policy
-#                  document there, and its environment beside the checkout's
-#   frisket        steers the session under that document, or the tier's own
+#                  document there -- the tier's own, for a checkout with no
+#                  envelope -- and gives what each app exports and seeds to
+#                  the payload it prints (internal/session)
+#   frisket        steers the session under that document
 #   postStop       stops each app; removes
 #                  /run/user/<uid>/chase/<machine>/ and anything staged for it
 #
 # All of it runs as the user who launched: a launcher has no privilege of its
 # own (PLAN.md, decision 2). The approval is split from the rest because a
 # syscall filter is installed before anything in the session runs, so what
-# loosens it has to be known, and approved, before flong starts bwrap.
+# loosens it has to be known, and approved, before flong starts bwrap. The
+# rest is exec's because exec is the one hook whose output is the session's
+# environment: nothing is written for a session to source, and nothing of
+# chase's runs inside one.
 #
 # A checkout with no flake, or a flake with no `chaseModules.default`, is the
 # tier as it is. Anything that goes wrong on the way ends the launch: an
@@ -128,27 +132,20 @@ in
 
     flong = lib.mapAttrs' (name: _: lib.nameValuePair "agent-${name}" {
       # After the guard, before bwrap: the filter is fixed before anything in
-      # the session runs, so this is where the envelope is approved.
+      # the session runs, so this is where the envelope is approved. It is
+      # applied in the tier's exec, module.nix's, which runs next.
       seccompPolicy = [ [ chase "hook" "approve" name ] ];
-      postStart = lib.mkOrder 400 [ [ chase "hook" "launch" name ] ];
       postStop = [ [ chase "hook" "poststop" name ] ];
     }) tiers;
 
+    # The session's own document, which exec writes for every launch, the
+    # tier's own when the checkout has no envelope: one path, so frisket has
+    # nothing to choose, and {machine} is frisket's own to fill in.
     services.frisket.flong = lib.mapAttrs' (name: _: lib.nameValuePair "agent-${name}" {
-      policyFile = "$(${chase} envelope policy ${name} \"$machine\")";
+      policyFile = "/run/user/${toString cfg.uid}/chase/{machine}/policy.json";
     }) tiers;
 
     # Where a session's own document is written, which frisket reads from.
     services.frisket.policyRoots = [ "/run/user/${toString cfg.uid}/chase" ];
-
-    chase.internal.tiers = lib.mapAttrs (name: _: {
-      setupLines = [ ''
-        chase_env=${cfg.home}/.local/state/chase/env/$(printf '%s' "$workspace" | sha256sum | cut -c1-32)/env
-        if [ -r "$chase_env" ]; then
-          # shellcheck disable=SC1090
-          . "$chase_env"
-        fi
-      '' ];
-    }) tiers;
   };
 }

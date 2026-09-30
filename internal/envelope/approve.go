@@ -213,7 +213,7 @@ func Approve(ctx context.Context, c Config, ws, machine, tier string, stderr io.
 		}
 	}
 
-	// What postStart applies is what was approved, with the snapshot's sops
+	// What exec applies is what was approved, with the snapshot's sops
 	// file beside it: not the checkout, which a session may be changing.
 	doc := jobject()
 	doc.set("result", result)

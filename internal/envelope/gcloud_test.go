@@ -116,10 +116,21 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 			t.Errorf("%s is answered %s, not %s", id, got, want)
 		}
 	}
-	env := read(t, h.envfile(ws))
-	made := h.dir + "/state/env/" + key(ws) + "/gcloud-key-"
-	if !strings.HasPrefix(env, "export CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE='"+made) || !strings.Contains(env, "\nexport GOOGLE_APPLICATION_CREDENTIALS='"+made) {
-		t.Errorf("the session's key is not in its environment: %q", env)
+	// The key is kept in the checkout's own directory, and the session is
+	// given a copy in its home, which its environment names.
+	env := h.env()
+	if len(env) != 2 || len(h.given.Files) != 1 {
+		t.Fatalf("the session was not given its key: %q %+v", env, h.given.Files)
+	}
+	seeded := h.given.Files[0]
+	if env[0] != "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE="+seeded.Path || env[1] != "GOOGLE_APPLICATION_CREDENTIALS="+seeded.Path {
+		t.Errorf("the session's environment does not name its key: %q", env)
+	}
+	if !strings.HasPrefix(seeded.Path, h.dir+"/home/.config/chase/gcloud-key-") || seeded.Mode != 0o600 {
+		t.Errorf("the session's key is not the user's own, in its home: %+v", seeded)
+	}
+	if kept := read(t, h.dir+"/state/checkouts/"+key(ws)+"/"+filepath.Base(seeded.Path)); kept != seeded.Content {
+		t.Error("the session's key is not the checkout's")
 	}
 	frisketCheck(t, run+"/policy.json")
 
@@ -137,14 +148,11 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 
 	// LISTS THAT DO NOT APPLY end the launch: a category of an API this
 	// session does not carry -- storage, removed -- is the script's `||
-	// die`, said after why, and nothing of the session is written.
-	if err := os.Remove(h.envfile(ws)); err != nil {
-		t.Fatal(err)
-	}
+	// die`, said after why, and nothing of the session is written or given.
 	h.approved(ws, "m2", "trusted", `{"secrets": "secrets.json", "bindings": {"gcloud": {
 		"serviceAccount": "`+sa+`", "credential": {"secret": "gcloud-key"},
 		"apis": {"remove": ["storage"]}, "allow": ["category:storage"]}}}`)
-	if rc := h.run("launch", "trusted", ws, "m2"); rc != 1 {
+	if rc := h.launch("trusted", ws, "m2"); rc != 1 {
 		t.Fatalf("lists that do not apply were launched: %d %s", rc, h.err)
 	}
 	if want := "chase: gcloud has no category:storage\nchase: " + ws + ": its gcloud lists do not apply\n"; !strings.HasSuffix(h.err, want) {
@@ -153,7 +161,7 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 	if _, err := os.Stat(h.dir + "/run/chase/m2/policy.json"); err == nil {
 		t.Error("a document was written for lists that do not apply")
 	}
-	if _, err := os.Stat(h.envfile(ws)); err == nil {
-		t.Error("an environment was written for lists that do not apply")
+	if len(h.given.Env) != 0 || len(h.given.Files) != 0 {
+		t.Errorf("the session was given %+v for lists that do not apply", h.given)
 	}
 }

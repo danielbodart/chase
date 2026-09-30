@@ -21,6 +21,8 @@ import (
 	"github.com/danielbodart/chase/internal/envelope"
 	"github.com/danielbodart/chase/internal/gitsafe"
 	"github.com/danielbodart/chase/internal/gitsafe/gitsafetest"
+	"github.com/danielbodart/chase/internal/session"
+	"github.com/danielbodart/chase/internal/term"
 )
 
 // CHASE-ENVELOPE AS A TIER RUNS IT, where a test can watch it: the checks'
@@ -151,6 +153,8 @@ type harness struct {
 	registry map[string]apps.App
 	// out and err are what the last call printed.
 	out, err string
+	// given is what the last launch gave the session.
+	given session.Given
 }
 
 func newHarness(t *testing.T) *harness {
@@ -201,17 +205,43 @@ func newHarness(t *testing.T) *harness {
 // root is where the test's checkouts are, every link in its path resolved.
 func (h *harness) root() string { return h.dir + "/root" }
 
-// run is chase-envelope ARGS: its status, with what it printed kept.
+// run is `chase envelope ARGS`: its status, with what it printed kept.
 func (h *harness) run(args ...string) int {
 	h.t.Helper()
 	var out, errb bytes.Buffer
+	rc := envelope.Run(context.Background(), h.cfg, args, strings.NewReader(""), &out, &errb)
+	h.out, h.err = out.String(), errb.String()
+	return rc
+}
+
+// launch is the envelope's half of `chase hook exec TIER` for machine: its
+// status, as the hook's would be, with what it said kept, and what it gave
+// the session kept in h.given.
+func (h *harness) launch(tier, ws, machine string) int {
+	h.t.Helper()
+	var errb bytes.Buffer
 	// The module's apps, saying what they say where this call does, and
 	// the test's own in place of any of the same name.
 	registry := envelope.DefaultApps(h.cfg, &errb)
 	maps.Copy(registry, h.registry)
-	rc := envelope.Run(context.Background(), h.cfg, registry, args, strings.NewReader(""), &out, &errb)
-	h.out, h.err = out.String(), errb.String()
+	given, err := envelope.Launch(context.Background(), h.cfg, registry, tier, ws, machine, &errb)
+	rc := 0
+	if err != nil {
+		term.Say(&errb, "%v", err)
+		rc = 1
+	}
+	h.out, h.err, h.given = "", errb.String(), given
 	return rc
+}
+
+// env is what the last launch gave the session's environment, NAME=VALUE
+// each, in order.
+func (h *harness) env() []string {
+	var out []string
+	for _, v := range h.given.Env {
+		out = append(out, v.Name+"="+v.Value)
+	}
+	return out
 }
 
 // approve is `ENVELOPE=E chase-envelope approve WS MACHINE TIER`.
@@ -231,7 +261,7 @@ func (h *harness) approved(ws, machine, tier, env string) {
 func (h *harness) launched(ws, machine, tier, env string) {
 	h.t.Helper()
 	h.approved(ws, machine, tier, env)
-	if rc := h.run("launch", tier, ws, machine); rc != 0 {
+	if rc := h.launch(tier, ws, machine); rc != 0 {
 		h.t.Fatalf("%s was not launched: %s", machine, h.err)
 	}
 }
@@ -297,8 +327,6 @@ func key(ws string) string {
 	s := sha256.Sum256([]byte(ws))
 	return hex.EncodeToString(s[:])[:32]
 }
-
-func (h *harness) envfile(ws string) string { return h.dir + "/state/env/" + key(ws) + "/env" }
 
 func read(t *testing.T, p string) string {
 	t.Helper()

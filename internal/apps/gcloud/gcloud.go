@@ -23,6 +23,7 @@ import (
 
 	"github.com/danielbodart/chase/internal/apps"
 	renew "github.com/danielbodart/chase/internal/gcloud"
+	"github.com/danielbodart/chase/internal/session"
 	"github.com/danielbodart/chase/internal/term"
 )
 
@@ -179,10 +180,18 @@ func (a *App) Prepare(ctx context.Context, r apps.Request) (apps.Patch, error) {
 	}
 	rules := paths(s, a.Config.Every, carried, floor)
 
-	keyFile, public, err := sessionKey(r.EnvDir, email, project)
+	keyFile, public, err := sessionKey(r.Dir, email, project)
 	if err != nil {
 		return die("the session's key: %v", err)
 	}
+	seed, err := os.ReadFile(keyFile)
+	if err != nil {
+		return die("the session's key: %v", err)
+	}
+	// The session's copy, seeded into its home under the key's own name:
+	// the checkout's directory, where the key is kept, is bound into no
+	// session.
+	seeded := filepath.Join(r.Home, ".config", "chase", filepath.Base(keyFile))
 
 	// A first token before the session starts, and a renewer for as long
 	// as it runs. Google refusing the key ends the launch; Google out of
@@ -233,10 +242,11 @@ func (a *App) Prepare(ctx context.Context, r apps.Request) (apps.Patch, error) {
 		},
 		Allow: []string{"*.googleapis.com"},
 		Env: map[string]string{
-			"GOOGLE_APPLICATION_CREDENTIALS": keyFile,
+			"GOOGLE_APPLICATION_CREDENTIALS": seeded,
 			// gcloud reads only this.
-			"CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE": keyFile,
+			"CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE": seeded,
 		},
+		Files: []session.File{{Path: seeded, Mode: 0o600, Content: string(seed)}},
 	}, nil
 }
 

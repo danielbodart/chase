@@ -108,7 +108,7 @@ func prepare(t *testing.T, c Config, tier, project, binding string) (apps.Patch,
 	var stderr bytes.Buffer
 	a := &App{Config: c, Stderr: &stderr}
 	p, err := a.Prepare(context.Background(), apps.Request{
-		Tier: tier, Workspace: ws, Run: "run", EnvDir: "envdir",
+		Tier: tier, Workspace: ws, Run: "run", Dir: "dir", Home: "/home/user",
 		Project: project, Binding: json.RawMessage(binding),
 	})
 	return p, stderr.String(), err

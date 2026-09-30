@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/danielbodart/chase/internal/apps"
+	"github.com/danielbodart/chase/internal/session"
 )
 
 // Only a session's own name is removed: an empty one would be every
@@ -39,7 +40,7 @@ func TestPostStopRemovesOnlyASessionsOwnDirectory(t *testing.T) {
 }
 
 // A binding's field that is a list or an object cannot be one variable's
-// value: exported, it would be more than one shell word.
+// value: it has no one way to be a string.
 func TestAnEnvFromBindingThatIsNotOneValueIsRefused(t *testing.T) {
 	a := App{EnvFromBinding: map[string]string{"ACCOUNT": "accountId"}}
 	for _, b := range []string{`{"accountId": ["a", "b"]}`, `{"accountId": {"x": 1}}`} {
@@ -47,12 +48,20 @@ func TestAnEnvFromBindingThatIsNotOneValueIsRefused(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := exportsOf(a, apps.Patch{}, v); err == nil {
+		if _, err := exportsOf(a, apps.Patch{}, v); err == nil {
 			t.Errorf("%s was exported", b)
 		}
 	}
-	v, _ := parseJSON([]byte(`{"accountId": "0123"}`))
-	if s, _, err := exportsOf(a, apps.Patch{}, v); err != nil || s != "export ACCOUNT='0123'" {
-		t.Errorf("%q, %v", s, err)
+	// A string is itself, and a number or a boolean its JSON.
+	for b, want := range map[string]string{`{"accountId": "0123"}`: "0123", `{"accountId": 1.50}`: "1.50", `{"accountId": true}`: "true"} {
+		v, _ := parseJSON([]byte(b))
+		if env, err := exportsOf(a, apps.Patch{}, v); err != nil || len(env) != 1 || env[0] != (session.Var{Name: "ACCOUNT", Value: want}) {
+			t.Errorf("%s: %v, %v", b, env, err)
+		}
+	}
+	// null is no variable at all.
+	v, _ := parseJSON([]byte(`{"accountId": null}`))
+	if env, err := exportsOf(a, apps.Patch{}, v); err != nil || len(env) != 0 {
+		t.Errorf("null: %v, %v", env, err)
 	}
 }

@@ -76,10 +76,13 @@ What the module runs, rather than a person:
   chase guard TIER                 flong's guard for a sandbox tier
   chase hook binds TIER            flong's binds: what is bound beside it
   chase hook approve TIER          flong's seccompPolicy: approve the envelope
-  chase hook launch TIER           flong's postStart: apply what was approved
+  chase hook exec TIER AGENT [ARG...]
+                                   flong's exec: apply what was approved, and
+                                   print the payload, its environment and the
+                                   files seeded into its home
   chase hook poststop TIER         flong's postStop: release and remove it
-  chase envelope SUBCOMMAND ...    the envelope's steps one by one, as
-                                   frisket's policy word and a person use them
+  chase envelope approve|project|docker ...
+                                   the envelope's steps, as a person uses them
   chase checkout [--ignoring ROOT] [DIR]
   chase origin DIR
   chase ls-files DIR               a checkout read without running its git
@@ -144,7 +147,7 @@ func main() {
 			err = errors.New("the module configures no tier that takes an envelope")
 			break
 		}
-		exit(envelope.Run(ctx, *cfg.Envelope, nil, args, os.Stdin, os.Stdout, os.Stderr))
+		exit(envelope.Run(ctx, *cfg.Envelope, args, os.Stdin, os.Stdout, os.Stderr))
 	case "docker":
 		exit(runDocker(ctx, cfgPath, args))
 	case "checkout", "origin", "ls-files":
@@ -304,10 +307,11 @@ func wrap(ctx context.Context, cfgPath, agent string, args []string) int {
 // runHook is one of flong's hooks for a sandbox tier. flong runs each as a
 // command, never through a shell, with $workspace, $binds and (from
 // seccompPolicy on) $machine in its environment, and the launcher's own
-// arguments after the hook's, which are not the hook's to read.
+// arguments after the hook's, which are exec's alone to read: the agent,
+// and its arguments.
 func runHook(ctx context.Context, cfgPath string, args []string) int {
 	if len(args) < 2 {
-		fmt.Fprint(os.Stderr, "usage: chase hook binds|approve|launch|poststop TIER\n")
+		fmt.Fprint(os.Stderr, "usage: chase hook binds|approve|exec|poststop TIER\n")
 		return 2
 	}
 	hook, tier := args[0], args[1]
@@ -324,12 +328,10 @@ func runHook(ctx context.Context, cfgPath string, args []string) int {
 			term.Say(os.Stderr, "%s: %v", ws, err)
 			return 1
 		}
-		if takes {
-			// The checkout's environment directory, read-only.
-			return envelope.RunEnvDir(ctx, *cfg.Envelope, []string{ws}, os.Stdin, os.Stdout, os.Stderr)
-		}
 		return 0
-	case "approve", "launch", "poststop":
+	case "exec":
+		return runExec(ctx, cfg, tier, ws, machine, takes, args[2:])
+	case "approve", "poststop":
 		if !takes {
 			fmt.Fprintf(os.Stderr, "chase hook %s: %s takes no envelope\n", hook, tier)
 			return 1
@@ -342,11 +344,39 @@ func runHook(ctx context.Context, cfgPath string, args []string) int {
 	switch hook {
 	case "approve":
 		return envelope.RunApprove(ctx, e, []string{ws, machine, tier}, os.Stdin, os.Stdout, os.Stderr)
-	case "launch":
-		return envelope.RunLaunch(ctx, e, envelope.DefaultApps(e, os.Stderr), []string{tier, ws, machine}, os.Stdin, os.Stdout, os.Stderr)
 	default:
 		return envelope.RunPostStop(ctx, e, nil, []string{machine}, os.Stdin, os.Stdout, os.Stderr)
 	}
+}
+
+// runExec is flong's exec for a sandbox tier: the payload, printed as flong
+// reads it, for the launcher's arguments args. For a tier that takes
+// envelopes, what seccompPolicy approved is applied first, here, before the
+// session is built -- its secrets decrypted, its apps prepared, the
+// session's policy document written for frisket -- and what it exports is
+// the payload's, with nothing written for a session to source. Anything
+// that goes wrong ends the launch, flong's postStop releasing what was
+// made; stdout is the payload's alone, and everything said goes to stderr.
+func runExec(ctx context.Context, cfg config.Config, tier, ws, machine string, takes bool, args []string) int {
+	var given session.Given
+	if takes {
+		e := *cfg.Envelope
+		var err error
+		if given, err = envelope.Launch(ctx, e, envelope.DefaultApps(e, os.Stderr), tier, ws, machine, os.Stderr); err != nil {
+			term.Say(os.Stderr, "%v", err)
+			return 1
+		}
+	}
+	p, err := session.Payload(cfg.Session, tier, ws, os.Getenv("binds"), args, given, os.Stderr)
+	if err != nil {
+		term.Say(os.Stderr, "%s: %v", ws, err)
+		return 1
+	}
+	if err := p.Write(os.Stdout); err != nil {
+		term.Say(os.Stderr, "%s: %v", ws, err)
+		return 1
+	}
+	return 0
 }
 
 // runDocker is `chase docker [DIR]`: where the checkout's containers are

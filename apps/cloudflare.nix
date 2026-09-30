@@ -45,12 +45,6 @@ let
       };
     };
   };
-
-  # The account's id, copied where a session can read it. Not a credential --
-  # it names the account, it does not open it -- but it is kept beside the
-  # token, and a file there cannot be bound into a container: flong binds
-  # directories. So each launch copies it into a directory of its own.
-  stateDir = "${cfg.home}/.local/state/agents/cloudflare";
 in
 {
   options.chase.bindings.cloudflare = {
@@ -116,19 +110,13 @@ in
       };
     })) cfg.tiers;
 
-    # The account id, copied on the host into a directory of the tier's,
-    # bound read-only (internal/session); read in the session.
-    chase.internal.config.session.tiers = lib.mapAttrs (name: _: {
-      cloudflare = { dir = "${stateDir}/${name}"; accountIdFile = bindings.accountIdFile; };
+    # The account id, read on the host at each launch and given to the
+    # session as CLOUDFLARE_ACCOUNT_ID (internal/session). Not a credential
+    # -- it names the account, it does not open it -- but it is kept beside
+    # the token, so the file itself is never bound in.
+    chase.internal.config.session.tiers = lib.mapAttrs (_: _: {
+      cloudflare.accountIdFile = bindings.accountIdFile;
     }) (lib.filterAttrs (_: t: !t.bare && t.apps.cloudflare.enable && bindings.accountIdFile != null) cfg.tiers);
-
-    chase.internal.tiers = lib.mapAttrs (name: tier: mkIf (tier.apps.cloudflare.enable && bindings.accountIdFile != null) {
-      # In the session, from the directory bound in read-only.
-      setupLines = [ ''
-        CLOUDFLARE_ACCOUNT_ID=$(< ${lib.escapeShellArg "${stateDir}/${name}/account-id"})
-        export CLOUDFLARE_ACCOUNT_ID
-      '' ];
-    }) cfg.tiers;
 
     # A route of the tier's own only with a token of the tier's own: without
     # one, api.cloudflare.com is intercepted only in a session whose project

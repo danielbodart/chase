@@ -69,7 +69,7 @@
         # policy document's types, so chase builds what frisket reads with
         # frisket's own code. The frisket-pin check holds go.mod's frisket to
         # the one flake.lock pins.
-        vendorHash = "sha256-dGdszz303JcidzwThyehlQrSy4NAjO6yB+AEVdSR9Ik=";
+        vendorHash = "sha256-3V6+tyYBTAbphAoqGVA07mHIbhDzBTJcfSYwDxEJTlQ=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -179,8 +179,22 @@
               fail() { echo "module-config: $*" >&2; exit 1; }
               chase -config ${file} tier --dry-run / > out || fail "the tier could not be decided: $(cat out)"
               grep -q ' strict ' out || fail "/ is not the fallback's: $(cat out)"
-              [ "$(chase -config ${file} envelope policy trusted m1)" = /etc/frisket/policies/trusted.json ] \
-                || fail "the envelope's policy is not the tier's"
+              # The payload strict's exec prints, from the session section the
+              # apps wrote: Claude Code with the tier's settings and the one
+              # writable bind, an isolated codex's home, and the placeholder
+              # login and trust seeded into the home.
+              workspace=/w binds=$'/p:rw\n/q:ro' chase -config ${file} hook exec strict claude -p hi > payload \
+                || fail "strict's exec printed no payload"
+              tr '\0' '\n' < payload > fields
+              settings=$(jq -r .session.tiers.strict.claude.settings ${file})
+              [[ $settings == /nix/store/*-claude-strict-settings.json ]] || fail "strict's settings are $settings"
+              want=$(printf 'arg:%s\n' claude --settings "$settings" --allow-dangerously-skip-permissions --add-dir /p -p hi)
+              [ "$(grep '^arg:' fields)" = "$want" ] || fail "strict runs $(grep '^arg:' fields)"
+              grep -qx 'env:CODEX_HOME=/home/alice/.local/state/agents/codex/-w' fields || fail "strict's codex has no home: $(cat fields)"
+              grep -qx 'file:0600:/home/alice/.claude/.credentials.json' fields || fail "strict's Claude Code has no login"
+              grep -qx 'file:0600:/home/alice/.claude.json' fields || fail "strict's Claude Code does not trust its workspace"
+              # A closed list: nothing else on the container's PATH runs.
+              ! workspace=/w chase -config ${file} hook exec strict sh -c id > /dev/null 2>&1 || fail "strict ran sh"
               for section in selector session envelope wrappers claude codex; do
                 jq -e --arg s "$section" 'has($s)' ${file} >/dev/null || fail "no $section section"
               done
@@ -380,7 +394,7 @@
                 };
                 failed = map (a: a.message) (lib.filter (a: ! a.assertion) config.assertions);
               in
-              failed == [ ] && lib.hasInfix "-config /nix/store/" config.systemd.services.frisket.serviceConfig.ExecStart
+              failed == [ ] && lib.hasInfix ''"-config" "/nix/store/'' config.systemd.services.frisket.serviceConfig.ExecStart
                 || throw "assertions: a bound cloudflare did not hold together: ${builtins.toJSON failed}");
             # Hugging Face as github is: a tier with a credential it was not
             # given is refused ...

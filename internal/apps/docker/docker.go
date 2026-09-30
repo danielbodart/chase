@@ -8,7 +8,7 @@
 // It was chase-docker-prepare, a script apps/docker.nix built, run by the
 // launch as `prepare TIER WORKSPACE RUN ENVDIR` with the binding on stdin and
 // the project in chase_project. It is the same judgement here, called in the
-// launch's own process (PLAN.md, decision 2). Run and EnvDir are not needed:
+// launch's own process (PLAN.md, decision 2). Run and Dir are not needed:
 // Docker has no secret, and nothing of the checkout's to keep.
 package docker
 

@@ -310,28 +310,12 @@ func TestWhatApproveNeedsFirst(t *testing.T) {
 	if rc := h.run("approve", ws, "m1", "trusted"); rc != 1 || h.err != "chase: "+h.dir+"/nowhere does not exist: log in first\n" {
 		t.Errorf("no runtime directory: %d %q", rc, h.err)
 	}
-	if rc := h.run("bogus"); rc != 1 || !strings.HasPrefix(h.err, "chase: usage: chase-envelope env-dir WS | approve WS MACHINE TIER") {
-		t.Errorf("an unknown subcommand: %d %q", rc, h.err)
-	}
-}
-
-// env-dir makes and prints the checkout's environment directory; policy is
-// the session's own document once its launch wrote one, and the tier's
-// before.
-func TestEnvDirAndPolicyArePaths(t *testing.T) {
-	h, _, ws := newProjectLaunch(t)
-	if h.run("env-dir", ws) != 0 || h.out != h.dir+"/state/env/"+key(ws)+"\n" {
-		t.Errorf("env-dir printed %q: %s", h.out, h.err)
-	}
-	if fi, err := os.Stat(h.dir + "/state/env/" + key(ws)); err != nil || !fi.IsDir() {
-		t.Error("env-dir did not make the directory")
-	}
-	if h.run("policy", "trusted", "m1") != 0 || h.out != h.dir+"/policies/trusted.json\n" {
-		t.Errorf("policy before a launch printed %q", h.out)
-	}
-	h.launched(ws, "m1", "trusted", `{"bindings": {"probe": {"x": 1}}}`)
-	if h.run("policy", "trusted", "m1") != 0 || h.out != h.dir+"/run/chase/m1/policy.json\n" {
-		t.Errorf("policy after a launch printed %q", h.out)
+	// The launch, and the steps that went with the env file and frisket's
+	// policy word, are no subcommands.
+	for _, gone := range []string{"bogus", "launch", "env-dir", "policy"} {
+		if rc := h.run(gone); rc != 1 || h.err != "chase: usage: chase envelope approve WS MACHINE TIER | project WS TIER | docker WS TIER\n" {
+			t.Errorf("%s: %d %q", gone, rc, h.err)
+		}
 	}
 }
 

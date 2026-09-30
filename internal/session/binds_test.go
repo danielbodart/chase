@@ -43,7 +43,7 @@ func TestAGroupsOtherMembersAreBoundReadWrite(t *testing.T) {
 // Code keeps them, made if missing.
 func TestAnIsolatedClaudeBindsItsTranscripts(t *testing.T) {
 	home := t.TempDir()
-	c := Config{Home: home, Tiers: map[string]Tier{"strict": {Claude: "isolated"}}}
+	c := Config{Home: home, Tiers: map[string]Tier{"strict": {Claude: &Claude{State: "isolated"}}}}
 	got := binds(t, c, "strict", "/home/alice/Projects/shop.v2")
 	want := filepath.Join(home, ".claude", "projects", "-home-alice-Projects-shop-v2")
 	if len(got) != 1 || got[0] != want+":rw" {
@@ -60,7 +60,7 @@ func TestAnIsolatedClaudeBindsItsTranscripts(t *testing.T) {
 func TestASharedClaudeHasItsSourcesMade(t *testing.T) {
 	home := t.TempDir()
 	run := t.TempDir()
-	c := Config{Home: home, Runtime: run, Tiers: map[string]Tier{"trusted": {Claude: "shared"}}}
+	c := Config{Home: home, Runtime: run, Tiers: map[string]Tier{"trusted": {Claude: &Claude{State: "shared"}}}}
 	os.MkdirAll(filepath.Join(home, ".claude"), 0o700)
 	os.WriteFile(filepath.Join(home, ".claude", "history.jsonl"), []byte("kept\n"), 0o600)
 	if got := binds(t, c, "trusted", "/w"); len(got) != 0 {
@@ -120,20 +120,18 @@ func TestAnIsolatedCodexHomeGetsThePlaceholderAfresh(t *testing.T) {
 	}
 }
 
-// A tier's Cloudflare account id is copied into its directory, bound
-// read-only.
-func TestCloudflaresAccountIDIsCopiedAndBoundReadOnly(t *testing.T) {
+// A tier's Cloudflare account binds nothing: its id is read on the host
+// and given to the session as a variable (Payload).
+func TestCloudflaresAccountBindsNothing(t *testing.T) {
 	root := t.TempDir()
 	id := filepath.Join(root, "id")
-	os.WriteFile(id, []byte("0123abc\n"), 0o644)
-	dir := filepath.Join(root, "cloudflare", "trusted")
-	c := Config{Home: root, Tiers: map[string]Tier{"trusted": {Cloudflare: &Cloudflare{Dir: dir, AccountIDFile: id}}}}
-	if got := binds(t, c, "trusted", "/w"); len(got) != 1 || got[0] != dir {
+	os.WriteFile(id, []byte("0123abc\n"), 0o600)
+	c := Config{Home: root, Tiers: map[string]Tier{"trusted": {Cloudflare: &Cloudflare{AccountIDFile: id}}}}
+	if got := binds(t, c, "trusted", "/w"); len(got) != 0 {
 		t.Fatalf("got %q", got)
 	}
-	fi, _ := os.Stat(filepath.Join(dir, "account-id"))
-	if b, _ := os.ReadFile(filepath.Join(dir, "account-id")); string(b) != "0123abc\n" || fi.Mode().Perm() != 0o600 {
-		t.Errorf("account-id %q at %v", b, fi.Mode())
+	if left, _ := os.ReadDir(root); len(left) != 1 {
+		t.Errorf("binds made %v", left)
 	}
 }
 

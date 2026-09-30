@@ -31,23 +31,12 @@ let
     paths = [{ methods = every; prefix = "/"; refuse = true; }];
   };
 
-  connectorScopes = [ "user:file_upload" "user:inference" "user:mcp_servers" "user:profile" "user:sessions:claude_code" ];
-  inferenceScopes = [ "user:inference" ];
-  # Shaped like the real login, since Claude Code decides what to offer from
-  # it. Never expires, so the container never tries to refresh it.
-  claudePlaceholder = scopes: builtins.toJSON {
-    claudeAiOauth = {
-      accessToken = cfg.placeholder;
-      refreshToken = cfg.placeholder;
-      expiresAt = 4102444800000; # 2100-01-01
-      refreshTokenExpiresAt = 4102444800000;
-      inherit scopes;
-      subscriptionType = "max";
-    };
-  };
-
+  # The plugins the host's Claude Code enables, for a tier to turn some off.
+  # None, for a user whose home-manager configuration names none: each tier's
+  # settings are written into chase's configuration, which every system
+  # builds, so an absent list must not fail it.
   hostEnabledPlugins = builtins.attrNames
-    config.home-manager.users.${cfg.user}.programs.claude-code.settings.enabledPlugins;
+    (config.home-manager.users.${cfg.user}.programs.claude-code.settings.enabledPlugins or { });
 
   # --settings outranks user and project settings. Claude Code's own sandbox
   # is off: bwrap cannot nest in the container, which is the boundary anyway.
@@ -128,9 +117,18 @@ in
     chase.internal.config = {
       # Made on the host before each launch (internal/session): an isolated
       # tier's transcripts for the workspace, and a shared tier's bound
-      # sources, which flong refuses a session over if one is missing.
-      session.tiers = lib.mapAttrs (_: tier: { claude = tier.apps.claude.state; })
-        (lib.filterAttrs (_: t: !t.bare && t.apps.claude.state != null) cfg.tiers);
+      # sources, which flong refuses a session over if one is missing. And
+      # the session's payload: Claude Code with the tier's settings, and its
+      # placeholder login, seeded into the session's home rather than bound,
+      # since Claude Code replaces the file by rename -- shaped like the real
+      # one, since Claude Code decides what to offer from its scopes, and
+      # never expiring, so a session never tries to refresh it.
+      session.tiers = lib.mapAttrs (name: tier: {
+        claude = {
+          inherit (tier.apps.claude) state connectors;
+          settings = "${tierSettings name tier}";
+        };
+      }) (lib.filterAttrs (_: t: !t.bare && t.apps.claude.state != null) cfg.tiers);
       wrappers.claude.hostCommand = [ "${base}/bin/claude" "--allow-dangerously-skip-permissions" ];
       claude = {
         credentials = "${claudeDir}/.credentials.json";
@@ -215,31 +213,6 @@ in
         } // lib.optionalAttrs tier.apps.claude.connectors {
           claude-connectors = claudeRoute "mcp-proxy.anthropic.com";
         };
-      }) cfg.tiers;
-
-    chase.internal.tiers = lib.mapAttrs (name: tier:
-      mkIf (tier.apps.claude.state != null) {
-        # Written, not bound: Claude Code replaces the file by rename.
-        setupLines = [
-          ''
-            (umask 077; printf '%s' ${lib.escapeShellArg (claudePlaceholder (
-              if tier.apps.claude.connectors then connectorScopes else inferenceScopes
-            ))} \
-              > ${claudeDir}/.credentials.json)
-          ''
-        ] ++ lib.optional (tier.apps.claude.state == "isolated") ''
-          jq -n --arg ws "$workspace" \
-            '{hasCompletedOnboarding: true, projects: {($ws): {hasTrustDialogAccepted: true}}}' \
-            > ${cfg.home}/.claude.json
-        '';
-        launchers.claude = ''
-          claude)
-            set -- claude \
-              --settings ${tierSettings name tier} \
-              --allow-dangerously-skip-permissions \
-              ''${add_dirs[@]+--add-dir "''${add_dirs[@]}"} "$@"
-            ;;
-        '';
       }) cfg.tiers;
   };
 }

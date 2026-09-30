@@ -82,8 +82,12 @@ The design, what was decided and what was turned down, is in [PLAN.md](PLAN.md).
 directory you are standing in and either run bare or launch the matching
 container. `chase shell` does the same with a login shell instead of an
 agent: the session exactly as an agent would get it, credentials as
-placeholders and all. `agent-tier --dry-run DIR...` explains a sorting without
-running anything:
+placeholders and all. Nothing of chase's runs inside a session: the agent's
+argument list, what it adds to the container's environment and the files
+seeded into its home — Claude Code's placeholder login among them — are
+worked out on the host by flong's `exec` hook, `chase hook exec`, and flong
+runs the agent with nothing between. `agent-tier --dry-run DIR...` explains a
+sorting without running anything:
 
 ```
 DIRECTORY                  TIER      REASON

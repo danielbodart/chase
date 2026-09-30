@@ -61,7 +61,7 @@ is a *mechanism* the two must agree on — an ordering contract — and chase is
 **2. A launcher has exactly the caller's privilege; the approver is the
 gate.** flong's sessions are rootless: no sudo, no setuid, no root anywhere.
 Every step of a launch — `workspace`, `binds`, `guard`, `seccompPolicy`,
-`postStart`, `postStop` — runs as the user who started it, and the launcher
+`exec`, `postStop` — runs as the user who started it, and the launcher
 itself is only a way of doing what that user could already do by hand. So
 there is no privilege for a project to reach by building a launcher of its
 own, and nothing to protect by pinning one's store path: a launcher a project
@@ -265,10 +265,14 @@ of the checkout's tracked files and approves in two stages:
 Both stages run before the session is built, in flong's `seccompPolicy`,
 because what the chase section says includes the syscalls a project wants
 beyond its tier's filter, and a filter is installed before anything in the
-session runs. The approved result is staged for `postStart` under the
-session's name, which flong gives both, so two launches of one checkout keep
-their approvals apart; `postStart` applies the rest — secrets, the policy
-document, the environment — without looking at the checkout again. For a
+session runs. The approved result is staged for `exec` under the session's
+name, which flong gives both, so two launches of one checkout keep their
+approvals apart; `exec`, still before the session is built, applies the rest
+— secrets, the policy document — without looking at the checkout again, and
+hands what the envelope exports and seeds straight to the payload it prints,
+so nothing is written for a session to source. The policy document is written
+for every launch, the tier's own for a checkout with no envelope, so frisket
+reads one path for every session of the tier. For a
 checkout whose envelope binds Docker, the approved result also carries
 `dockerProject`, the `owner/repo` chase read from the checkout's origin
 rather than anything the envelope says, so a changed origin is a diff someone

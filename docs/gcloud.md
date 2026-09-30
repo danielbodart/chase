@@ -73,8 +73,9 @@ answers; chase's `gcloud` app says where. With the app enabled for a session
 it:
 
 - writes the fake key file, once for the checkout and the service account,
-  beside its environment in `~/.local/state/chase/env/<checkout>/`, which the
-  session has read-only: an
+  in the checkout's own `~/.local/state/chase/checkouts/<checkout>/`, which no
+  session sees, and seeds a copy of it into the session's home at
+  `~/.config/chase/`, the user's alone (flong's `exec`): an
   RSA-2048 key of its own, a random `private_key_id`, and `client_email` and
   `project_id` from the real key, which must name the binding's
   `serviceAccount`. Its public half goes in the session's policy, inline, with
@@ -141,7 +142,8 @@ frisket never refreshes (frisket decision 10). A user unit per session,
 `chase-gcloud-renew@<machine>`, reading the key from
 `/run/user/<uid>/chase/<machine>/secrets/gcloud` and writing
 `gcloud-token.json` beside it. The launch mints the first token itself, in
-postStart, and starts the unit after it; postStop stops it before the
+exec, before the session is built, and starts the unit after it; postStop
+stops it before the
 directory goes. A refusal from Google, or a key for another account, ends the
 launch; Google out of reach only warns, and the unit keeps trying. Both
 hooks reach the user's manager with `systemctl --user` once `XDG_RUNTIME_DIR`
