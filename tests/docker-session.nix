@@ -192,6 +192,10 @@ in
           return machine.succeed(f"runuser -u alice -- env DOCKER_HOST=unix:///run/user/1000/docker.sock docker {args}")
 
       def frisket_lines(msg):
+          # Synced first: journald writes what it was sent when it gets to
+          # it, and a line the last command caused, not yet written, would
+          # otherwise be counted as the next command's.
+          machine.succeed("journalctl --sync")
           out = machine.succeed("journalctl -u frisket.service -o cat --no-pager")
           lines = []
           for l in out.splitlines():
@@ -394,6 +398,13 @@ in
               rc, out = session(cmd)
               assert rc != 0, (what, out)
               assert "frisket: refused" in out, (what, out)
+              # Its own refusal is waited for, not assumed written: frisket
+              # logs a request as it ends, which can be after the client has
+              # its answer, and a line still to come would be the next
+              # case's.
+              def logged(_):
+                  return any(m.get("operation") in ops for m in requests()[before:] if not flow_line(m))
+              retry(logged, timeout=timedelta(seconds=30))
               new = requests()[before:]
               refused = [m for m in new if not flow_line(m)]
               assert refused, (what, new)
