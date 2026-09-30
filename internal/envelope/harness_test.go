@@ -244,7 +244,7 @@ func (h *harness) env() []string {
 	return out
 }
 
-// approve is `ENVELOPE=E chase-envelope approve WS MACHINE TIER`.
+// approve is `ENVELOPE=E chase envelope approve WS MACHINE TIER`.
 func (h *harness) approve(ws, machine, tier, env string) int {
 	h.t.Helper()
 	h.t.Setenv("ENVELOPE", env)

@@ -98,7 +98,7 @@ func TestWhereAProjectsDockerIsIsSaid(t *testing.T) {
 	if h.out != "" {
 		t.Errorf("a checkout with no origin printed: %q", h.out)
 	}
-	if rc := h.run("docker", ws); rc != 1 || h.err != "chase: usage: chase-envelope docker WS TIER\n" {
+	if rc := h.run("docker", ws); rc != 1 || h.err != "chase: usage: chase envelope docker WS TIER\n" {
 		t.Errorf("docker with one argument: %d %q", rc, h.err)
 	}
 }

@@ -110,7 +110,7 @@ func TestWhatNamesNoProjectIsRefused(t *testing.T) {
 	}
 	os.MkdirAll(r+"/w/plain", 0o755)
 	h.refusedAs(r+"/w/plain", "not a git repository")
-	if rc := h.run("project", r+"/w/plain"); rc != 1 || h.err != "chase: usage: chase-envelope project WS TIER\n" {
+	if rc := h.run("project", r+"/w/plain"); rc != 1 || h.err != "chase: usage: chase envelope project WS TIER\n" {
 		t.Errorf("project with one argument: %d %q", rc, h.err)
 	}
 }
