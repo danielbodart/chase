@@ -7,27 +7,52 @@ on:
   workflow_dispatch:
 
 jobs:
+  # What `nix flake check` checks, split across runners. On one runner the two
+  # VM tests, the tests under the race detector and the plain tests shared its
+  # four CPUs and took the check to nine minutes; each is minutes on its own,
+  # so each is a job of its own, and `rest` is everything else. `rest` builds
+  # every check the others do not name, so a check added to the flake is built
+  # without being added here.
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [docker-session, gcloud-session, race, test, rest]
     steps:
       - uses: actions/checkout@v7
 
+      # install-nix-action gives the runner's /dev/kvm to the build user, so
+      # the VM tests run under KVM rather than emulated.
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
             system-features = nixos-test benchmark big-parallel kvm
 
+      # The danielbodart cache, shared with flong and frisket: each job pulls
+      # what another job or an earlier run built -- frisket, the binary, the
+      # VMs' closures -- and pushes what it builds. A pull request from a fork
+      # has no token and only pulls.
+      - uses: cachix/cachix-action@v17
+        with:
+          name: danielbodart
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      # No binary cache. The free tier of the Magic Nix Cache was shut down in
-      # February 2025, when GitHub retired the cache API it was built on, and
-      # it now answers 400. Nothing replaces it here because the whole check is
-      # under two minutes; FlakeHub Cache or Cachix are the options if it grows.
-      #
-      # KVM is not available on the standard runner either, so the VM test
-      # falls back to software emulation. Slower, but it does run.
-      - name: nix flake check
-        run: nix flake check --print-build-logs
+      - name: nix build .#checks.x86_64-linux.${{ matrix.check }}
+        if: matrix.check != 'rest'
+        run: nix build --print-build-logs --no-link '.#checks.x86_64-linux.${{ matrix.check }}'
+
+      # Every output evaluated as `nix flake check` evaluates them, then every
+      # check the other jobs do not build, and chase-generate, so the release
+      # below pulls it from the cache rather than compiling it.
+      - name: nix flake check --no-build, and the other checks
+        if: matrix.check == 'rest'
+        run: |
+          nix flake check --no-build
+          nix eval --json '.#checks.x86_64-linux' --apply 'cs: builtins.attrNames (removeAttrs cs [ "docker-session" "gcloud-session" "race" "test" ])' \
+            | jq -r '.[] | ".#checks.x86_64-linux." + .' \
+            | xargs nix build --print-build-logs --no-link .#chase-generate
 
   # CONTINUOUS RELEASE. Trunk-based: every push to trunk that passes the check
   # above is published, with no manual step and no tag to cut by hand. Gated on
@@ -57,6 +82,12 @@ jobs:
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
+
+      # chase-generate as `rest` built and pushed it.
+      - uses: cachix/cachix-action@v17
+        with:
+          name: danielbodart
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       # Notes from the COMMITS since the last release. Trunk-based means direct
       # pushes and no pull requests, so GitHub's PR-based --generate-notes

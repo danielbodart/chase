@@ -77,11 +77,15 @@
 
         ldflags = [ "-s" "-w" "-X" "main.version=${version}" ];
 
-        # buildGoModule runs `go test ./...` here, so the unit tests gate the
-        # build itself: real git for the checkouts they build, protoc for the
-        # gcloud generator's fixtures, and frisket's `check` for the documents
-        # chase writes, required rather than skipped.
-        doCheck = true;
+        # The unit tests are checks.test rather than this build's checkPhase:
+        # every VM test and every check that runs the binary waits on this
+        # derivation, and buildGoModule's checkPhase tests one package after
+        # another. What they need stays here for the checks that turn them
+        # on: real git for the checkouts they build, protoc for the gcloud
+        # generator's fixtures, and frisket's `check` for the documents chase
+        # writes, required rather than skipped. With doCheck off, none of it
+        # is an input of the binary.
+        doCheck = false;
         nativeCheckInputs = [ pkgs.git pkgs.protobuf frisket.packages.${pkgs.stdenv.hostPlatform.system}.default ];
         env.CHASE_REQUIRE_FRISKET = "1";
 
@@ -160,10 +164,38 @@
                 }
               ];
             }).config;
+
+          # A Go command run as a check, inside the package's build where the
+          # module's dependencies already are. It builds no binary -- the
+          # command compiles what it needs, and a test's compile, without
+          # -trimpath, would not reuse the binary's anyway -- and it takes the
+          # package's goModules rather than downloading its own under its own
+          # name.
+          goCheck = pname: env: command:
+            let chase = self.packages.${system}.chase; in
+            chase.overrideAttrs (old: {
+              inherit pname;
+              inherit (chase) goModules;
+              env = (old.env or { }) // env;
+              dontBuild = true;
+              doCheck = true;
+              checkPhase = ''
+                runHook preCheck
+                export GOFLAGS=''${GOFLAGS//-trimpath/}
+                ${command}
+                runHook postCheck
+              '';
+              installPhase = "touch $out";
+              dontFixup = true;
+            });
         in
         {
-          # The binary's build, which is also its unit tests.
+          # The binary's build.
           inherit (self.packages.${system}) chase;
+
+          # The unit tests, every package at once as `go test ./...` runs
+          # them.
+          test = goCheck "chase-test" { } "go test ./...";
 
           # THE MODULE AND THE BINARY AGREE: the configuration the module
           # writes for the example tiers is one the binary loads, strictly,
@@ -222,26 +254,11 @@
 
           # go vet from inside the package's own build, where the module's
           # dependencies already are.
-          govet = self.packages.${system}.chase.overrideAttrs (_: {
-            pname = "chase-vet";
-            checkPhase = ''
-              runHook preCheck
-              go vet ./...
-              runHook postCheck
-            '';
-          });
+          govet = goCheck "chase-vet" { } "go vet ./...";
 
           # The tests again, under the race detector, which needs cgo; the
           # package is still built static and never ships this.
-          race = self.packages.${system}.chase.overrideAttrs (old: {
-            pname = "chase-race";
-            env = (old.env or { }) // { CGO_ENABLED = 1; };
-            checkPhase = ''
-              runHook preCheck
-              go test -race ./...
-              runHook postCheck
-            '';
-          });
+          race = goCheck "chase-race" { CGO_ENABLED = 1; } "go test -race ./...";
 
           # ONE FRISKET. The module and the checks take frisket from
           # flake.lock, and the binary compiles frisket's public packages from
