@@ -277,7 +277,10 @@ in
 
       with subtest("Compose brings the database up, and runs pg_isready and psql in it as shop's scripts do"):
           session_ok("docker compose up -d", timeout=300)
-          session_ok("for i in $(seq 120); do docker compose exec -T db pg_isready -U data_lab && exit 0; sleep 1; done; exit 1", timeout=300)
+          # Over TCP, not the socket: the image's first start runs a server on
+          # its socket alone, stops it and starts the real one, and a psql in
+          # between finds no socket at all. Only the real one listens on TCP.
+          session_ok("for i in $(seq 120); do docker compose exec -T db pg_isready -h 127.0.0.1 -U data_lab && exit 0; sleep 1; done; exit 1", timeout=300)
           out = session_ok("printf '%s\\n' 'CREATE TABLE seen (what text);' \"INSERT INTO seen VALUES ('through frisket');\" 'SELECT what FROM seen;' "
                            "| docker compose exec -T db psql -v ON_ERROR_STOP=1 -U data_lab -d data_lab")
           assert "through frisket" in out, out
