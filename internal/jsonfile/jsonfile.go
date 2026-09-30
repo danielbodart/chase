@@ -1,7 +1,8 @@
 // Package jsonfile reads and writes the JSON files chase edits but does not
-// own -- Claude Code's ~/.claude.json and .credentials.json, Codex's
-// auth.json -- with encoding/json, and holds only the few things the
-// standard library does not already do the way those edits need.
+// own -- Claude Code's ~/.claude.json and Codex's auth.json -- with
+// encoding/json, and holds only the few things the standard library does not
+// already do the way those edits need. (Claude Code's .credentials.json is
+// only read through it, for its expiresAt; claude does its own refresh.)
 //
 // A document is decoded whole into generic values (map[string]any, []any,
 // string, bool, nil and json.Number) rather than into a struct, so a member

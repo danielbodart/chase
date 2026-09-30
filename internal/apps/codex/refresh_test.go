@@ -719,3 +719,57 @@ func TestWhatItSaysHasNoControlBytes(t *testing.T) {
 		t.Errorf("said %q", errb.String())
 	}
 }
+
+// The refusal's error is its member named exactly `error`. encoding/json
+// would match a struct field to `ERROR` or `Error` as well, and let the last
+// of them win, so a differently cased key would put the refresher into
+// waiting for a new login, or hide an invalid_grant that is there.
+func TestErrorIsReadByItsExactName(t *testing.T) {
+	for body, want := range map[string]bool{
+		`{"error":"invalid_grant"}`:                   true,
+		`{"error":"invalid_grant","Error":"x"}`:       true,
+		`{"error":"invalid_grant","ERROR":"x"}`:       true,
+		`{"Error":"x","error":"invalid_grant"}`:       true,
+		`{"ERROR":"invalid_grant"}`:                   false,
+		`{"Error":"invalid_grant"}`:                   false,
+		`{"error":"x","Error":"invalid_grant"}`:       false,
+		`{"error":"invalid_grant"} {}`:                false,
+		`["invalid_grant"]`:                           false,
+		`{"error":"invalid_grant","description":"s"}`: true,
+	} {
+		if got := errorIs([]byte(body), invalidGrant); got != want {
+			t.Errorf("%s: %v", body, got)
+		}
+	}
+}
+
+// An auth.json that cannot take the new tokens, read again after the
+// exchange, is named as the fault, not the answer: the refresh token is spent
+// by then, and a log that blamed the endpoint would point the wrong way.
+func TestAnAuthThatWentBadDuringTheExchangeIsNamed(t *testing.T) {
+	for name, content := range map[string]string{
+		"not JSON":          `{`,
+		"an array":          `[]`,
+		"tokens not object": `{"tokens":[]}`,
+	} {
+		ts, srv := newTokenServer(t, "r0")
+		r, errb, c := newRefresher(t, srv.URL)
+		writeAuth(t, c, due("r0"))
+		ts.answer = func(w http.ResponseWriter, _ *http.Request, _ string) bool {
+			os.WriteFile(c.Auth, []byte(content), 0o600)
+			fmt.Fprint(w, `{"access_token":"a1","refresh_token":"r1"}`)
+			return true
+		}
+		if d, err := r.step(context.Background()); d != time.Minute || err != nil {
+			t.Errorf("%s: slept %v, %v", name, d, err)
+		}
+		if b, _ := os.ReadFile(c.Auth); string(b) != content {
+			t.Errorf("%s: auth.json became %s", name, b)
+		}
+		said := errb.String()
+		if !strings.HasPrefix(said, "codex-refresh: the new tokens could not be put in "+c.Auth+" (") ||
+			!strings.HasSuffix(said, "); trying again in a minute\n") {
+			t.Errorf("%s: said %q", name, said)
+		}
+	}
+}

@@ -164,9 +164,20 @@ func (r *refresher) step(ctx context.Context) (time.Duration, error) {
 	// moved the next pass was due at once -- an endpoint answering 200 {}
 	// was sent exchange after exchange with no sleep between. So nothing is
 	// written, and it is tried again in a minute.
+	//
+	// Only an answer at fault is said to be: when it is auth.json, read
+	// again here, that cannot take the tokens -- it went bad, was replaced
+	// or could not be read since the refresh token was taken from it --
+	// the refresh token is already spent and the new tokens are lost with
+	// it, and a log blaming the endpoint would send whoever reads it the
+	// wrong way. So that says auth.json, and why.
 	merged, err := merge(r.cfg.Auth, body, r.now())
-	if err != nil {
+	if errors.Is(err, errNoAccessToken) {
 		r.say("the response held no tokens; trying again in a minute")
+		return retry, nil
+	}
+	if err != nil {
+		r.say("the new tokens could not be put in %s (%v); trying again in a minute", r.cfg.Auth, err)
 		return retry, nil
 	}
 	if err := files.WriteInPlace(r.cfg.Auth, merged, 0o600); err != nil {
@@ -286,11 +297,14 @@ func (r *refresher) exchange(ctx context.Context, refreshToken string) (int, []b
 
 // errorIs is whether body is a JSON object whose error is code, as an OAuth
 // token endpoint says why it refused: `{"error": "invalid_grant", ...}`.
+// The member is looked up by its exact name, in a generic object, and not
+// through a struct field: encoding/json matches a field's name without
+// regard to case and lets the last of the matching keys win, so `ERROR`
+// would count and a later `Error` would hide the real `error`.
 func errorIs(body []byte, code string) bool {
-	var answer struct {
-		Error any `json:"error"`
-	}
-	return json.Unmarshal(body, &answer) == nil && answer.Error == code
+	v, err := jsonfile.Decode(body)
+	obj, ok := v.(map[string]any)
+	return err == nil && ok && obj["error"] == code
 }
 
 // exchangeBody is the request: codex's client id, the grant, and the token.
@@ -315,18 +329,14 @@ var errNotAuth = errors.New("auth.json or its tokens is not an object")
 // place of the old and last_refresh made now; a token the response lacks is
 // kept, but for the access token, which it must hold, as a string. Every
 // other member, codex's own, is written back as it was read.
+//
+// The answer is judged first, and any fault of its own -- not JSON, not an
+// object, no access token -- is errNoAccessToken; every other error is
+// auth.json's.
 func merge(path string, body []byte, now time.Time) ([]byte, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	v, err := jsonfile.Decode(b)
-	if err != nil {
-		return nil, err
-	}
 	a, err := jsonfile.Decode(body)
 	if err != nil {
-		return nil, err
+		return nil, errNoAccessToken
 	}
 	resp, ok := a.(map[string]any)
 	if !ok {
@@ -334,6 +344,14 @@ func merge(path string, body []byte, now time.Time) ([]byte, error) {
 	}
 	if _, ok := resp["access_token"].(string); !ok {
 		return nil, errNoAccessToken
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	v, err := jsonfile.Decode(b)
+	if err != nil {
+		return nil, err
 	}
 	doc, ok := jsonfile.Object(v)
 	if !ok {
