@@ -125,8 +125,10 @@ func placeholderLogin(scopes string) string {
 		`"refreshTokenExpiresAt":4102444800000,"scopes":` + scopes + `,"subscriptionType":"max"}}`
 }
 
-// CLAUDE CODE: the tier's settings, its prompts skippable, one --add-dir for
-// every read-write bind but ~/.claude's, and the launcher's arguments after.
+// CLAUDE CODE: an --add-dir for every read-write bind but ~/.claude's, the
+// tier's settings, its prompts skippable, and the launcher's arguments
+// after, so that a positional prompt among them is never taken by --add-dir,
+// which is variadic, as one more directory.
 // It is given the placeholder login, with the scopes the tier's connectors
 // need, the user's alone, and nothing else.
 func TestClaudeIsRunWithTheTiersSettingsAndItsWritableBinds(t *testing.T) {
@@ -139,11 +141,17 @@ func TestClaudeIsRunWithTheTiersSettingsAndItsWritableBinds(t *testing.T) {
 		"/home/alice/Projects/web:rw",
 	}, "\n")
 	p, said := f.run(t, "trusted", "/w/shop", binds, Given{}, "claude", "--resume", "a b")
-	want := []string{"claude", "--settings", "/nix/store/0000-claude-trusted-settings.json", "--allow-dangerously-skip-permissions",
-		"--add-dir", "/home/alice/Projects/api", f.home + "/.local/state/agents/codex/-w-shop", "/home/alice/Projects/web",
-		"--resume", "a b"}
+	settings := []string{"--settings", "/nix/store/0000-claude-trusted-settings.json", "--allow-dangerously-skip-permissions"}
+	dirs := []string{"--add-dir", "/home/alice/Projects/api", "--add-dir", f.home + "/.local/state/agents/codex/-w-shop", "--add-dir", "/home/alice/Projects/web"}
+	want := slices.Concat([]string{"claude"}, dirs, settings, []string{"--resume", "a b"})
 	if !slices.Equal(p.argv, want) {
 		t.Errorf("argv is %q, not %q", p.argv, want)
+	}
+	// A positional prompt comes after an option that ends --add-dir's
+	// list, never straight after a directory.
+	p, _ = f.run(t, "trusted", "/w/shop", binds, Given{}, "claude", "fix the tests")
+	if want := slices.Concat([]string{"claude"}, dirs, settings, []string{"fix the tests"}); !slices.Equal(p.argv, want) {
+		t.Errorf("argv with a prompt is %q, not %q", p.argv, want)
 	}
 	if said != "" {
 		t.Errorf("claude said %q", said)
@@ -155,11 +163,11 @@ func TestClaudeIsRunWithTheTiersSettingsAndItsWritableBinds(t *testing.T) {
 
 	// No writable bind, no --add-dir at all.
 	p, _ = f.run(t, "trusted", "/w/shop", "/home/alice/Projects/docs:ro", Given{}, "claude")
-	if !slices.Equal(p.argv, want[:4]) {
+	if want := slices.Concat([]string{"claude"}, settings); !slices.Equal(p.argv, want) {
 		t.Errorf("argv with no writable bind is %q", p.argv)
 	}
 	p, _ = f.run(t, "trusted", "/w/shop", "", Given{}, "claude")
-	if !slices.Equal(p.argv, want[:4]) {
+	if want := slices.Concat([]string{"claude"}, settings); !slices.Equal(p.argv, want) {
 		t.Errorf("argv with no binds is %q", p.argv)
 	}
 }
@@ -279,6 +287,19 @@ func TestOnlyTheTiersAgentsRun(t *testing.T) {
 		if got := f.refused(t, c.tier, "/w", "", Given{}, c.args...); got != c.want {
 			t.Errorf("%s %q: %q, not %q", c.tier, c.args, got, c.want)
 		}
+		// Agent, which the hook asks before anything else, refuses it in
+		// the same words.
+		if err := Agent(f.c, c.tier, c.args); err == nil || err.Error() != c.want {
+			t.Errorf("Agent(%s, %q): %v, not %q", c.tier, c.args, err, c.want)
+		}
+	}
+	for _, c := range []struct {
+		tier string
+		args []string
+	}{{"plain", []string{"shell"}}, {"strict", []string{"claude", "x"}}, {"strict", []string{"codex"}}, {"trusted", []string{"shell", "-c", "id"}}} {
+		if err := Agent(f.c, c.tier, c.args); err != nil {
+			t.Errorf("Agent(%s, %q): %v", c.tier, c.args, err)
+		}
 	}
 }
 
@@ -327,6 +348,20 @@ func TestWhatTheContainerSetsIsTheContainers(t *testing.T) {
 	got := f.refused(t, "trusted", "/w", "", Given{Env: []Var{{"SSL_CERT_FILE", "/home/alice/ca.crt"}}}, "shell")
 	if got != `trusted's container sets SSL_CERT_FILE to "/etc/frisket/ca-bundle.crt", and the launch would set it to "/home/alice/ca.crt"` {
 		t.Errorf("a variable the container sets otherwise: %q", got)
+	}
+	// A value flong fills in at launch is never the launch's own text.
+	f.c.Tiers["trusted"].Environment["XDG_DATA_DIRS"] = "${HOME}/.nix-profile/share:/run/current-system/sw/share"
+	got = f.refused(t, "trusted", "/w", "", Given{Env: []Var{{"XDG_DATA_DIRS", "/home/alice/.nix-profile/share:/run/current-system/sw/share"}}}, "shell")
+	if !strings.HasPrefix(got, "trusted's container sets XDG_DATA_DIRS to ") {
+		t.Errorf("a variable the container sets with a reference: %q", got)
+	}
+	// What flong sets for every session is no launch's to set, whatever
+	// the container says.
+	for _, name := range []string{"HOME", "PATH", "PWD", "TERM", "TINI_SUBREAPER"} {
+		got := f.refused(t, "plain", "/w", "", Given{Env: []Var{{name, "x"}}}, "shell")
+		if got != "the launch would set "+name+", which flong sets for every session itself" {
+			t.Errorf("%s: %q", name, got)
+		}
 	}
 	// The same name in a tier whose container does not set it is the
 	// launch's to give.

@@ -398,16 +398,28 @@ in
 
     # What each sandbox tier's sessions are given on the host before they
     # start (internal/session): its binds, and its payload, which flong's
-    # exec prints, the apps adding what they run and seed. The container's
-    # environment is what flong computes the payload's from, as its
-    # environment.variables are evaluated here: flong refuses an exec that
-    # sets any name of it, so exec is told them, to say which of its own the
-    # container already has, rather than have flong refuse the launch.
+    # exec prints, the apps adding what they run and seed.
+    #
+    # The container's environment is flong's own, read from the declaration
+    # it renders: what the container's /etc/set-environment would set, one
+    # final value per name -- environment.variables, profileRelativeEnvVars
+    # spread over the profiles and joined with ':', extraInit's exports,
+    # __NIXOS_SET_ENVIRONMENT_DONE, a reference to the launch's own HOME
+    # kept as `''${HOME}` -- worked out by flong's module.nix at evaluation
+    # (its environmentOf) and handed to its tests as the file's
+    # passthru.declaration. flong refuses an exec that sets any name of it,
+    # so exec is told exactly those, to say by name which of its own the
+    # container already has rather than have flong refuse the launch. Not
+    # environment.variables, which is only the first of them: a name set
+    # through a profile or extraInit would go unjudged, and a value with a
+    # `$HOME` in it would be compared as the text Nix holds rather than the
+    # one flong gives.
     chase.internal.config.session = {
       inherit (cfg) home workspaceGroups placeholder;
       runtime = "/run/user/${toString cfg.uid}";
       tiers = lib.mapAttrs (name: _: {
-        environment = config.containers."agent-${name}".config.environment.variables;
+        environment = lib.listToAttrs
+          config.environment.etc."flong/agent-${name}.zon".source.declaration.environment;
       }) sandboxes;
     };
 

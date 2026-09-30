@@ -80,7 +80,10 @@ it:
   `project_id` from the real key, which must name the binding's
   `serviceAccount`. Its public half goes in the session's policy, inline, with
   the service account as issuer. One file per account and project, so a
-  launch with another leaves a running session's key alone;
+  launch with another leaves a running session's key alone. The keys an
+  earlier chase kept in `~/.local/state/chase/env/<checkout>/`, which its
+  sessions had read-only, are removed at the next launch, with the rest of
+  that directory;
 
 - sets `GOOGLE_APPLICATION_CREDENTIALS` to it, and
   `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` too, since gcloud reads only that.

@@ -188,11 +188,16 @@
               tr '\0' '\n' < payload > fields
               settings=$(jq -r .session.tiers.strict.claude.settings ${file})
               [[ $settings == /nix/store/*-claude-strict-settings.json ]] || fail "strict's settings are $settings"
-              want=$(printf 'arg:%s\n' claude --settings "$settings" --allow-dangerously-skip-permissions --add-dir /p -p hi)
+              want=$(printf 'arg:%s\n' claude --add-dir /p --settings "$settings" --allow-dangerously-skip-permissions -p hi)
               [ "$(grep '^arg:' fields)" = "$want" ] || fail "strict runs $(grep '^arg:' fields)"
               grep -qx 'env:CODEX_HOME=/home/alice/.local/state/agents/codex/-w' fields || fail "strict's codex has no home: $(cat fields)"
               grep -qx 'file:0600:/home/alice/.claude/.credentials.json' fields || fail "strict's Claude Code has no login"
               grep -qx 'file:0600:/home/alice/.claude.json' fields || fail "strict's Claude Code does not trust its workspace"
+              # The container's environment is flong's computation of it, a
+              # profile's variables and the launch's own references among
+              # it, not environment.variables alone.
+              jq -e '.session.tiers.strict.environment.XDG_DATA_DIRS | contains("''${HOME}/.nix-profile/share")' ${file} > /dev/null \
+                || fail "strict's environment is not flong's: $(jq -c .session.tiers.strict.environment ${file})"
               # A closed list: nothing else on the container's PATH runs.
               ! workspace=/w chase -config ${file} hook exec strict sh -c id > /dev/null 2>&1 || fail "strict ran sh"
               for section in selector session envelope wrappers claude codex; do

@@ -349,34 +349,15 @@ func runHook(ctx context.Context, cfgPath string, args []string) int {
 	}
 }
 
-// runExec is flong's exec for a sandbox tier: the payload, printed as flong
-// reads it, for the launcher's arguments args. For a tier that takes
-// envelopes, what seccompPolicy approved is applied first, here, before the
-// session is built -- its secrets decrypted, its apps prepared, the
-// session's policy document written for frisket -- and what it exports is
-// the payload's, with nothing written for a session to source. Anything
-// that goes wrong ends the launch, flong's postStop releasing what was
-// made; stdout is the payload's alone, and everything said goes to stderr.
+// runExec is flong's exec for a sandbox tier (envelope.Exec): the
+// payload, printed as flong reads it, for the launcher's arguments args,
+// the approved envelope applied first for a tier that takes one.
 func runExec(ctx context.Context, cfg config.Config, tier, ws, machine string, takes bool, args []string) int {
-	var given session.Given
+	var e *envelope.Config
 	if takes {
-		e := *cfg.Envelope
-		var err error
-		if given, err = envelope.Launch(ctx, e, envelope.DefaultApps(e, os.Stderr), tier, ws, machine, os.Stderr); err != nil {
-			term.Say(os.Stderr, "%v", err)
-			return 1
-		}
+		e = cfg.Envelope
 	}
-	p, err := session.Payload(cfg.Session, tier, ws, os.Getenv("binds"), args, given, os.Stderr)
-	if err != nil {
-		term.Say(os.Stderr, "%s: %v", ws, err)
-		return 1
-	}
-	if err := p.Write(os.Stdout); err != nil {
-		term.Say(os.Stderr, "%s: %v", ws, err)
-		return 1
-	}
-	return 0
+	return envelope.Exec(ctx, cfg.Session, e, nil, tier, ws, machine, os.Getenv("binds"), args, os.Stdout, os.Stderr)
 }
 
 // runDocker is `chase docker [DIR]`: where the checkout's containers are

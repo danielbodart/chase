@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/danielbodart/chase/internal/term"
@@ -57,6 +58,13 @@ var (
 	inferenceScopes = []string{"user:inference"}
 )
 
+// launchEnv is flong's own for every session, whatever its container says
+// (flong's src/spec.zig, fixed_env), and TINI_* besides, which tini, the
+// session's init, reads (its init_prefix): names an exec may not set at
+// all. Held here only to refuse one in chase's words; were flong to add a
+// name, a launch setting it would still be refused, in flong's.
+var launchEnv = []string{"PATH", "HOME", "USER", "LOGNAME", "SHELL", "XDG_RUNTIME_DIR", "TMPDIR", "FLONG_BINDS", "container", "TERM", "COLORTERM", "PWD"}
+
 // never is 2100-01-01, in milliseconds, as the placeholder login's expiry:
 // it never expires, so a session never tries to refresh it, and frisket,
 // which holds the real one, never refreshes anything a session holds.
@@ -87,22 +95,23 @@ const never = 4102444800000
 // tier and the launch add: an isolated codex's CODEX_HOME, the Cloudflare
 // account, and the envelope's exports, which win over the tier's of the
 // same name, a project's own account over the tier's. flong refuses an exec
-// that sets a name the container's environment already sets, and so a
-// variable the container sets to the same value is left to the container,
-// and one it sets to another value refuses the launch here, naming it:
-// nothing is overridden silently.
+// that sets a name the container's environment already sets, or one the
+// launch sets itself, and so a variable the container sets to the same
+// value is left to the container, and one it sets to another value, or one
+// of the launch's own, refuses the launch here, naming it: nothing is
+// overridden silently. The container's is Tier.Environment, flong's own
+// computation of it; a value of it that refers to the launch's HOME or USER,
+// `${HOME}/x`, is never the same as the one the launch would give, and so
+// refuses the launch too.
 //
 // Its files are Claude Code's placeholder login, an isolated tier's
 // ~/.claude.json, which trusts the workspace and skips onboarding, and the
 // envelope's.
 func Payload(c Config, tier, workspace, binds string, args []string, given Given, stderr io.Writer) (Exec, error) {
-	t, ok := c.Tiers[tier]
-	if !ok {
-		return Exec{}, fmt.Errorf("%s is not a sandbox tier", tier)
+	if err := Agent(c, tier, args); err != nil {
+		return Exec{}, err
 	}
-	if len(args) == 0 {
-		return Exec{}, fmt.Errorf("no agent named: the launcher's first argument is the agent, one of %s", strings.Join(agents(t), ", "))
-	}
+	t := c.Tiers[tier]
 	agent, rest := args[0], args[1:]
 
 	var e Exec
@@ -134,6 +143,8 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 	for _, v := range e.Env {
 		theirs, sets := t.Environment[v.Name]
 		switch {
+		case slices.Contains(launchEnv, v.Name) || strings.HasPrefix(v.Name, "TINI_"):
+			return Exec{}, fmt.Errorf("the launch would set %s, which flong sets for every session itself", v.Name)
 		case !sets:
 			env = append(env, v)
 		case theirs != v.Value:
@@ -153,11 +164,18 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 
 	switch {
 	case agent == "claude" && t.Claude != nil:
-		e.Argv = []string{"claude", "--settings", t.Claude.Settings, "--allow-dangerously-skip-permissions"}
-		// One --add-dir, which takes every directory after it.
-		if len(dirs) > 0 {
-			e.Argv = append(append(e.Argv, "--add-dir"), dirs...)
+		// --add-dir first, one for each directory, and never last: Claude
+		// Code's --add-dir is variadic, taking every word after it up to
+		// the next option, so with the directories last a launcher's
+		// positional prompt -- `claude "fix the tests"` -- would be taken
+		// as one more directory to add, as the script's launcher took it.
+		// --settings after them ends the list whatever the launcher's
+		// arguments are.
+		e.Argv = []string{"claude"}
+		for _, d := range dirs {
+			e.Argv = append(e.Argv, "--add-dir", d)
 		}
+		e.Argv = append(e.Argv, "--settings", t.Claude.Settings, "--allow-dangerously-skip-permissions")
 	case agent == "codex" && t.Codex != nil:
 		// ignore_default_excludes is codex's own default, set here because
 		// the session depends on it: the excludes it would otherwise apply
@@ -210,6 +228,28 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 		return Exec{}, err
 	}
 	return e, nil
+}
+
+// Agent refuses a launch whose launcher's arguments args name no agent
+// tier runs, or whose tier is not a sandbox's, as Payload does: the same
+// words, from the same closed list. It is Payload's first step, and is
+// taken on its own before anything else the exec hook does, so a launch
+// that was always going to be refused is refused before an envelope is
+// applied -- before its stage is consumed, a secret decrypted, a token
+// minted from Google with the real key or a unit started for it -- and not
+// after, with flong's postStop left to undo it all.
+func Agent(c Config, tier string, args []string) error {
+	t, ok := c.Tiers[tier]
+	if !ok {
+		return fmt.Errorf("%s is not a sandbox tier", tier)
+	}
+	if len(args) == 0 {
+		return fmt.Errorf("no agent named: the launcher's first argument is the agent, one of %s", strings.Join(agents(t), ", "))
+	}
+	if !slices.Contains(agents(t), args[0]) {
+		return fmt.Errorf("unknown agent '%s': %s runs %s", args[0], tier, strings.Join(agents(t), ", "))
+	}
+	return nil
 }
 
 // agents is the agents tier runs, as a person would name them.

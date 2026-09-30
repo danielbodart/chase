@@ -47,10 +47,11 @@ type Tier struct {
 	// one.
 	Cloudflare *Cloudflare `json:"cloudflare,omitempty"`
 	// Environment is what the tier's container sets in every session's
-	// environment, its environment.variables as the module evaluated them.
-	// flong computes the payload's environment from the same options and
-	// refuses a launch whose exec sets any name it already sets, so
-	// Payload is told them, to judge what it would add first (see
+	// environment, as flong's module computed it from the container's
+	// options and wrote it into the declaration: what /etc/set-environment
+	// would set, one final value per name, `${HOME}` for a reference to
+	// the launch's own. flong refuses a launch whose exec sets any name of
+	// it, so Payload is told them, to judge what it would add first (see
 	// Payload).
 	Environment map[string]string `json:"environment,omitempty"`
 }
