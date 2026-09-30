@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/danielbodart/chase/internal/apps/claude/jsondoc"
+	"github.com/danielbodart/chase/internal/jsonfile"
 	"github.com/danielbodart/chase/internal/term"
 )
 
@@ -134,19 +135,20 @@ func expiresAt(path string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	doc, err := jsondoc.Parse(b)
+	doc, err := jsonfile.Decode(b)
 	if err != nil {
 		return "", false
 	}
-	oauth, err := doc.Field("claudeAiOauth")
-	if err != nil {
+	root, ok := jsonfile.Object(doc)
+	if !ok {
 		return "", false
 	}
-	v, err := oauth.Field("expiresAt")
-	if err != nil || v.Kind != jsondoc.Number {
+	oauth, ok := jsonfile.Object(root["claudeAiOauth"])
+	if !ok {
 		return "", false
 	}
-	return v.Num, true
+	n, ok := oauth["expiresAt"].(json.Number)
+	return string(n), ok
 }
 
 // runClaude runs claude with nothing in and nothing out, and its status as

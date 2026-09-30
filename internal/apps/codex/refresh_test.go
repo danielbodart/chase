@@ -208,17 +208,20 @@ func TestExchangesTheRefreshTokenADayBefore(t *testing.T) {
 		t.Errorf("said %q", errb.String())
 	}
 
-	// The request, byte for byte as jq and curl made it.
-	want := request{
-		method: "POST", path: "/", contentType: "application/json", accept: "*/*",
-		body: "{\n  \"client_id\": \"app_EMoamEEZ73f0CkXaXp7hrann\",\n  \"grant_type\": \"refresh_token\",\n  \"refresh_token\": \"r0\"\n}",
+	// The request: a JSON POST of codex's client id, the grant and the token.
+	want := request{method: "POST", path: "/", contentType: "application/json", accept: "*/*"}
+	if len(ts.requests) != 1 {
+		t.Fatalf("sent %+v", ts.requests)
 	}
-	if len(ts.requests) != 1 || ts.requests[0] != want {
-		t.Errorf("sent %+v", ts.requests)
+	got := ts.requests[0]
+	body := got.body
+	got.body = ""
+	if got != want || !sameJSON(t, body, `{"client_id":"app_EMoamEEZ73f0CkXaXp7hrann","grant_type":"refresh_token","refresh_token":"r0"}`) {
+		t.Errorf("sent %+v, %s", got, body)
 	}
 
-	// Only what came back replaced, in place, everything else kept where it
-	// was, and last_refresh made now, to the second.
+	// Only what came back replaced, in place, everything else kept, and
+	// last_refresh made now, to the second.
 	after, _ := os.Stat(c.Auth)
 	if !os.SameFile(before, after) || after.Mode().Perm() != 0o600 {
 		t.Errorf("replaced, or mode %v", after.Mode())
@@ -238,7 +241,7 @@ func TestExchangesTheRefreshTokenADayBefore(t *testing.T) {
   }
 }
 `
-	if string(b) != wantAuth {
+	if !sameJSON(t, string(b), wantAuth) {
 		t.Errorf("auth.json is\n%s", b)
 	}
 
@@ -524,7 +527,8 @@ func TestAnAnswerWithNoAccessTokenLeavesTheLogin(t *testing.T) {
 	}
 }
 
-// Where tokens are missing, jq made them, in order, after what was there.
+// Where tokens are missing they are made, id_token null when the response
+// held none either, as the script made them.
 func TestTokensMissingAreMade(t *testing.T) {
 	ts, srv := newTokenServer(t, "r0")
 	ts.answer = func(w http.ResponseWriter, _ *http.Request, _ string) bool {
@@ -544,7 +548,7 @@ func TestTokensMissingAreMade(t *testing.T) {
   "last_refresh": "2027-01-02T03:04:05Z"
 }
 `
-	if string(b) != want {
+	if !sameJSON(t, string(b), want) {
 		t.Errorf("auth.json is\n%s", b)
 	}
 }
@@ -570,7 +574,7 @@ func TestNoRefreshTokenTriesAgainInAMinute(t *testing.T) {
 	}
 }
 
-// `jq -r` gave whatever was there as text.
+// A refresh token that is not a string is sent as its JSON's text.
 func TestARefreshTokenThatIsNotAStringIsSentAsText(t *testing.T) {
 	ts, srv := newTokenServer(t, "123")
 	r, _, c := newRefresher(t, srv.URL)
@@ -578,16 +582,41 @@ func TestARefreshTokenThatIsNotAStringIsSentAsText(t *testing.T) {
 	if d, _ := r.step(context.Background()); d != 0 {
 		t.Errorf("slept %v", d)
 	}
-	if len(ts.requests) != 1 || !strings.Contains(ts.requests[0].body, `"refresh_token": "123"`) {
+	if len(ts.requests) != 1 || !strings.Contains(ts.requests[0].body, `"refresh_token":"123"`) {
 		t.Errorf("sent %v", ts.requests)
 	}
 }
 
-func TestExchangeBodyEscapesAsJqDid(t *testing.T) {
-	got := string(exchangeBody("a\"b\\c\u0001é"))
-	want := "{\n  \"client_id\": \"app_EMoamEEZ73f0CkXaXp7hrann\",\n  \"grant_type\": \"refresh_token\",\n  \"refresh_token\": \"a\\\"b\\\\c\\u0001é\"\n}"
-	if got != want {
-		t.Errorf("%q", got)
+// Whatever the token holds, the endpoint reads back the token it was.
+func TestExchangeBodyCarriesTheTokenAsItIs(t *testing.T) {
+	rt := "a\"b\\c\u0001é<&>"
+	var got struct {
+		ClientID     string `json:"client_id"`
+		GrantType    string `json:"grant_type"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.Unmarshal(exchangeBody(rt), &got); err != nil || got.ClientID != ClientID || got.GrantType != "refresh_token" || got.RefreshToken != rt {
+		t.Errorf("%+v, %v", got, err)
+	}
+}
+
+// codex's own auth.json holds more than the tokens, and whatever this does
+// not know -- members at any depth, and numbers as written, none of them a
+// float on the way through -- is in the file after a refresh.
+func TestARefreshKeepsWhatItDoesNotKnow(t *testing.T) {
+	_, srv := newTokenServer(t, "r0")
+	r, _, c := newRefresher(t, srv.URL)
+	writeAuth(t, c, `{"tokens":{"access_token":"`+jwt(`{"exp":1}`)+`","refresh_token":"r0","account_id":"acct-1","extra":[1.50]},`+
+		`"n":12345678901234567890123,"e":1e400,"deep":{"a":[null,{"b":"<&>"}]}}`)
+	if d, err := r.step(context.Background()); err != nil || d != 0 {
+		t.Fatalf("slept %v, %v", d, err)
+	}
+	b, _ := os.ReadFile(c.Auth)
+	want := `{"tokens":{"access_token":"` + jwt(fmt.Sprintf(`{"exp":%d}`, epoch.Unix()+10*86400)) + `","refresh_token":"refresh-1",` +
+		`"id_token":"bmV3.Y2xhaW1zLSVk.c2ln","account_id":"acct-1","extra":[1.50]},` +
+		`"n":12345678901234567890123,"e":1e400,"deep":{"a":[null,{"b":"<&>"}]},"last_refresh":"2027-01-02T03:04:05Z"}`
+	if !sameJSON(t, string(b), want) {
+		t.Errorf("auth.json is\n%s", b)
 	}
 }
 
@@ -690,6 +719,3 @@ func TestWhatItSaysHasNoControlBytes(t *testing.T) {
 		t.Errorf("said %q", errb.String())
 	}
 }
-
-// The merge is byte for byte the jq program's, refusals included, with its
-// clock fixed where it read `now`.

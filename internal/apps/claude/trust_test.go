@@ -4,30 +4,27 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/danielbodart/chase/internal/jsonfile"
 )
 
-// original is the activation script as the module had it, for comparing
-// against where the host has bash, jq and cmp.
-const original = `
-f="$HOME/.claude.json"
-if [ -f "$f" ]; then
-  t=$(mktemp) || exit 0
-  if jq \
-       --argjson paths "$PATHS" \
-       'reduce $paths[] as $p (.; .projects[$p].hasTrustDialogAccepted = true)' \
-       "$f" > "$t" 2>/dev/null && [ -s "$t" ]; then
-    if ! cmp -s "$t" "$f"; then
-      chmod 0600 "$t" && mv "$t" "$f"
-      echo "claude: pre-trusted $N workspaces"
-    else
-      rm -f "$t"
-    fi
-  else
-    rm -f "$t"
-  fi
-fi
-`
+// sameJSON is whether a and b are one JSON value, whatever their layout and
+// key order, numbers compared as written.
+func sameJSON(t *testing.T, a, b string) bool {
+	t.Helper()
+	x, err := jsonfile.Decode([]byte(a))
+	if err != nil {
+		t.Fatalf("%q: %v", a, err)
+	}
+	y, err := jsonfile.Decode([]byte(b))
+	if err != nil {
+		t.Fatalf("%q: %v", b, err)
+	}
+	return reflect.DeepEqual(x, y)
+}
 
 func trustIn(t *testing.T, content string, paths ...string) (string, string, os.FileInfo) {
 	t.Helper()
@@ -49,24 +46,8 @@ func trustIn(t *testing.T, content string, paths ...string) (string, string, os.
 func TestTrustsEachPathKeepingEverythingElse(t *testing.T) {
 	in := `{"numStartups":3,"projects":{"/h/p":{"allowedTools":[],"hasTrustDialogAccepted":false},"/other":{"x":1}},"userID":"u"}`
 	got, said, fi := trustIn(t, in, "/h", "/h/p", "/h")
-	want := `{
-  "numStartups": 3,
-  "projects": {
-    "/h/p": {
-      "allowedTools": [],
-      "hasTrustDialogAccepted": true
-    },
-    "/other": {
-      "x": 1
-    },
-    "/h": {
-      "hasTrustDialogAccepted": true
-    }
-  },
-  "userID": "u"
-}
-`
-	if got != want {
+	want := `{"numStartups":3,"projects":{"/h/p":{"allowedTools":[],"hasTrustDialogAccepted":true},"/other":{"x":1},"/h":{"hasTrustDialogAccepted":true}},"userID":"u"}`
+	if !sameJSON(t, got, want) || !strings.HasSuffix(got, "}\n") {
 		t.Errorf("wrote\n%s", got)
 	}
 	// Counted as given once each.
@@ -79,15 +60,15 @@ func TestTrustsEachPathKeepingEverythingElse(t *testing.T) {
 }
 
 func TestMakesWhatIsMissing(t *testing.T) {
-	for in, want := range map[string]string{
-		`{}`:                "{\n  \"projects\": {\n    \"/h\": {\n      \"hasTrustDialogAccepted\": true\n    }\n  }\n}\n",
-		`null`:              "{\n  \"projects\": {\n    \"/h\": {\n      \"hasTrustDialogAccepted\": true\n    }\n  }\n}\n",
-		`{"projects":null}`: "{\n  \"projects\": {\n    \"/h\": {\n      \"hasTrustDialogAccepted\": true\n    }\n  }\n}\n",
+	want := `{"projects":{"/h":{"hasTrustDialogAccepted":true}}}`
+	for _, in := range []string{
+		`{}`, `null`, `{"projects":null}`, `{"projects":{"/h":null}}`,
 		// Anything but true is not trusted.
-		`{"projects":{"/h":{"hasTrustDialogAccepted":"true"}}}`: "{\n  \"projects\": {\n    \"/h\": {\n      \"hasTrustDialogAccepted\": true\n    }\n  }\n}\n",
+		`{"projects":{"/h":{"hasTrustDialogAccepted":"true"}}}`,
+		`{"projects":{"/h":{"hasTrustDialogAccepted":1}}}`,
 	} {
 		got, said, _ := trustIn(t, in, "/h")
-		if got != want || said != "claude: pre-trusted 1 workspaces\n" {
+		if !sameJSON(t, got, want) || said != "claude: pre-trusted 1 workspaces\n" {
 			t.Errorf("%s: wrote %q, said %q", in, got, said)
 		}
 	}
@@ -208,5 +189,16 @@ func TestAWriteThatFailsIsAnError(t *testing.T) {
 	}
 }
 
-// What the original wrote from a file jq itself had laid out, this writes
-// byte for byte, and says the same.
+// Claude Code's file holds much this knows nothing of, and it all survives
+// the edit: members at every depth, and numbers as they were written, none
+// of them made a float on the way through.
+func TestKeepsWhatItDoesNotKnow(t *testing.T) {
+	in := `{"n":12345678901234567890123,"f":0.1000000000000000055511151231257827,"e":1e400,` +
+		`"deep":{"a":[1,{"b":null,"c":"<&>"}]},"projects":{"/h":{"lastCost":1.50,"hasTrustDialogAccepted":false}}}`
+	got, _, _ := trustIn(t, in, "/h")
+	want := `{"n":12345678901234567890123,"f":0.1000000000000000055511151231257827,"e":1e400,` +
+		`"deep":{"a":[1,{"b":null,"c":"<&>"}]},"projects":{"/h":{"lastCost":1.50,"hasTrustDialogAccepted":true}}}`
+	if !sameJSON(t, got, want) {
+		t.Errorf("wrote\n%s", got)
+	}
+}

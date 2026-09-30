@@ -8,21 +8,24 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/danielbodart/chase/internal/jsonfile"
 )
 
-// originalFilter is codex-placeholder's jq program, as the module had it.
-const originalFilter = `$real as $r
- | {
-     auth_mode: ($r.auth_mode // "chatgpt"),
-     OPENAI_API_KEY: null,
-     tokens: {
-       id_token: (($r.tokens.id_token // "") | split(".")[0:2] + ["frisket"] | join(".")),
-       access_token: $access,
-       refresh_token: "frisket-placeholder",
-       account_id: ($r.tokens.account_id // "")
-     },
-     last_refresh: ($r.last_refresh // "2000-01-01T00:00:00Z")
-   }`
+// sameJSON is whether a and b are one JSON value, whatever their layout and
+// key order, numbers compared as written.
+func sameJSON(t *testing.T, a, b string) bool {
+	t.Helper()
+	x, err := jsonfile.Decode([]byte(a))
+	if err != nil {
+		t.Fatalf("%q: %v", a, err)
+	}
+	y, err := jsonfile.Decode([]byte(b))
+	if err != nil {
+		t.Fatalf("%q: %v", b, err)
+	}
+	return reflect.DeepEqual(x, y)
+}
 
 func config(t *testing.T) Config {
 	home := t.TempDir()
@@ -96,7 +99,7 @@ func TestPlaceholderKeepsTheClaimsAndReplacesTheTokens(t *testing.T) {
   "last_refresh": "2026-09-01T10:00:00.123Z"
 }
 `
-	if string(b) != want {
+	if !sameJSON(t, string(b), want) {
 		t.Errorf("wrote\n%s", b)
 	}
 	for _, secret := range []string{"real-access", "real-refresh", "c2lnbmF0dXJl"} {
@@ -125,7 +128,7 @@ func TestNoLoginIsAPlaceholderAllTheSame(t *testing.T) {
   "last_refresh": "2000-01-01T00:00:00Z"
 }
 `
-	if string(b) != want {
+	if !sameJSON(t, string(b), want) {
 		t.Errorf("wrote\n%s", b)
 	}
 	fi, _ := os.Stat(c.Placeholder)
@@ -139,12 +142,41 @@ func TestNoLoginIsAPlaceholderAllTheSame(t *testing.T) {
 	}
 }
 
-// Byte for byte what the jq program made, for every shape of login it
-// accepted, and refused where it refused.
+// What codex takes for a default -- a member missing, null or false -- is
+// the placeholder's default; anything else of the host's is carried over as
+// it was, whatever JSON it is, numbers as written.
+func TestPlaceholderDefaultsAndCarriesOver(t *testing.T) {
+	// placeholderOf is the placeholder with these members, each raw JSON.
+	placeholderOf := func(authMode, idToken, accountID, lastRefresh string) string {
+		return `{"auth_mode":` + authMode + `,"OPENAI_API_KEY":null,"tokens":{"id_token":` + idToken +
+			`,"access_token":"` + PlaceholderJWT + `","refresh_token":"frisket-placeholder","account_id":` + accountID +
+			`},"last_refresh":` + lastRefresh + `}`
+	}
+	defaults := placeholderOf(`"chatgpt"`, `"frisket"`, `""`, `"2000-01-01T00:00:00Z"`)
+	for in, want := range map[string]string{
+		`null`: defaults,
+		`{}`:   defaults,
+		`{"auth_mode":false,"tokens":null,"last_refresh":null}`:                                                     defaults,
+		`{"tokens":{"id_token":"","account_id":false}}`:                                                             defaults,
+		`{"tokens":{"id_token":"."}}`:                                                                               placeholderOf(`"chatgpt"`, `"..frisket"`, `""`, `"2000-01-01T00:00:00Z"`),
+		`{"tokens":{"id_token":"a.b.c.d","account_id":{"x":[1]}}}`:                                                  placeholderOf(`"chatgpt"`, `"a.b.frisket"`, `{"x":[1]}`, `"2000-01-01T00:00:00Z"`),
+		`{"auth_mode":"apikey","tokens":{"id_token":"a","account_id":12345678901234567890123},"last_refresh":1.50}`: placeholderOf(`"apikey"`, `"a.frisket"`, `12345678901234567890123`, `1.50`),
+	} {
+		c := config(t)
+		writeAuth(t, c, in)
+		if err := WritePlaceholder(c); err != nil {
+			t.Fatalf("%s: %v", in, err)
+		}
+		if b, _ := os.ReadFile(c.Placeholder); !sameJSON(t, string(b), want) {
+			t.Errorf("%s: wrote\n%s", in, b)
+		}
+	}
+}
+
 // A login it cannot read leaves the last placeholder as it was, rather than
 // truncating what a running session has bound.
 func TestALoginItCannotReadLeavesThePlaceholder(t *testing.T) {
-	for _, bad := range []string{``, `{`, `{} {}`, `{"tokens":{"id_token":1}}`, `[]`} {
+	for _, bad := range []string{``, `{`, `{} {}`, `{"tokens":{"id_token":1}}`, `{"tokens":{"id_token":true}}`, `{"tokens":[]}`, `[]`, `"s"`} {
 		c := config(t)
 		if err := WritePlaceholder(c); err != nil {
 			t.Fatal(err)

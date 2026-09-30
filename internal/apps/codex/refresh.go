@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/danielbodart/chase/internal/apps/claude/jsondoc"
 	"github.com/danielbodart/chase/internal/files"
+	"github.com/danielbodart/chase/internal/jsonfile"
 	"github.com/danielbodart/chase/internal/term"
 )
 
@@ -168,7 +169,7 @@ func (r *refresher) step(ctx context.Context) (time.Duration, error) {
 		r.say("the response held no tokens; trying again in a minute")
 		return retry, nil
 	}
-	if err := files.WriteInPlace(r.cfg.Auth, append(merged, '\n'), 0o600); err != nil {
+	if err := files.WriteInPlace(r.cfg.Auth, merged, 0o600); err != nil {
 		return 0, err
 	}
 	if err := WritePlaceholder(r.cfg); err != nil {
@@ -191,67 +192,75 @@ func sleepFor(wait int64) time.Duration {
 
 // accessExpiry is `exp`, as written, out of the access token's own claims.
 func accessExpiry(path string) (string, bool) {
-	doc, ok := readDoc(path)
+	toks, ok := readTokens(path)
 	if !ok {
 		return "", false
 	}
-	tokens, err := doc.Field("tokens")
-	if err != nil {
+	at, ok := toks["access_token"].(string)
+	if !ok {
 		return "", false
 	}
-	at, err := tokens.Field("access_token")
-	if err != nil || at.Kind != jsondoc.String {
-		return "", false
-	}
-	parts := jsondoc.Split(at.Str, ".")
+	parts := strings.Split(at, ".")
 	if len(parts) < 2 {
 		return "", false
 	}
-	// base64url, its padding put back, as the script turned it into what
-	// jq's @base64d reads.
-	p := strings.NewReplacer("-", "+", "_", "/").Replace(parts[1])
-	p += strings.Repeat("=", (4-len(p)%4)%4)
-	claims, err := base64.StdEncoding.DecodeString(p)
+	// base64url, padded or not; standard base64's + and / are read too, as
+	// the script read them.
+	p := strings.NewReplacer("-", "+", "_", "/").Replace(strings.TrimRight(parts[1], "="))
+	claims, err := base64.RawStdEncoding.DecodeString(p)
 	if err != nil {
 		return "", false
 	}
-	c, err := jsondoc.Parse(claims)
+	c, err := jsonfile.Decode(claims)
 	if err != nil {
 		return "", false
 	}
-	e, err := c.Field("exp")
-	if err != nil || e.Kind != jsondoc.Number {
-		return "", false
-	}
-	return e.Num, true
-}
-
-// readRefreshToken is tokens.refresh_token as `jq -er` gave it: none if it
-// is null or false, its text if it is a string, and anything else as jq
-// prints it.
-func readRefreshToken(path string) (string, bool) {
-	doc, ok := readDoc(path)
+	obj, ok := jsonfile.Object(c)
 	if !ok {
 		return "", false
 	}
-	tokens, err := doc.Field("tokens")
-	if err != nil {
-		return "", false
-	}
-	rt, err := tokens.Field("refresh_token")
-	if err != nil || !rt.Truthy() {
-		return "", false
-	}
-	return rt.Raw(), true
+	exp, ok := obj["exp"].(json.Number)
+	return string(exp), ok
 }
 
-func readDoc(path string) (jsondoc.Value, bool) {
+// readRefreshToken is tokens.refresh_token: none if it is missing, null or
+// false, its text if it is a string, and anything else as its JSON, which
+// the token endpoint will refuse, and say why, rather than this guess.
+func readRefreshToken(path string) (string, bool) {
+	toks, ok := readTokens(path)
+	if !ok {
+		return "", false
+	}
+	switch rt := toks["refresh_token"].(type) {
+	case nil:
+		return "", false
+	case bool:
+		if !rt {
+			return "", false
+		}
+	case string:
+		return rt, true
+	}
+	b, err := json.Marshal(toks["refresh_token"])
+	return string(b), err == nil
+}
+
+// readTokens is auth.json's tokens, none when there is no auth.json, or it
+// or its tokens is not an object; a null one of either is empty.
+func readTokens(path string) (map[string]any, bool) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return jsondoc.Value{}, false
+		return nil, false
 	}
-	doc, err := jsondoc.Parse(b)
-	return doc, err == nil
+	doc, err := jsonfile.Decode(b)
+	if err != nil {
+		return nil, false
+	}
+	root, ok := jsonfile.Object(doc)
+	if !ok {
+		return nil, false
+	}
+	return jsonfile.Object(root["tokens"])
 }
 
 // exchange trades the refresh token for new tokens, and gives the status
@@ -278,70 +287,67 @@ func (r *refresher) exchange(ctx context.Context, refreshToken string) (int, []b
 // errorIs is whether body is a JSON object whose error is code, as an OAuth
 // token endpoint says why it refused: `{"error": "invalid_grant", ...}`.
 func errorIs(body []byte, code string) bool {
-	doc, err := jsondoc.Parse(body)
-	if err != nil {
-		return false
+	var answer struct {
+		Error any `json:"error"`
 	}
-	e, err := doc.Field("error")
-	return err == nil && e.Kind == jsondoc.String && e.Str == code
+	return json.Unmarshal(body, &answer) == nil && answer.Error == code
 }
 
-// exchangeBody is the request, byte for byte as `jq -n` made it.
+// exchangeBody is the request: codex's client id, the grant, and the token.
 func exchangeBody(refreshToken string) []byte {
-	return jsondoc.Obj(
-		jsondoc.Member{Key: "client_id", Value: jsondoc.Str(ClientID)},
-		jsondoc.Member{Key: "grant_type", Value: jsondoc.Str("refresh_token")},
-		jsondoc.Member{Key: "refresh_token", Value: jsondoc.Str(refreshToken)},
-	).Marshal()
+	b, _ := json.Marshal(struct {
+		ClientID     string `json:"client_id"`
+		GrantType    string `json:"grant_type"`
+		RefreshToken string `json:"refresh_token"`
+	}{ClientID, "refresh_token", refreshToken})
+	return b
 }
 
 // errNoAccessToken is an answer that holds no access token, which is no
 // refresh at all.
 var errNoAccessToken = errors.New("the response holds no access token")
 
+// errNotAuth is an auth.json, read again, whose tokens cannot be set: it,
+// or its tokens, something other than an object.
+var errNotAuth = errors.New("auth.json or its tokens is not an object")
+
 // merge is auth.json, read again, with each token the response holds put in
 // place of the old and last_refresh made now; a token the response lacks is
-// kept, but for the access token, which it must hold, as a string.
+// kept, but for the access token, which it must hold, as a string. Every
+// other member, codex's own, is written back as it was read.
 func merge(path string, body []byte, now time.Time) ([]byte, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	doc, err := jsondoc.Parse(b)
+	v, err := jsonfile.Decode(b)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := jsondoc.Parse(body)
+	a, err := jsonfile.Decode(body)
 	if err != nil {
 		return nil, err
 	}
-	if at, err := resp.Field("access_token"); err != nil || at.Kind != jsondoc.String {
+	resp, ok := a.(map[string]any)
+	if !ok {
 		return nil, errNoAccessToken
 	}
+	if _, ok := resp["access_token"].(string); !ok {
+		return nil, errNoAccessToken
+	}
+	doc, ok := jsonfile.Object(v)
+	if !ok {
+		return nil, errNotAuth
+	}
+	toks, ok := jsonfile.Object(doc["tokens"])
+	if !ok {
+		return nil, errNotAuth
+	}
 	for _, k := range []string{"id_token", "access_token", "refresh_token"} {
-		nv, err := resp.Field(k)
-		if err != nil {
-			return nil, err
-		}
-		tokens, err := doc.Field("tokens")
-		if err != nil {
-			return nil, err
-		}
-		ov, err := tokens.Field(k)
-		if err != nil {
-			return nil, err
-		}
-		if tokens, err = tokens.SetField(k, nv.Or(ov)); err != nil {
-			return nil, err
-		}
-		if doc, err = doc.SetField("tokens", tokens); err != nil {
-			return nil, err
-		}
+		toks[k] = jsonfile.Or(resp[k], toks[k])
 	}
-	// jq's `now | todate`: UTC, to the second.
-	doc, err = doc.SetField("last_refresh", jsondoc.Str(now.UTC().Format("2006-01-02T15:04:05Z")))
-	if err != nil {
-		return nil, err
-	}
-	return doc.Marshal(), nil
+	doc["tokens"] = toks
+	// UTC, to the second.
+	doc["last_refresh"] = now.UTC().Format("2006-01-02T15:04:05Z")
+	return jsonfile.Encode(doc)
 }

@@ -1,12 +1,12 @@
 package codex
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"strings"
 
-	"github.com/danielbodart/chase/internal/apps/claude/jsondoc"
 	"github.com/danielbodart/chase/internal/files"
+	"github.com/danielbodart/chase/internal/jsonfile"
 	"golang.org/x/sys/unix"
 )
 
@@ -28,13 +28,13 @@ func WritePlaceholder(cfg Config) error {
 	if err := os.MkdirAll(cfg.StateDir, 0o777); err != nil {
 		return err
 	}
-	real := jsondoc.Obj()
+	var real any
 	if fi, err := os.Stat(cfg.Auth); err == nil && fi.Mode().IsRegular() {
 		b, err := os.ReadFile(cfg.Auth)
 		if err != nil {
 			return err
 		}
-		if real, err = jsondoc.Parse(b); err != nil {
+		if real, err = jsonfile.Decode(b); err != nil {
 			return err
 		}
 	}
@@ -49,7 +49,7 @@ func WritePlaceholder(cfg Config) error {
 	if err := tighten(cfg.Placeholder); err != nil {
 		return err
 	}
-	return files.WriteInPlace(cfg.Placeholder, append(out, '\n'), 0o600)
+	return files.WriteInPlace(cfg.Placeholder, out, 0o600)
 }
 
 // tighten makes path 0600, creating it empty if it is not there, by the
@@ -66,53 +66,62 @@ func tighten(path string) error {
 	return f.Close()
 }
 
-// placeholder is the placeholder made from the host's login r.
-func placeholder(r jsondoc.Value) ([]byte, error) {
-	authMode, err := r.Field("auth_mode")
-	if err != nil {
-		return nil, err
+// auth is the placeholder auth.json. A struct and not a map, since it is
+// made whole rather than edited: only what is named here is written, so
+// nothing else of the host's login -- its real tokens least of all -- can
+// reach a container through it. auth_mode, account_id and last_refresh are
+// the host's own, whatever JSON they are, and are carried as they were read.
+type auth struct {
+	AuthMode     any    `json:"auth_mode"`
+	OpenAIAPIKey any    `json:"OPENAI_API_KEY"`
+	Tokens       tokens `json:"tokens"`
+	LastRefresh  any    `json:"last_refresh"`
+}
+
+type tokens struct {
+	IDToken      string `json:"id_token"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	AccountID    any    `json:"account_id"`
+}
+
+// errNotLogin is a host auth.json that is not the shape codex writes: not
+// an object, tokens not one, or an id_token that is not a string.
+var errNotLogin = errors.New("auth.json is not a codex login: not an object, or tokens not one, or tokens.id_token not a string")
+
+// placeholder is the placeholder made from the host's login r, null for
+// none. A member that is missing, null or false takes its default.
+func placeholder(r any) ([]byte, error) {
+	root, ok := jsonfile.Object(r)
+	if !ok {
+		return nil, errNotLogin
 	}
-	tokens, err := r.Field("tokens")
-	if err != nil {
-		return nil, err
+	toks, ok := jsonfile.Object(root["tokens"])
+	if !ok {
+		return nil, errNotLogin
 	}
-	idToken, err := tokens.Field("id_token")
-	if err != nil {
-		return nil, err
+	idToken, ok := jsonfile.Or(toks["id_token"], "").(string)
+	if !ok {
+		return nil, errNotLogin
 	}
-	idToken = idToken.Or(jsondoc.Str(""))
-	if idToken.Kind != jsondoc.String {
-		return nil, errNotString("tokens.id_token", idToken)
+	// The signature dropped, the claims kept. No id_token is no claims, and
+	// the placeholder's is the signature alone.
+	var parts []string
+	if idToken != "" {
+		parts = strings.Split(idToken, ".")
 	}
-	accountID, err := tokens.Field("account_id")
-	if err != nil {
-		return nil, err
-	}
-	lastRefresh, err := r.Field("last_refresh")
-	if err != nil {
-		return nil, err
-	}
-	// The signature dropped, the claims kept.
-	parts := jsondoc.Split(idToken.Str, ".")
 	if len(parts) > 2 {
 		parts = parts[:2]
 	}
 	parts = append(parts, "frisket")
-	doc := jsondoc.Obj(
-		jsondoc.Member{Key: "auth_mode", Value: authMode.Or(jsondoc.Str("chatgpt"))},
-		jsondoc.Member{Key: "OPENAI_API_KEY", Value: jsondoc.Value{Kind: jsondoc.Null}},
-		jsondoc.Member{Key: "tokens", Value: jsondoc.Obj(
-			jsondoc.Member{Key: "id_token", Value: jsondoc.Str(strings.Join(parts, "."))},
-			jsondoc.Member{Key: "access_token", Value: jsondoc.Str(PlaceholderJWT)},
-			jsondoc.Member{Key: "refresh_token", Value: jsondoc.Str("frisket-placeholder")},
-			jsondoc.Member{Key: "account_id", Value: accountID.Or(jsondoc.Str(""))},
-		)},
-		jsondoc.Member{Key: "last_refresh", Value: lastRefresh.Or(jsondoc.Str("2000-01-01T00:00:00Z"))},
-	)
-	return doc.Marshal(), nil
-}
-
-// errNotString is jq's refusal to split what is not a string.
-func errNotString(what string, v jsondoc.Value) error {
-	return fmt.Errorf("%s is a %s, not a string", what, v.Kind)
+	return jsonfile.Encode(auth{
+		AuthMode: jsonfile.Or(root["auth_mode"], "chatgpt"),
+		Tokens: tokens{
+			IDToken:      strings.Join(parts, "."),
+			AccessToken:  PlaceholderJWT,
+			RefreshToken: "frisket-placeholder",
+			AccountID:    jsonfile.Or(toks["account_id"], ""),
+		},
+		LastRefresh: jsonfile.Or(root["last_refresh"], "2000-01-01T00:00:00Z"),
+	})
 }
