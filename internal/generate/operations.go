@@ -356,12 +356,8 @@ func summarise(w io.Writer, name, text string) error {
 }
 
 // say writes one line to w, cleaned: what it names came from a checkout
-// and a provider's spec. The script printed it raw. term.Clean makes a '?'
-// of each control byte and of each raw byte from 0x80 to 0x9f, which a
-// terminal not reading UTF-8 acts on as C1 -- and which is also the second
-// or third byte of many a UTF-8 character: '—', '€', '“', much CJK. So an
-// id or summary holding one reads mangled here, as term's own comment
-// accepts: a refusal read wrong is better than one that writes.
+// and a provider's spec. The script printed it raw; term.Clean makes a '?'
+// of each control character and each byte of invalid UTF-8.
 func say(w io.Writer, format string, args ...any) {
 	if w == nil {
 		return

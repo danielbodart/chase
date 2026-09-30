@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"pgregory.net/rapid"
 )
@@ -19,9 +20,12 @@ func TestEveryControlByteButANewlineIsMadeSafe(t *testing.T) {
 		"raw c1 \x9b31m":                 "raw c1 ?31m",
 		"é stays":                        "é stays",
 		"\xc2\xa0 is no-break, and kept": "\xc2\xa0 is no-break, and kept",
-		// A continuation byte in the C1 range, of a character that is not
-		// C1, is mangled rather than passed.
-		"ā": "\xc4?",
+		// A letter whose UTF-8 has a continuation byte in the C1 range is
+		// still itself.
+		"ā, ě and Łódź":                      "ā, ě and Łódź",
+		"invalid \xff\xc4 bytes":             "invalid ?? bytes",
+		"a \u202eright-to-left\u202c trick":  "a ?right-to-left? trick",
+		"\u2066isolate\u2069 and \u200emark": "?isolate? and ?mark",
 	} {
 		if got := Clean(in); got != want {
 			t.Errorf("Clean(%q) = %q, want %q", in, got, want)
@@ -37,17 +41,16 @@ func TestSayPrefixesAndEndsTheLine(t *testing.T) {
 	}
 }
 
-// Whatever goes in, nothing a terminal acts on comes out but a newline.
-func TestNothingCleanHoldsAControlByte(t *testing.T) {
+// Whatever goes in, what comes out is valid UTF-8 with no control
+// character but a newline and no bidirectional control.
+func TestNothingCleanHoldsAControlCharacter(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		out := Clean(string(rapid.SliceOf(rapid.Byte()).Draw(t, "in")))
-		if strings.ContainsFunc(out, func(r rune) bool { return r != '\n' && (r < 0x20 || r >= 0x7f && r <= 0x9f) }) {
-			t.Fatalf("%q", out)
+		if !utf8.ValidString(out) {
+			t.Fatalf("not UTF-8: %q", out)
 		}
-		for i := 0; i < len(out); i++ {
-			if c := out[i]; c != '\n' && (c < 0x20 || c >= 0x7f && c <= 0x9f) {
-				t.Fatalf("byte %#x in %q", c, out)
-			}
+		if strings.ContainsFunc(out, func(r rune) bool { return r != '\n' && (r < 0x20 || r >= 0x7f && r <= 0x9f || bidi(r)) }) {
+			t.Fatalf("%q", out)
 		}
 	})
 }
