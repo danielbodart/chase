@@ -31,7 +31,8 @@ const (
 	// suspended through the expiry notices soon after it resumes, since a
 	// sleep does not count the time suspended.
 	step = 300 * time.Second
-	// retry is how long after a refresh that did not move expiresAt.
+	// retry is how long after a refresh that did not move expiresAt, or left
+	// none to read.
 	retry = 60 * time.Second
 	// stopGrace is how long claude has to end after being asked to, before
 	// it is killed: inside systemd's default TimeoutStopSec of 90 seconds,
@@ -98,7 +99,17 @@ func (r *refresher) step(ctx context.Context) (time.Duration, error) {
 	if code := r.claude(ctx, r.cfg.Claude, Args); code != 0 {
 		r.say("claude exited %d", code)
 	}
-	if after, ok := expiresAt(r.cfg.Credentials); ok && after == lit {
+	// A credentials file gone, unreadable or without an expiresAt after the
+	// run is not a refresh either. The script compared "$(expires)" -- empty
+	// then -- to the old number, found them different and said refreshed,
+	// and the next pass, with nothing to read, only looked again in 5
+	// minutes. This says what it found and tries again in a minute.
+	after, ok := expiresAt(r.cfg.Credentials)
+	if !ok {
+		r.say("no expiresAt in %s after the refresh; trying again in a minute", r.cfg.Credentials)
+		return retry, nil
+	}
+	if after == lit {
 		r.say("expiresAt did not move; trying again in a minute")
 		return retry, nil
 	}

@@ -317,6 +317,88 @@ func TestAFailedExchangeLeavesTheLoginAndTriesAgainInAMinute(t *testing.T) {
 	}
 }
 
+// invalid_grant is a refresh token the endpoint will never take again, spent
+// or revoked, and only a new login mends it. It is said once, and the token
+// is not sent again: auth.json is looked at every 5 minutes, quietly, until
+// a login writes a new refresh token into it, which is exchanged as ever.
+func TestAnInvalidGrantWaitsForANewLogin(t *testing.T) {
+	// The server holds r0 good, and "spent" is not: it answers
+	// 400 {"error":"invalid_grant"} for it, as the real one does.
+	ts, srv := newTokenServer(t, "r0")
+	r, errb, c := newRefresher(t, srv.URL)
+	writeAuth(t, c, due("spent"))
+	WritePlaceholder(c)
+	placeholder, _ := os.ReadFile(c.Placeholder)
+	for i := range 4 {
+		d, err := r.step(context.Background())
+		if err != nil || d != 5*time.Minute {
+			t.Fatalf("pass %d: slept %v, %v", i, d, err)
+		}
+	}
+	if len(ts.requests) != 1 {
+		t.Errorf("sent the spent token %d times", len(ts.requests))
+	}
+	if want := "codex-refresh: the refresh token is spent or revoked (invalid_grant); log in again with `codex login` on the host; looking again every 5 minutes\n"; errb.String() != want {
+		t.Errorf("said %q", errb.String())
+	}
+	if b, _ := os.ReadFile(c.Auth); string(b) != due("spent") {
+		t.Errorf("auth.json became %s", b)
+	}
+	if b, _ := os.ReadFile(c.Placeholder); string(b) != string(placeholder) {
+		t.Errorf("the placeholder became %s", b)
+	}
+
+	// A new login: a new refresh token, and the exchange is made again.
+	errb.Reset()
+	writeAuth(t, c, due("r0"))
+	if d, err := r.step(context.Background()); err != nil || d != 0 {
+		t.Fatalf("slept %v, %v", d, err)
+	}
+	if len(ts.requests) != 2 || errb.String() != "codex-refresh: refreshed\n" {
+		t.Errorf("sent %d, said %q", len(ts.requests), errb.String())
+	}
+	if b, _ := os.ReadFile(c.Auth); !strings.Contains(string(b), "refresh-1") {
+		t.Errorf("auth.json is %s", b)
+	}
+}
+
+// Only a 400 whose JSON error is invalid_grant is waited out: any other
+// refusal may pass, and is sent again a minute later.
+func TestOtherRefusalsAreTriedAgainInAMinute(t *testing.T) {
+	for _, c := range []struct {
+		status int
+		body   string
+	}{
+		{400, `{"error":"invalid_request"}`},
+		{400, `{"error":{"code":"invalid_grant"}}`},
+		{400, `invalid_grant`},
+		{400, ``},
+		{401, `{"error":"invalid_grant"}`},
+		{500, `{"error":"invalid_grant"}`},
+	} {
+		ts, srv := newTokenServer(t, "r0")
+		ts.answer = func(w http.ResponseWriter, _ *http.Request, _ string) bool {
+			w.WriteHeader(c.status)
+			fmt.Fprint(w, c.body)
+			return true
+		}
+		r, errb, cfg := newRefresher(t, srv.URL)
+		writeAuth(t, cfg, due("r0"))
+		for range 2 {
+			if d, err := r.step(context.Background()); err != nil || d != time.Minute {
+				t.Errorf("%d %s: slept %v, %v", c.status, c.body, d, err)
+			}
+		}
+		if len(ts.requests) != 2 {
+			t.Errorf("%d %s: sent %d times", c.status, c.body, len(ts.requests))
+		}
+		want := "codex-refresh: the exchange failed; trying again in a minute\n"
+		if errb.String() != want+want {
+			t.Errorf("%d %s: said %q", c.status, c.body, errb.String())
+		}
+	}
+}
+
 func TestAnEndpointNotThereIsAFailedExchange(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	url := srv.URL
@@ -400,10 +482,21 @@ func TestATokenLeftOutIsKept(t *testing.T) {
 	}
 }
 
-// As the script had it: a 200 that holds no token at all -- `{}` or `null` --
-// still counts as refreshed, and only last_refresh changes.
-func TestAnEmptyAnswerCountsAsRefreshed(t *testing.T) {
-	for _, body := range []string{`{}`, `null`} {
+// A 200 that holds no access token -- `{}`, `null`, or tokens without one --
+// is no refresh. The script counted it as one: it wrote only last_refresh,
+// said refreshed, and with the access token still due the next pass
+// exchanged again at once, so an endpoint answering 200 {} was hit in a
+// tight loop. Now nothing is written and it is tried again in a minute.
+func TestAnAnswerWithNoAccessTokenLeavesTheLogin(t *testing.T) {
+	for _, body := range []string{
+		`{}`,
+		`null`,
+		`{"access_token":null}`,
+		`{"access_token":false}`,
+		`{"access_token":1}`,
+		`{"access_token":{}}`,
+		`{"refresh_token":"r1","id_token":"i1"}`,
+	} {
 		ts, srv := newTokenServer(t, "r0")
 		ts.answer = func(w http.ResponseWriter, _ *http.Request, _ string) bool {
 			fmt.Fprint(w, body)
@@ -411,16 +504,21 @@ func TestAnEmptyAnswerCountsAsRefreshed(t *testing.T) {
 		}
 		r, errb, c := newRefresher(t, srv.URL)
 		writeAuth(t, c, due("r0"))
-		if d, _ := r.step(context.Background()); d != 0 {
-			t.Errorf("%s: slept %v", body, d)
+		WritePlaceholder(c)
+		placeholder, _ := os.ReadFile(c.Placeholder)
+		for range 2 {
+			if d, err := r.step(context.Background()); d != time.Minute || err != nil {
+				t.Errorf("%s: slept %v, %v", body, d, err)
+			}
 		}
-		b, _ := os.ReadFile(c.Auth)
-		want := strings.Replace(due("r0"), `"2026-12-01T00:00:00.000Z"`, `"2027-01-02T03:04:05Z"`, 1)
-		want = strings.Replace(want, `"extra": {"kept": true}`, "\"extra\": {\n    \"kept\": true\n  }", 1)
-		if string(b) != want {
-			t.Errorf("%s: auth.json is\n%s", body, b)
+		if b, _ := os.ReadFile(c.Auth); string(b) != due("r0") {
+			t.Errorf("%s: auth.json became %s", body, b)
 		}
-		if errb.String() != "codex-refresh: refreshed\n" {
+		if b, _ := os.ReadFile(c.Placeholder); string(b) != string(placeholder) {
+			t.Errorf("%s: the placeholder became %s", body, b)
+		}
+		want := "codex-refresh: the response held no tokens; trying again in a minute\n"
+		if errb.String() != want+want {
 			t.Errorf("%s: said %q", body, errb.String())
 		}
 	}
@@ -430,7 +528,7 @@ func TestAnEmptyAnswerCountsAsRefreshed(t *testing.T) {
 func TestTokensMissingAreMade(t *testing.T) {
 	ts, srv := newTokenServer(t, "r0")
 	ts.answer = func(w http.ResponseWriter, _ *http.Request, _ string) bool {
-		fmt.Fprint(w, `{"refresh_token":"r1"}`)
+		fmt.Fprint(w, `{"access_token":"a1","refresh_token":"r1"}`)
 		return true
 	}
 	r, _, c := newRefresher(t, srv.URL)
@@ -440,7 +538,7 @@ func TestTokensMissingAreMade(t *testing.T) {
 	want := `{
   "tokens": {
     "refresh_token": "r1",
-    "access_token": "` + jwt(`{"exp":1}`) + `",
+    "access_token": "a1",
     "id_token": null
   },
   "last_refresh": "2027-01-02T03:04:05Z"

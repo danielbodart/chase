@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +29,11 @@ const (
 	step = 300 * time.Second
 	// retry is how long after anything that went wrong on the way.
 	retry = 60 * time.Second
+	// invalidGrant is the error the token endpoint gives, with a 400, for a
+	// refresh token it will not take again: spent, by an exchange that
+	// happened even if its answer never arrived, or revoked. Nothing but a
+	// new login mends that.
+	invalidGrant = "invalid_grant"
 	// exchangeTimeout bounds the whole exchange, as curl's --max-time did.
 	exchangeTimeout = 60 * time.Second
 )
@@ -76,6 +82,11 @@ type refresher struct {
 	stderr io.Writer
 	now    func() time.Time
 	client *http.Client
+	// refused is the refresh token the endpoint last answered invalid_grant
+	// for, and none when it has answered no such thing. It is kept to be
+	// compared, and only ever sent once.
+	refused    string
+	hasRefused bool
 }
 
 func (r *refresher) say(format string, args ...any) {
@@ -104,9 +115,9 @@ func (r *refresher) step(ctx context.Context) (time.Duration, error) {
 	// is written in place and never through a link (a link there would send
 	// the host's tokens wherever it points), so a link is refused here,
 	// before the exchange, rather than after it with the new tokens lost and
-	// the old one spent -- which every retry would then send again, for an
-	// invalid_grant, forever. The script's `printf > "$auth"` followed a
-	// link; this says so and looks again, until the link is gone.
+	// the old one spent -- which the next exchange would send, for an
+	// invalid_grant and a login to redo. The script's `printf > "$auth"`
+	// followed a link; this says so and looks again, until the link is gone.
 	if fi, err := os.Lstat(r.cfg.Auth); err == nil && fi.Mode()&os.ModeSymlink != 0 {
 		r.say("%s is a link, which is not written through; trying again in a minute", r.cfg.Auth)
 		return retry, nil
@@ -117,14 +128,41 @@ func (r *refresher) step(ctx context.Context) (time.Duration, error) {
 		r.say("no refresh token; trying again in a minute")
 		return retry, nil
 	}
-	body, err := r.exchange(ctx, refreshToken)
-	if err != nil {
+	// A refresh token the endpoint has already called invalid_grant is not
+	// sent again: it will be refused again, every minute, forever, and what
+	// is wrong was said when it was first refused. Only a new login -- which
+	// writes a new refresh token into auth.json -- is worth an exchange, so
+	// until one does this only looks, every 5 minutes, and says nothing.
+	if r.hasRefused {
+		if refreshToken == r.refused {
+			return step, nil
+		}
+		r.hasRefused = false
+	}
+	status, body, err := r.exchange(ctx, refreshToken)
+	if err != nil || status >= 400 {
+		// The script retried every failure alike, invalid_grant included,
+		// and so sent a spent token every minute until someone noticed. That
+		// one failure is said once, for what it is, and waited out; any
+		// other -- a 5xx, a 429, a network gone -- may pass, and is tried
+		// again in a minute.
+		if err == nil && status == http.StatusBadRequest && errorIs(body, invalidGrant) {
+			r.refused, r.hasRefused = refreshToken, true
+			r.say("the refresh token is spent or revoked (invalid_grant); log in again with `codex login` on the host; looking again every 5 minutes")
+			return step, nil
+		}
 		r.say("the exchange failed; trying again in a minute")
 		return retry, nil
 	}
 
 	// In place, and only what came back: codex writes this file the same
 	// way, and a rename would detach the bind covering it in a container.
+	// An answer with no access token in it is not a refresh, whatever its
+	// status: the script merged `{}` or `null` as one, wrote only
+	// last_refresh and said refreshed, and since the access token had not
+	// moved the next pass was due at once -- an endpoint answering 200 {}
+	// was sent exchange after exchange with no sleep between. So nothing is
+	// written, and it is tried again in a minute.
 	merged, err := merge(r.cfg.Auth, body, r.now())
 	if err != nil {
 		r.say("the response held no tokens; trying again in a minute")
@@ -216,28 +254,36 @@ func readDoc(path string) (jsondoc.Value, bool) {
 	return doc, err == nil
 }
 
-// exchange trades the refresh token for new tokens, and gives the body of
-// any response below 400, as `curl -fsS` did.
-func (r *refresher) exchange(ctx context.Context, refreshToken string) ([]byte, error) {
+// exchange trades the refresh token for new tokens, and gives the status
+// and body of whatever answered; an error only for no answer at all.
+func (r *refresher) exchange(ctx context.Context, refreshToken string) (int, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.cfg.endpoint(), bytes.NewReader(exchangeBody(refreshToken)))
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "*/*")
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("the token endpoint answered %s", resp.Status)
+	return resp.StatusCode, body, nil
+}
+
+// errorIs is whether body is a JSON object whose error is code, as an OAuth
+// token endpoint says why it refused: `{"error": "invalid_grant", ...}`.
+func errorIs(body []byte, code string) bool {
+	doc, err := jsondoc.Parse(body)
+	if err != nil {
+		return false
 	}
-	return body, nil
+	e, err := doc.Field("error")
+	return err == nil && e.Kind == jsondoc.String && e.Str == code
 }
 
 // exchangeBody is the request, byte for byte as `jq -n` made it.
@@ -249,9 +295,13 @@ func exchangeBody(refreshToken string) []byte {
 	).Marshal()
 }
 
+// errNoAccessToken is an answer that holds no access token, which is no
+// refresh at all.
+var errNoAccessToken = errors.New("the response holds no access token")
+
 // merge is auth.json, read again, with each token the response holds put in
 // place of the old and last_refresh made now; a token the response lacks is
-// kept.
+// kept, but for the access token, which it must hold, as a string.
 func merge(path string, body []byte, now time.Time) ([]byte, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -264,6 +314,9 @@ func merge(path string, body []byte, now time.Time) ([]byte, error) {
 	resp, err := jsondoc.Parse(body)
 	if err != nil {
 		return nil, err
+	}
+	if at, err := resp.Field("access_token"); err != nil || at.Kind != jsondoc.String {
+		return nil, errNoAccessToken
 	}
 	for _, k := range []string{"id_token", "access_token", "refresh_token"} {
 		nv, err := resp.Field(k)

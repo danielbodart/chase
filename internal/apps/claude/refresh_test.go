@@ -194,18 +194,30 @@ func TestAClaudeThatFailedIsSaidAndStillChecked(t *testing.T) {
 	}
 }
 
-// As the script compared "$(expires)" to what it had: a login gone after the
-// run is not the same number, so it counts as refreshed.
-func TestALoginGoneAfterTheRunCountsAsRefreshed(t *testing.T) {
-	fc := &fakeClaude{}
-	r, errb, cred := newRefresher(t, fc)
-	writeCred(t, cred, credAt(1))
-	fc.do = func() { os.Remove(cred) }
-	if d, _ := r.step(context.Background()); d != 0 {
-		t.Errorf("slept %v", d)
-	}
-	if errb.String() != "claude-refresh: refreshed\n" {
-		t.Errorf("said %q", errb.String())
+// The script compared "$(expires)" to what it had, and a login gone after
+// the run -- an empty string -- was not the same number, so it counted as
+// refreshed. It is not: with no expiresAt to read, nothing moved.
+func TestALoginWithNoExpiryAfterTheRunIsTriedAgainInAMinute(t *testing.T) {
+	for name, after := range map[string]func(t *testing.T, cred string){
+		"gone":         func(_ *testing.T, cred string) { os.Remove(cred) },
+		"unreadable":   func(_ *testing.T, cred string) { os.Remove(cred); os.Mkdir(cred, 0o700) },
+		"not JSON":     func(t *testing.T, cred string) { writeCred(t, cred, "{") },
+		"no expiresAt": func(t *testing.T, cred string) { writeCred(t, cred, `{"claudeAiOauth":{"accessToken":"b"}}`) },
+		"a string":     func(t *testing.T, cred string) { writeCred(t, cred, `{"claudeAiOauth":{"expiresAt":"2"}}`) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			fc := &fakeClaude{}
+			r, errb, cred := newRefresher(t, fc)
+			writeCred(t, cred, credAt(1))
+			fc.do = func() { after(t, cred) }
+			d, err := r.step(context.Background())
+			if err != nil || d != time.Minute {
+				t.Errorf("slept %v, %v", d, err)
+			}
+			if want := "claude-refresh: no expiresAt in " + cred + " after the refresh; trying again in a minute\n"; errb.String() != want {
+				t.Errorf("said %q", errb.String())
+			}
+		})
 	}
 }
 
