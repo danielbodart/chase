@@ -151,7 +151,7 @@ for every operation and full schemas for the bodies. Pinned by URL and
 **4. `chase-generate operations` reads Swagger 2.0 YAML as well as OpenAPI 3.**
 `basePath` where 3 has `servers[].url`, `definitions` where 3 has
 `components.schemas`, `in: body` where 3 has `requestBody`; the YAML is
-converted with PyYAML after its bytes are hashed. A `HEAD` is added to a
+read as YAML 1.1, as PyYAML read it before the port, after its bytes are hashed. A `HEAD` is added to a
 `GET` only where the spec has none of its own. It also writes, for Docker,
 every body field the spec defines — object properties, through `$ref` and
 `allOf`, not into arrays or maps — so that a bump shows new fields in the
@@ -243,10 +243,10 @@ name among them.
 by frisket.** The project is `owner/repo`, lower-cased, from the checkout's
 origin on GitHub (`git@github.com:`, `ssh://git@github.com/` or
 `https://github.com/`, with or without `.git`). chase derives it on the host
-in `approve` (`project` in `project/default.nix`), and never with a git that
+in `approve` (`project` in internal/envelope), and never with a git that
 reads the checkout's config, which a session can write and which can name
-a command for git to run: the checkout is `chase-checkout`'s, found from where
-the directory is, and `chase-origin` reads `remote.origin.url` from its
+a command for git to run: the checkout is found from where the directory is
+(`chase checkout`), and `chase origin` reads `remote.origin.url` from its
 `.git`'s config files alone, as the selector does, refusing one that
 includes another. Never `git config --local`, and never git's
 `--show-toplevel`, which `core.worktree` moves. The origin must be exactly
@@ -474,7 +474,7 @@ since dropped a port refuses connections to it.
    (`apps/docker/fields.json`) are checked against it, and
    `apps/docker/admit.json` names the admitted operations.
 5. **chase: the project's identity**, read from the checkout's `.git` by
-   `chase-origin`, never by a git that reads its config, bound both ways to
+   `chase origin`, never by a git that reads its config, bound both ways to
    the tiers' pins, approved as `dockerProject`, and first come, first
    served for its address (decisions 9 and 14). Its address and names are
    frisket's own `docker.Address` and `docker.Names`, printed by

@@ -89,6 +89,13 @@ in
 
   config = {
     chase.internal.config = {
+      # An isolated tier's home per workspace, made on the host and mounted
+      # at its own path, given the placeholder login afresh each launch, so
+      # nothing a session leaves behind is what the next authenticates with
+      # (internal/session).
+      session.tiers = lib.mapAttrs (_: tier: {
+        codex = { inherit (tier.apps.codex) state; inherit stateDir; placeholder = placeholderFile; };
+      }) (lib.filterAttrs (_: t: !t.bare && t.apps.codex.state != null) cfg.tiers);
       # On the host codex keeps its own sandbox; in a container it bypasses it.
       wrappers.codex.hostCommand = [ "${base}/bin/codex" ];
       codex = {
@@ -149,18 +156,6 @@ in
       }) cfg.tiers;
 
     chase.internal.tiers = lib.mapAttrs (_: tier: mkIf (tier.apps.codex.state != null) {
-      # A home per workspace, made on the host and mounted at its own path.
-      # The placeholder login is put there fresh each session, so nothing a
-      # session leaves behind is what the next one authenticates with.
-      bindLines = lib.optional (tier.apps.codex.state == "isolated") ''
-        ${isolatedHome}
-        [ -d "$codex_home" ] || mkdir -p "$codex_home"
-        # install, not a redirect: it replaces whatever the last session left
-        # at auth.json, where a redirect would write through a link it planted.
-        install -m 0600 ${lib.escapeShellArg placeholderFile} "$codex_home/auth.json"
-        printf '%s:rw\n' "$codex_home"
-      '';
-
       setupLines = lib.optional (tier.apps.codex.state == "isolated") ''
         ${isolatedHome}
         export CODEX_HOME=$codex_home

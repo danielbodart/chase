@@ -17,12 +17,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/danielbodart/chase/internal/apps/claude"
 	"github.com/danielbodart/chase/internal/apps/codex"
+	"github.com/danielbodart/chase/internal/envelope"
 	"github.com/danielbodart/chase/internal/gcloud"
 	"github.com/danielbodart/chase/internal/selector"
+	"github.com/danielbodart/chase/internal/session"
 )
 
 // Default is where the module installs the file.
@@ -51,6 +54,17 @@ type Config struct {
 	// GCloudRenew is the Google Cloud token renewer's: empty, but for a
 	// check that points it at a fake token endpoint.
 	GCloudRenew gcloud.Config `json:"gcloudRenew,omitzero"`
+
+	// Session is what a sandbox tier's sessions are given on the host
+	// before they start: flong's binds.
+	Session session.Config `json:"session"`
+
+	// Envelope is how a checkout's own envelope is approved and applied,
+	// for the tiers that take one.
+	Envelope *envelope.Config `json:"envelope,omitempty"`
+
+	// EnvelopeTiers are the tiers that take a checkout's envelope.
+	EnvelopeTiers []string `json:"envelopeTiers,omitempty"`
 }
 
 // Wrapper is what one agent runs as on a bare tier.
@@ -72,6 +86,11 @@ func Load(path string) (Config, error) {
 	}
 	if err := c.Selector.Validate(); err != nil {
 		return Config{}, fmt.Errorf("%s: selector: %w", path, err)
+	}
+	if c.Envelope != nil {
+		if err := envelope.Validate(*c.Envelope, envelope.DefaultApps(*c.Envelope, io.Discard)); err != nil {
+			return Config{}, fmt.Errorf("%s: envelope: %w", path, err)
+		}
 	}
 	for name, w := range c.Wrappers {
 		if len(w.HostCommand) == 0 || w.HostCommand[0] == "" || w.HostCommand[0][0] != '/' {

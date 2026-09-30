@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"syscall"
 
 	"github.com/danielbodart/chase/internal/apps/claude"
@@ -29,10 +30,13 @@ import (
 	"github.com/danielbodart/chase/internal/checkout"
 	"github.com/danielbodart/chase/internal/config"
 	"github.com/danielbodart/chase/internal/dockerproject"
+	"github.com/danielbodart/chase/internal/envelope"
 	"github.com/danielbodart/chase/internal/gcloud"
 	"github.com/danielbodart/chase/internal/gitsafe"
 	"github.com/danielbodart/chase/internal/selector"
+	"github.com/danielbodart/chase/internal/session"
 	"github.com/danielbodart/chase/internal/snapshot"
+	"github.com/danielbodart/chase/internal/term"
 )
 
 // version is stamped at build time. A build without it says so rather than
@@ -50,6 +54,10 @@ const usage = `chase -- which sandbox a checkout gets, and which credential each
         --if-gone, the tier it would be without its own .git; --dry-run, a
         table of each directory's tier and why.
 
+  chase docker [DIR]
+        Where a checkout's Docker containers are reached from the host, as
+        the tier it would run in has them.
+
   chase docker-address OWNER/REPO
         A project's Docker identity, as one line of JSON: its owner/repo
         lower-cased, the loopback address everything it publishes is bound
@@ -66,6 +74,12 @@ What the module runs, rather than a person:
 
   chase workspace                  flong's workspace: the checkout's root
   chase guard TIER                 flong's guard for a sandbox tier
+  chase hook binds TIER            flong's binds: what is bound beside it
+  chase hook approve TIER          flong's seccompPolicy: approve the envelope
+  chase hook launch TIER           flong's postStart: apply what was approved
+  chase hook poststop TIER         flong's postStop: release and remove it
+  chase envelope SUBCOMMAND ...    the envelope's steps one by one, as
+                                   frisket's policy word and a person use them
   chase checkout [--ignoring ROOT] [DIR]
   chase origin DIR
   chase ls-files DIR               a checkout read without running its git
@@ -118,6 +132,21 @@ func main() {
 		err = runWorkspace(ctx, cfgPath, os.Stdout)
 	case "guard":
 		exit(runGuard(ctx, cfgPath, args))
+	case "hook":
+		exit(runHook(ctx, cfgPath, args))
+	case "envelope":
+		cfg, lerr := config.Load(cfgPath)
+		if lerr != nil {
+			err = lerr
+			break
+		}
+		if cfg.Envelope == nil {
+			err = errors.New("the module configures no tier that takes an envelope")
+			break
+		}
+		exit(envelope.Run(ctx, *cfg.Envelope, nil, args, os.Stdin, os.Stdout, os.Stderr))
+	case "docker":
+		exit(runDocker(ctx, cfgPath, args))
 	case "checkout", "origin", "ls-files":
 		exit(runCheckout(ctx, cfgPath, command, args))
 	case "copy-tracked":
@@ -184,6 +213,11 @@ func runGuard(ctx context.Context, cfgPath string, args []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "chase guard: %v\n", err)
 		return 1
+	}
+	// flong gives every hook the launcher's arguments after its own; the
+	// guard is one hook, and reads only its tier.
+	if len(args) > 1 {
+		args = args[:1]
 	}
 	return selector.RunGuard(ctx, s, args, os.LookupEnv, os.Stderr)
 }
@@ -265,6 +299,84 @@ func wrap(ctx context.Context, cfgPath, agent string, args []string) int {
 	err = syscall.Exec(prog, argv, os.Environ())
 	fmt.Fprintf(os.Stderr, "%s: %s: %v\n", agent, prog, err)
 	return 126
+}
+
+// runHook is one of flong's hooks for a sandbox tier. flong runs each as a
+// command, never through a shell, with $workspace, $binds and (from
+// seccompPolicy on) $machine in its environment, and the launcher's own
+// arguments after the hook's, which are not the hook's to read.
+func runHook(ctx context.Context, cfgPath string, args []string) int {
+	if len(args) < 2 {
+		fmt.Fprint(os.Stderr, "usage: chase hook binds|approve|launch|poststop TIER\n")
+		return 2
+	}
+	hook, tier := args[0], args[1]
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "chase hook %s: %v\n", hook, err)
+		return 1
+	}
+	ws, machine := os.Getenv("workspace"), os.Getenv("machine")
+	takes := cfg.Envelope != nil && slices.Contains(cfg.EnvelopeTiers, tier)
+	switch hook {
+	case "binds":
+		if err := session.Binds(cfg.Session, tier, ws, os.Stdout); err != nil {
+			term.Say(os.Stderr, "%s: %v", ws, err)
+			return 1
+		}
+		if takes {
+			// The checkout's environment directory, read-only.
+			return envelope.RunEnvDir(ctx, *cfg.Envelope, []string{ws}, os.Stdin, os.Stdout, os.Stderr)
+		}
+		return 0
+	case "approve", "launch", "poststop":
+		if !takes {
+			fmt.Fprintf(os.Stderr, "chase hook %s: %s takes no envelope\n", hook, tier)
+			return 1
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "chase hook: unknown hook %q\n", hook)
+		return 2
+	}
+	e := *cfg.Envelope
+	switch hook {
+	case "approve":
+		return envelope.RunApprove(ctx, e, []string{ws, machine, tier}, os.Stdin, os.Stdout, os.Stderr)
+	case "launch":
+		return envelope.RunLaunch(ctx, e, envelope.DefaultApps(e, os.Stderr), []string{tier, ws, machine}, os.Stdin, os.Stdout, os.Stderr)
+	default:
+		return envelope.RunPostStop(ctx, e, nil, []string{machine}, os.Stdin, os.Stdout, os.Stderr)
+	}
+}
+
+// runDocker is `chase docker [DIR]`: where the checkout's containers are
+// reached, as the tier it would run in has them.
+func runDocker(ctx context.Context, cfgPath string, args []string) int {
+	if len(args) > 1 {
+		fmt.Fprint(os.Stderr, "usage: chase docker [DIR]\n")
+		return 2
+	}
+	cfg, s, err := selectorOf(cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "chase docker: %v\n", err)
+		return 1
+	}
+	if cfg.Envelope == nil {
+		fmt.Fprint(os.Stderr, "chase docker: the module configures no tier that takes an envelope\n")
+		return 1
+	}
+	dir := "."
+	if len(args) == 1 {
+		dir = args[0]
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "chase docker: %v\n", err)
+		return 1
+	}
+	tier := s.TierOrFallback(ctx, abs)
+	s.Close()
+	return envelope.RunDocker(ctx, *cfg.Envelope, []string{abs, tier}, os.Stdin, os.Stdout, os.Stderr)
 }
 
 func runClaude(ctx context.Context, cfgPath, command string) error {

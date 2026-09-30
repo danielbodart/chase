@@ -16,35 +16,6 @@ let
   chomp = lib.removeSuffix "\n";
   indent = s: lines (map (l: if l == "" then l else "  " + l) (lib.splitString "\n" s));
 
-  # flong's `binds`: the other members of every group the workspace is in, one
-  # PATH:rw per line (a bare PATH would be read-only). Not transitive. Each
-  # member's list is worked out here, sorted and without repeats, so a launch
-  # only looks its workspace up and checks what exists, in builtins.
-  groupPeers = lib.foldl'
-    (acc: group: lib.foldl'
-      (acc: m: acc // { ${m} = (acc.${m} or [ ]) ++ lib.filter (o: o != m) group; })
-      acc
-      group)
-    { }
-    cfg.workspaceGroups;
-  groupBinds = lib.optionalString (groupPeers != { }) ''
-    case $workspace in
-    ${indent (lines (lib.mapAttrsToList (m: peers: ''
-      ${lib.escapeShellArg m})
-        for m in ${lib.escapeShellArgs (lib.unique (lib.sort lib.lessThan (map (o: "${o}:rw") peers)))}; do
-          if [ -d "''${m%:rw}" ]; then printf '%s\n' "$m"; fi
-        done
-        ;;'') groupPeers))}
-    esac
-  '';
-
-  # A flong hook is a command, never shell: one that needs a shell is a
-  # script of its own, under the options flong's snippets once ran with.
-  hookScript = name: text: "${pkgs.writeShellScript "chase-${name}" ''
-    set -euo pipefail
-    ${text}
-  ''}";
-
   # flong's `command`: runs in the container as the user, in the workspace,
   # and execs the agent named by the first argument.
   mkCommand = tier: contributions: pkgs.writeShellApplication {
@@ -428,7 +399,6 @@ in
       type = types.attrsOf (types.submodule {
         options = {
           setupLines = mkOption { type = types.listOf types.lines; default = [ ]; };
-          bindLines = mkOption { type = types.listOf types.lines; default = [ ]; };
           launchers = mkOption { type = types.attrsOf types.lines; default = { }; };
         };
       });
@@ -497,6 +467,12 @@ in
         }
       ]) cfg.tiers);
 
+    chase.internal.config.session = {
+      inherit (cfg) home workspaceGroups;
+      runtime = "/run/user/${toString cfg.uid}";
+      tiers = lib.mapAttrs (_: _: { }) sandboxes;
+    };
+
     environment.etc."chase/config.json".source = (pkgs.formats.json { }).generate "chase-config.json" cfg.internal.config;
 
     # The user whose credential files the routes read.
@@ -543,10 +519,9 @@ in
       # The root the selector sorted, never git's own answer, which a
       # session's core.worktree would steer. See internal/checkout.
       workspace = [ (lib.getExe cfg.package) "workspace" ];
-      # One script for every line, as the snippet was: one fork a launch.
-      binds =
-        let text = groupBinds + lines cfg.internal.tiers.${name}.bindLines; in
-        lib.optional (lib.trim text != "") [ (hookScript "agent-${name}-binds" text) ];
+      # What is bound beside the workspace: a group's other members, and
+      # what the tier's apps make on the host for it (internal/session).
+      binds = [ [ (lib.getExe cfg.package) "hook" "binds" name ] ];
     } // lib.optionalAttrs (tier.egress == "direct") {
       network = {
         inherit (tier) forwardPorts;

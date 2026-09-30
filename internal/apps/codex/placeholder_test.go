@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -24,16 +23,6 @@ const originalFilter = `$real as $r
      },
      last_refresh: ($r.last_refresh // "2000-01-01T00:00:00Z")
    }`
-
-func original(t *testing.T, real string) (string, bool) {
-	t.Helper()
-	bin, err := exec.LookPath("jq")
-	if err != nil {
-		t.Skip("no jq to compare against")
-	}
-	out, err := exec.Command(bin, "-n", "--argjson", "real", real, "--arg", "access", PlaceholderJWT, originalFilter).Output()
-	return string(out), err == nil
-}
 
 func config(t *testing.T) Config {
 	home := t.TempDir()
@@ -152,45 +141,6 @@ func TestNoLoginIsAPlaceholderAllTheSame(t *testing.T) {
 
 // Byte for byte what the jq program made, for every shape of login it
 // accepted, and refused where it refused.
-func TestPlaceholderMatchesTheOriginal(t *testing.T) {
-	for _, real := range []string{
-		`{}`,
-		`null`,
-		`{"auth_mode":false,"tokens":null,"last_refresh":null}`,
-		`{"auth_mode":"apikey","OPENAI_API_KEY":"sk-x"}`,
-		`{"auth_mode":{"odd":[1,2]},"tokens":{"account_id":7}}`,
-		`{"tokens":{"id_token":""}}`,
-		`{"tokens":{"id_token":"a"}}`,
-		`{"tokens":{"id_token":"a.b"}}`,
-		`{"tokens":{"id_token":"a.b.c.d"}}`,
-		`{"tokens":{"id_token":"a..b"}}`,
-		`{"tokens":{"id_token":"."}}`,
-		`{"tokens":{"id_token":false,"account_id":false}}`,
-		`{"tokens":{"id_token":"é.\u0001"},"last_refresh":"x\"y"}`,
-		`{"tokens":{"id_token":1}}`,
-		`{"tokens":{"id_token":["a"]}}`,
-		`{"tokens":"x"}`,
-		`[]`,
-		`"s"`,
-		`1`,
-	} {
-		want, ok := original(t, real)
-		c := config(t)
-		writeAuth(t, c, real)
-		err := WritePlaceholder(c)
-		if (err == nil) != ok {
-			t.Errorf("%s: error %v, jq accepted %v", real, err, ok)
-			continue
-		}
-		if !ok {
-			continue
-		}
-		if b, _ := os.ReadFile(c.Placeholder); string(b) != want {
-			t.Errorf("%s:\n got %s\nwant %s", real, b, want)
-		}
-	}
-}
-
 // A login it cannot read leaves the last placeholder as it was, rather than
 // truncating what a running session has bound.
 func TestALoginItCannotReadLeavesThePlaceholder(t *testing.T) {

@@ -53,64 +53,6 @@ let
         (body: fields.${body});
     };
   };
-  routeTemplates = pkgs.writeText "chase-docker-routes.json" (builtins.toJSON (lib.mapAttrs (_: _: route) enabled));
-
-  prepare = pkgs.writeShellApplication {
-    name = "chase-docker-prepare";
-    runtimeInputs = [ pkgs.jq cfg.package ];
-    # RUN and ENVDIR are not needed: Docker has no secret, and nothing of
-    # the checkout's to keep.
-    text = ''
-      tier=$1 ws=$2
-      binding=$(cat)
-      die() { echo "chase: $ws: docker: $*" >&2; exit 1; }
-
-      route=$(jq -c --arg t "$tier" '.[$t] // empty' ${routeTemplates})
-      if [ -z "$route" ]; then
-        echo "chase: $ws: docker ignored: $tier has no docker" >&2
-        echo '{}'
-        exit 0
-      fi
-
-      # The project approve derived from the checkout's origin, and was
-      # approved as: never anything the envelope says, which would let a
-      # project name another's containers as its own.
-      [ -n "''${chase_project:-}" ] || die "no project was approved for it, so its containers could be nobody's"
-      jq -e '(.images // []) != []' <<< "$binding" >/dev/null \
-        || die "no images: say which the project's containers may run"
-      # As options.nix refuses it, again here, since every spelling below is
-      # made from it: an image's ID, or sha256:<prefix>, which the daemon
-      # answers with whatever local image has it.
-      jq -e 'all(.images[]; split("/") | all(.[]; split("@")[0] | split(":")[0] | ascii_downcase | (. == "sha256" or test("^[0-9a-f]{64}$")) | not))' <<< "$binding" >/dev/null \
-        || die "an image named by its ID: name it by its repository and a tag or digest"
-      who=$(chase docker-address "$chase_project") || die "$chase_project has no address"
-
-      # frisket compares an image as the string a client sends, and the CLI
-      # sends what it was given: every spelling that names the same image
-      # on Docker Hub. The envelope allows only the shortest, so each is
-      # given all of its own here.
-      jq -c <<< "$binding" --argjson route "$route" --argjson who "$who" '
-        def spellings:
-          if (contains("/") | not) then [., "library/" + ., "docker.io/" + ., "docker.io/library/" + .]
-          elif (split("/")[0] | test("[.:]") or . == "localhost") then [.]
-          else [., "docker.io/" + .] end;
-        (reduce (.images[] | spellings[]) as $i ([]; if index([$i]) then . else . + [$i] end)) as $images
-        | (.ports // []) as $ports
-        | {
-            routes: [$route | .docker += {project: $who.project, images: $images, ports: $ports, address: $who.address, names: $who.names}],
-            allow: ["docker.frisket.internal"],
-            env: {
-              DOCKER_HOST: "tcp://docker.frisket.internal:2376",
-              DOCKER_TLS_VERIFY: "1",
-              DOCKER_CERT_PATH: "/etc/chase/docker",
-              CHASE_DOCKER_PROJECT: $who.project,
-              CHASE_DOCKER_ADDRESS: $who.address,
-              CHASE_DOCKER_NAMES: ($who.names | join(" ")),
-              CHASE_DOCKER_PORTS: ($ports | map(tostring) | join(" "))
-            }
-          }'
-    '';
-  };
 in
 {
   options.chase.bindings.docker.package = mkOption {
@@ -160,9 +102,9 @@ in
       };
     })) cfg.tiers;
 
-    chase.internal.projectApps.docker = {
-      credential = false;
-      prepare = lib.getExe prepare;
-    };
+    # Made at launch, for the project approved and its images and ports
+    # (internal/apps/docker), from each tier's route as it is here.
+    chase.internal.projectApps = lib.mkIf (enabled != { }) { docker.credential = false; };
+    chase.internal.config = lib.mkIf (enabled != { }) { envelope.docker.routes = lib.mapAttrs (_: _: route) enabled; };
   };
 }

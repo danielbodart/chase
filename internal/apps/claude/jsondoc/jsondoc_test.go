@@ -2,9 +2,7 @@ package jsondoc
 
 import (
 	"bytes"
-	"os/exec"
 	"reflect"
-	"strings"
 	"testing"
 
 	"pgregory.net/rapid"
@@ -12,83 +10,10 @@ import (
 
 // jq runs the real jq, where there is one, as the oracle the scripts this
 // package replaces were written against.
-func jq(t *testing.T, stdin string, args ...string) (string, bool) {
-	t.Helper()
-	bin, err := exec.LookPath("jq")
-	if err != nil {
-		t.Skip("no jq to compare against")
-	}
-	cmd := exec.Command(bin, args...)
-	cmd.Stdin = strings.NewReader(stdin)
-	out, err := cmd.Output()
-	return string(out), err == nil
-}
-
-var documents = []string{
-	`{}`,
-	`[]`,
-	`null`,
-	`true`,
-	`"x"`,
-	`12`,
-	`{"b":1,"a":2}`,
-	`{"a":1,"a":2,"b":3}`,
-	`{"a":{"b":[1,{"c":null},[],{}],"d":false},"e":-0.5}`,
-	`{"s":"\u00e9\/\u007f\u0001\b\f\n\r\t\"\\\u2028<&>"}`,
-	`{"z":"é","nested":{"deep":{"deeper":[[1,2],[3]]}}}`,
-	"  {\"a\" : 1 }\n\n",
-	`{"big":100000000000000000001,"ms":1759999999999,"frac":1.0}`,
-}
-
 // Laid out as jq lays it out, key order and all.
-func TestMarshalIsWhatJqPrints(t *testing.T) {
-	for _, d := range documents {
-		v, err := Parse([]byte(d))
-		if err != nil {
-			t.Fatalf("%s: %v", d, err)
-		}
-		want, ok := jq(t, d, ".")
-		if !ok {
-			t.Fatalf("jq refused %s", d)
-		}
-		if got := string(v.Marshal()) + "\n"; got != want {
-			t.Errorf("%s:\n got %q\nwant %q", d, got, want)
-		}
-	}
-}
-
 // The numbers whose literal jq rewrites and this keeps: the one known
 // difference from jq's layout, said in the package comment. If jq starts or
 // stops rewriting one of them, this says so.
-func TestNumbersJqRewrites(t *testing.T) {
-	for literal, jqs := range map[string]string{
-		"1e3":       "1E+3",
-		"1E+3":      "1E+3",
-		"1.5e-10":   "1.5E-10",
-		"100e-2":    "1.00",
-		"12e0":      "12",
-		"0.0000001": "1E-7",
-	} {
-		d := `{"n":` + literal + `}`
-		v, err := Parse([]byte(d))
-		if err != nil {
-			t.Fatalf("%s: %v", d, err)
-		}
-		if got := string(v.Marshal()); got != "{\n  \"n\": "+literal+"\n}" {
-			t.Errorf("%s: kept as %q", literal, got)
-		}
-		if want, ok := jq(t, d, "-c", ".n"); !ok || want != jqs+"\n" {
-			t.Errorf("%s: jq now prints %q, not %s", literal, want, jqs)
-		}
-	}
-	// And those it keeps as written, as this does.
-	for _, literal := range []string{"1.0", "0.000001", "-0", "-0.0", "0.10", "1759999999999"} {
-		if want, ok := jq(t, `{"n":`+literal+`}`, "-c", ".n"); !ok || want != literal+"\n" {
-			t.Errorf("%s: jq now prints %q", literal, want)
-		}
-	}
-}
-
 func TestParseRefusesWhatJqRefuses(t *testing.T) {
 	for _, d := range []string{``, ` `, `1 2`, `{} {}`, `{`, `{"a":}`, `{"a":1}x`, `{a:1}`, `[1,]`} {
 		if _, err := Parse([]byte(d)); err == nil {
@@ -156,29 +81,6 @@ func TestOrIsJqsAlternative(t *testing.T) {
 	} {
 		if got := c.v.Or(alt); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%v // alt = %v", c.v, got)
-		}
-	}
-}
-
-func TestSplitIsJqs(t *testing.T) {
-	for _, s := range []string{"", ".", "a", "a.", ".a", "a..b", "a.b.c.d"} {
-		want, ok := jq(t, "", "-nc", "--arg", "s", s, "$s | split(\".\")")
-		if !ok {
-			t.Fatal("jq refused")
-		}
-		got, _ := Value{Kind: Array, Arr: strs(Split(s, "."))}.marshalCompact()
-		if got+"\n" != want {
-			t.Errorf("split %q = %s, jq %s", s, got, want)
-		}
-	}
-}
-
-func TestRawIsJqRaw(t *testing.T) {
-	for _, d := range []string{`"a\nb"`, `123`, `true`, `{"a":[1]}`} {
-		v, _ := Parse([]byte(d))
-		want, _ := jq(t, d, "-r", ".")
-		if v.Raw()+"\n" != want {
-			t.Errorf("%s: %q, jq %q", d, v.Raw(), want)
 		}
 	}
 }

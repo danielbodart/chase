@@ -312,7 +312,13 @@ func exportsOf(a App, patch apps.Patch, binding *value) (string, Env, error) {
 		if err != nil {
 			return "", nil, err
 		}
-		if v.kind != 'n' {
+		switch v.kind {
+		case 'n':
+		case '[', '{':
+			// A list would be exported as more than one shell word, the
+			// rest of them names of variables of their own.
+			return "", nil, refuse("%s: %s is not one value, so %s cannot be it", k, a.EnvFromBinding[k], k)
+		default:
 			merged.set(k, v)
 		}
 	}
@@ -408,10 +414,16 @@ func applyLists(pd *policy.Document, bindings *value, ws, tier string, stderr io
 // PostStop is the session's end: each app's Stop, to release what its
 // Prepare started, whatever each says, and then the session's own directory
 // and anything staged for it, removed.
-func PostStop(ctx context.Context, c Config, registry map[string]apps.App, machine string) {
+func PostStop(ctx context.Context, c Config, registry map[string]apps.App, machine string) error {
+	// Only a session's own name: an empty one would remove every session's
+	// directory, and one with a '/' or a leading '.' somewhere else.
+	if machine == "" || strings.Contains(machine, "/") || machine[0] == '.' {
+		return refuse("%q is not a session's name", machine)
+	}
 	for _, name := range slices.Sorted(maps.Keys(registry)) {
 		registry[name].Stop(ctx, machine)
 	}
 	os.RemoveAll(c.runtime() + "/chase/" + machine)
 	os.RemoveAll(staged(c, machine))
+	return nil
 }

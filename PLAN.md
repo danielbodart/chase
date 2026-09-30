@@ -282,10 +282,10 @@ approval mean something: a session of the same checkout cannot change a file
 between the approval and its use.
 
 The snapshot is taken without running anything the checkout's config names:
-which files are tracked is read by `chase-ls-files` from the index alone, in
-an empty repository, never by `git ls-files` in the checkout, whose
-`core.fsmonitor` is a command git would run; and they are copied by
-`chase-copy-tracked`, which follows no link above the tracked files, so a
+which files are tracked is read from the index alone (`chase ls-files`,
+internal/checkout), in an empty repository, never by `git ls-files` in the
+checkout, whose `core.fsmonitor` is a command git would run; and they are
+copied (internal/snapshot) following no link above the tracked files, so a
 directory the session made a link cannot bring a host file into what is
 evaluated and decrypted.
 
@@ -352,7 +352,7 @@ the checkout's.
 
 This all resolves in chase: the tier's and the app's settings at eval, and a
 project's lists at launch, against the tier's own policy document
-(`project/lists.jq`). frisket gets rules that already say allow, ask or
+(internal/policydoc). frisket gets rules that already say allow, ask or
 refuse, and carries each operation's class and category only to show them. What frisket must add is the ability to name what it
 cannot see in a method and a path: a GraphQL mutation by its field, the refs a
 push updates, an LFS batch's operation. Each gets an operation id, so git,

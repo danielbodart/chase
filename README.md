@@ -340,9 +340,11 @@ tier set up so it cannot work — a bare fallback, a rule with no predicate — 
 fail the same way. Evaluation only — no system is built, which is what keeps it
 in seconds.
 
-`checks.selector` builds `agent-tier` from the example's rules and runs it
-against real repositories: a pinned checkout at its path and elsewhere, a
-fork, a stranger's, a shallow clone, a directory that is not a repository.
+The selector's tests (internal/selector, internal/checkout) build real
+repositories and sort them: a pinned checkout at its path and elsewhere, a
+fork, a stranger's, a shallow clone, a directory that is not a repository,
+and every layout a session could write to steer one. `checks.module-config`
+holds the configuration the module writes to one the binary loads.
 
 ## Licence
 

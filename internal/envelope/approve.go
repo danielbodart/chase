@@ -496,7 +496,9 @@ func evaluate(ctx context.Context, c Config, src string, stderr io.Writer) (stri
 		"path:"+c.Evaluator+"#envelope", "--override-input", "project", "path:"+src)
 	cmd.Stdout, cmd.Stderr = &out, &log
 	if err := cmd.Run(); err != nil {
-		stderr.Write(log.Bytes())
+		// Cleaned: nix quotes the checkout's own source in its errors, and
+		// that is the session's to write.
+		io.WriteString(stderr, term.Clean(log.String()))
 		if _, exited := err.(*exec.ExitError); !exited {
 			// The shell said why it could not run nix, into the log it
 			// printed; this says it as chase says anything, as the

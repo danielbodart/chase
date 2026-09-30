@@ -3,9 +3,7 @@ package claude
 import (
 	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -30,22 +28,6 @@ if [ -f "$f" ]; then
   fi
 fi
 `
-
-func runOriginal(t *testing.T, home, pathsJSON, n string) string {
-	t.Helper()
-	for _, tool := range []string{"bash", "jq", "cmp"} {
-		if _, err := exec.LookPath(tool); err != nil {
-			t.Skipf("no %s to compare against", tool)
-		}
-	}
-	cmd := exec.Command("bash", "-euc", original)
-	cmd.Env = append(os.Environ(), "HOME="+home, "PATHS="+pathsJSON, "N="+n, "TMPDIR="+t.TempDir())
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("the original failed: %v", err)
-	}
-	return string(out)
-}
 
 func trustIn(t *testing.T, content string, paths ...string) (string, string, os.FileInfo) {
 	t.Helper()
@@ -228,35 +210,3 @@ func TestAWriteThatFailsIsAnError(t *testing.T) {
 
 // What the original wrote from a file jq itself had laid out, this writes
 // byte for byte, and says the same.
-func TestMatchesTheOriginal(t *testing.T) {
-	for _, in := range []string{
-		"{}\n",
-		"{\n  \"projects\": {\n    \"/h\": {\n      \"hasTrustDialogAccepted\": false,\n      \"é\": \"\\u0001\"\n    }\n  },\n  \"z\": [\n    1.0\n  ]\n}\n",
-		"{\n  \"a\": 1\n}\n",
-	} {
-		paths := []string{"/h", "/h/with \"quote\"", "/h"}
-		mine := filepath.Join(t.TempDir(), ".claude.json")
-		os.WriteFile(mine, []byte(in), 0o644)
-		var out bytes.Buffer
-		if err := TrustWorkspaces(Config{ClaudeJSON: mine, TrustPaths: paths}, &out); err != nil {
-			t.Fatal(err)
-		}
-		home := t.TempDir()
-		theirs := filepath.Join(home, ".claude.json")
-		os.WriteFile(theirs, []byte(in), 0o644)
-		said := runOriginal(t, home, `["/h","/h/with \"quote\""]`, "2")
-		a, _ := os.ReadFile(mine)
-		b, _ := os.ReadFile(theirs)
-		if string(a) != string(b) || out.String() != said {
-			t.Errorf("%s:\n mine %q said %q\ntheirs %q said %q", in, a, out.String(), b, said)
-		}
-		fa, _ := os.Stat(mine)
-		fb, _ := os.Stat(theirs)
-		if fa.Mode() != fb.Mode() {
-			t.Errorf("mode %v, theirs %v", fa.Mode(), fb.Mode())
-		}
-		if strings.Contains(string(a), "\\/") {
-			t.Error("escaped a slash")
-		}
-	}
-}

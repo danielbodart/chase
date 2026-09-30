@@ -166,6 +166,5 @@ func RunPostStop(ctx context.Context, c Config, registry map[string]apps.App, ar
 	if registry == nil {
 		registry = DefaultApps(c, stderr)
 	}
-	PostStop(ctx, c, registry, args[0])
-	return 0
+	return fail(stderr, PostStop(ctx, c, registry, args[0]))
 }

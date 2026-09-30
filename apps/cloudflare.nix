@@ -116,21 +116,19 @@ in
       };
     })) cfg.tiers;
 
-    chase.internal.tiers = lib.mapAttrs (name: tier: mkIf (tier.apps.cloudflare.enable && bindings.accountIdFile != null) (
-      let dir = "${stateDir}/${name}"; in
-      {
-        # On the host, as the user: the file is theirs to read.
-        bindLines = [ ''
-          [ -d ${lib.escapeShellArg dir} ] || mkdir -p ${lib.escapeShellArg dir}
-          install -m 0600 ${lib.escapeShellArg bindings.accountIdFile} ${lib.escapeShellArg "${dir}/account-id"}
-          printf '%s\n' ${lib.escapeShellArg dir}
-        '' ];
-        # In the session, from the directory bound in read-only.
-        setupLines = [ ''
-          CLOUDFLARE_ACCOUNT_ID=$(< ${lib.escapeShellArg "${dir}/account-id"})
-          export CLOUDFLARE_ACCOUNT_ID
-        '' ];
-      })) cfg.tiers;
+    # The account id, copied on the host into a directory of the tier's,
+    # bound read-only (internal/session); read in the session.
+    chase.internal.config.session.tiers = lib.mapAttrs (name: _: {
+      cloudflare = { dir = "${stateDir}/${name}"; accountIdFile = bindings.accountIdFile; };
+    }) (lib.filterAttrs (_: t: !t.bare && t.apps.cloudflare.enable && bindings.accountIdFile != null) cfg.tiers);
+
+    chase.internal.tiers = lib.mapAttrs (name: tier: mkIf (tier.apps.cloudflare.enable && bindings.accountIdFile != null) {
+      # In the session, from the directory bound in read-only.
+      setupLines = [ ''
+        CLOUDFLARE_ACCOUNT_ID=$(< ${lib.escapeShellArg "${stateDir}/${name}/account-id"})
+        export CLOUDFLARE_ACCOUNT_ID
+      '' ];
+    }) cfg.tiers;
 
     # A route of the tier's own only with a token of the tier's own: without
     # one, api.cloudflare.com is intercepted only in a session whose project

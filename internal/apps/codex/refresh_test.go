@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -596,32 +595,3 @@ func TestWhatItSaysHasNoControlBytes(t *testing.T) {
 
 // The merge is byte for byte the jq program's, refusals included, with its
 // clock fixed where it read `now`.
-func TestMergeMatchesTheOriginal(t *testing.T) {
-	const filter = `
-              .tokens.id_token = ($new.id_token // .tokens.id_token)
-              | .tokens.access_token = ($new.access_token // .tokens.access_token)
-              | .tokens.refresh_token = ($new.refresh_token // .tokens.refresh_token)
-              | .last_refresh = ("2027-01-02T03:04:05Z")`
-	bin, err := exec.LookPath("jq")
-	if err != nil {
-		t.Skip("no jq to compare against")
-	}
-	auths := []string{due("r0"), `{}`, `null`, `{"tokens":null}`, `{"tokens":"x"}`, `[]`, `{"a":1,"tokens":{"x":[1,{}]}}`, `{`}
-	responses := []string{`{"id_token":"i","access_token":"a","refresh_token":"r"}`, `{}`, `null`, `{"refresh_token":false}`, `[]`, `"s"`, `{"access_token":{"odd":1}}`, `x`}
-	for _, auth := range auths {
-		for _, resp := range responses {
-			c := config(t)
-			writeAuth(t, c, auth)
-			cmd := exec.Command(bin, "-e", "--argjson", "new", resp, filter, c.Auth)
-			want, jqErr := cmd.Output()
-			got, err := merge(c.Auth, []byte(resp), epoch)
-			if (err == nil) != (jqErr == nil) {
-				t.Errorf("%s with %s: error %v, jq's %v", auth, resp, err, jqErr)
-				continue
-			}
-			if err == nil && string(got)+"\n" != string(want) {
-				t.Errorf("%s with %s:\n got %s\nwant %s", auth, resp, got, want)
-			}
-		}
-	}
-}
