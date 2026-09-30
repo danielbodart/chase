@@ -60,8 +60,8 @@
       allow = [ "*" ];
       # strace and gdb, on your own code.
       seccomp.debug = true;
-      # A checkout's own envelope, once approved.
-      envelope = true;
+      # A checkout's own grant, once approved.
+      grants = true;
       # A dev server started in a session is reached at the same port on the
       # host, for as long as it listens.
       forwardPorts = "auto";

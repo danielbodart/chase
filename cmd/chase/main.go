@@ -30,9 +30,9 @@ import (
 	"github.com/danielbodart/chase/internal/checkout"
 	"github.com/danielbodart/chase/internal/config"
 	"github.com/danielbodart/chase/internal/dockerproject"
-	"github.com/danielbodart/chase/internal/envelope"
 	"github.com/danielbodart/chase/internal/gcloud"
 	"github.com/danielbodart/chase/internal/gitsafe"
+	"github.com/danielbodart/chase/internal/grant"
 	"github.com/danielbodart/chase/internal/selector"
 	"github.com/danielbodart/chase/internal/session"
 	"github.com/danielbodart/chase/internal/snapshot"
@@ -75,14 +75,14 @@ What the module runs, rather than a person:
   chase workspace                  flong's workspace: the checkout's root
   chase guard TIER                 flong's guard for a sandbox tier
   chase hook binds TIER            flong's binds: what is bound beside it
-  chase hook approve TIER          flong's seccompPolicy: approve the envelope
+  chase hook approve TIER          flong's seccompPolicy: approve the grant
   chase hook exec TIER AGENT [ARG...]
                                    flong's exec: apply what was approved, and
                                    print the payload, its environment and the
                                    files seeded into its home
   chase hook poststop TIER         flong's postStop: release and remove it
-  chase envelope approve|project|docker ...
-                                   the envelope's steps, as a person uses them
+  chase grant approve|project|docker ...
+                                   the grant's steps, as a person uses them
   chase checkout [--ignoring ROOT] [DIR]
   chase origin DIR
   chase ls-files DIR               a checkout read without running its git
@@ -137,17 +137,17 @@ func main() {
 		exit(runGuard(ctx, cfgPath, args))
 	case "hook":
 		exit(runHook(ctx, cfgPath, args))
-	case "envelope":
+	case "grant":
 		cfg, lerr := config.Load(cfgPath)
 		if lerr != nil {
 			err = lerr
 			break
 		}
-		if cfg.Envelope == nil {
-			err = errors.New("the module configures no tier that takes an envelope")
+		if cfg.Grant == nil {
+			err = errors.New("the module configures no tier that takes a grant")
 			break
 		}
-		exit(envelope.Run(ctx, *cfg.Envelope, args, os.Stdin, os.Stdout, os.Stderr))
+		exit(grant.Run(ctx, *cfg.Grant, args, os.Stdin, os.Stdout, os.Stderr))
 	case "docker":
 		exit(runDocker(ctx, cfgPath, args))
 	case "checkout", "origin", "ls-files":
@@ -321,7 +321,7 @@ func runHook(ctx context.Context, cfgPath string, args []string) int {
 		return 1
 	}
 	ws, machine := os.Getenv("workspace"), os.Getenv("machine")
-	takes := cfg.Envelope != nil && slices.Contains(cfg.EnvelopeTiers, tier)
+	takes := cfg.Grant != nil && slices.Contains(cfg.GrantTiers, tier)
 	switch hook {
 	case "binds":
 		if err := session.Binds(cfg.Session, tier, ws, os.Stdout); err != nil {
@@ -333,31 +333,31 @@ func runHook(ctx context.Context, cfgPath string, args []string) int {
 		return runExec(ctx, cfg, tier, ws, machine, takes, args[2:])
 	case "approve", "poststop":
 		if !takes {
-			fmt.Fprintf(os.Stderr, "chase hook %s: %s takes no envelope\n", hook, tier)
+			fmt.Fprintf(os.Stderr, "chase hook %s: %s takes no grant\n", hook, tier)
 			return 1
 		}
 	default:
 		fmt.Fprintf(os.Stderr, "chase hook: unknown hook %q\n", hook)
 		return 2
 	}
-	e := *cfg.Envelope
+	e := *cfg.Grant
 	switch hook {
 	case "approve":
-		return envelope.RunApprove(ctx, e, []string{ws, machine, tier}, os.Stdin, os.Stdout, os.Stderr)
+		return grant.RunApprove(ctx, e, []string{ws, machine, tier}, os.Stdin, os.Stdout, os.Stderr)
 	default:
-		return envelope.RunPostStop(ctx, e, nil, []string{machine}, os.Stdin, os.Stdout, os.Stderr)
+		return grant.RunPostStop(ctx, e, nil, []string{machine}, os.Stdin, os.Stdout, os.Stderr)
 	}
 }
 
-// runExec is flong's exec for a sandbox tier (envelope.Exec): the
+// runExec is flong's exec for a sandbox tier (grant.Exec): the
 // payload, printed as flong reads it, for the launcher's arguments args,
-// the approved envelope applied first for a tier that takes one.
+// the approved grant applied first for a tier that takes one.
 func runExec(ctx context.Context, cfg config.Config, tier, ws, machine string, takes bool, args []string) int {
-	var e *envelope.Config
+	var e *grant.Config
 	if takes {
-		e = cfg.Envelope
+		e = cfg.Grant
 	}
-	return envelope.Exec(ctx, cfg.Session, e, nil, tier, ws, machine, os.Getenv("binds"), args, os.Stdout, os.Stderr)
+	return grant.Exec(ctx, cfg.Session, e, nil, tier, ws, machine, os.Getenv("binds"), args, os.Stdout, os.Stderr)
 }
 
 // runDocker is `chase docker [DIR]`: where the checkout's containers are
@@ -372,8 +372,8 @@ func runDocker(ctx context.Context, cfgPath string, args []string) int {
 		fmt.Fprintf(os.Stderr, "chase docker: %v\n", err)
 		return 1
 	}
-	if cfg.Envelope == nil {
-		fmt.Fprint(os.Stderr, "chase docker: the module configures no tier that takes an envelope\n")
+	if cfg.Grant == nil {
+		fmt.Fprint(os.Stderr, "chase docker: the module configures no tier that takes a grant\n")
 		return 1
 	}
 	dir := "."
@@ -387,7 +387,7 @@ func runDocker(ctx context.Context, cfgPath string, args []string) int {
 	}
 	tier := s.TierOrFallback(ctx, abs)
 	s.Close()
-	return envelope.RunDocker(ctx, *cfg.Envelope, []string{abs, tier}, os.Stdin, os.Stdout, os.Stderr)
+	return grant.RunDocker(ctx, *cfg.Grant, []string{abs, tier}, os.Stdin, os.Stdout, os.Stderr)
 }
 
 func runClaude(ctx context.Context, cfgPath, command string) error {

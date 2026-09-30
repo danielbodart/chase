@@ -32,7 +32,7 @@ let
     # Cloudforce One's: a query is a read, and there is no schema to name
     # a mutation by, so one is unmatched.
     graphql = ops.graphql s operations;
-    # Cloudflare's own error envelope, which wrangler reads: it then says why
+    # Cloudflare's own error grant, which wrangler reads: it then says why
     # a request was refused, where plain text gets "a request to the
     # Cloudflare API failed" and nothing more.
     refusal = {
@@ -66,7 +66,7 @@ in
         tier that enables Cloudflare. frisket reads it on the host and adds it
         to the session's requests to ${host}; nothing inside a container
         ever sees it. Null, the usual case: a tier has no Cloudflare token of
-        its own, and a project brings one in its envelope (decision 9 --
+        its own, and a project brings one in its grant (decision 9 --
         there is never a system-level cloud account).
 
         Mint it narrowly: the token is the floor, and the allowlist only
@@ -129,7 +129,7 @@ in
       };
     }) cfg.tiers;
 
-    # A project that binds its own token, in ../project/options.nix.
+    # A project that binds its own token, in its grant (internal/grant).
     chase.internal.projectApps.cloudflare = {
       routes = lib.mapAttrs (_: route) (lib.filterAttrs (_: t: !t.bare) cfg.tiers);
       allow = [ host ];

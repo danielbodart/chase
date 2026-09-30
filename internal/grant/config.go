@@ -1,35 +1,32 @@
-// Package envelope is a project's envelope, applied at launch (PLAN.md,
-// decisions 7, 10, 11 and 17). It was chase-envelope, the script
-// project/default.nix built, and each of its steps is kept here, in its
-// order and with its words:
+// Package grant is a project's grant, applied at launch (PLAN.md, decisions
+// 7, 10, 11 and 17): what the checkout's own chase.jsonc asks for beyond its
+// tier, once a person has approved it. Its steps:
 //
 //	approve   seccompPolicy, before the session is built: snapshots the
-//	          checkout, has a person approve its flake and then what its
-//	          chaseModules.default evaluates to, stages the approved result
-//	          for this launch, and prints its syscall loosenings for flong
+//	          checkout's chase.jsonc, and the sops file it names, checks
+//	          what it says against what a grant may say, has a person
+//	          approve it if it is not what they last approved, stages the
+//	          approved grant for this launch, and prints its syscall
+//	          loosenings for flong
 //	launch    exec, after seccompPolicy and before the session is built:
-//	          decrypts the secrets the staged result binds, prepares each
+//	          decrypts the secrets the staged grant binds, prepares each
 //	          bound app, writes the session's policy document where frisket
 //	          reads it, and gives the payload its environment and files
 //	project   a checkout's Docker project, as approve derives it
 //	docker    `chase docker`: a checkout's project, address, names and ports
 //
-// and postStop, which was a script of the module's own: each app's Stop,
-// then the session's run directory and anything staged for it removed.
-// The launch was postStart, writing an environment file each session
-// sourced; flong's exec gives the payload its variables directly, and
-// runs before frisket's steps, so frisket's document is always there by
-// the time it is read.
+// and postStop: each app's Stop, then the session's run directory and
+// anything staged for it removed.
 //
 // All of it runs as the user who launched: a launcher has no privilege of
 // its own (PLAN.md, decision 2). The approval is split from the rest because
 // a syscall filter is installed before anything in the session runs, so what
 // loosens it has to be known, and approved, before flong starts bwrap.
 //
-// A checkout with no flake, or a flake with no `chaseModules.default`, is the
-// tier as it is. Anything that goes wrong on the way ends the launch: an
-// envelope is applied whole or the session does not start.
-package envelope
+// A checkout with no chase.jsonc is the tier as it is. Anything that goes
+// wrong on the way ends the launch: a grant is applied whole or the session
+// does not start.
+package grant
 
 import (
 	"encoding/json"
@@ -47,8 +44,7 @@ import (
 	"github.com/danielbodart/chase/internal/gitsafe"
 )
 
-// Config is everything project/default.nix spliced into chase-envelope's
-// text, as the module will write it, as JSON. A test gives its own, which is
+// Config is what grant.nix writes for the grant, as JSON. A test gives its own, which is
 // what the harness's rewriting of the script's lines was.
 type Config struct {
 	// Git is the git that finds a checkout, reads its origin and lists
@@ -67,7 +63,7 @@ type Config struct {
 	// Home/.local/state/chase.
 	State string `json:"state,omitempty"`
 	// Runtime is the user's runtime directory, where a launch stages its
-	// approval (chase/.envelope/<machine>.json) and keeps its session's own
+	// approval (chase/.grant/<machine>.json) and keeps its session's own
 	// directory (chase/<machine>), which no session sees. Empty is
 	// /run/user/<UID>.
 	Runtime string `json:"runtime,omitempty"`
@@ -80,7 +76,7 @@ type Config struct {
 	Policies string `json:"policies"`
 
 	// DockerTiers are the tiers apps/docker.nix gives Docker: not bare, with
-	// apps.docker.enable, which it asserts take envelopes.
+	// apps.docker.enable, which it asserts take grants.
 	DockerTiers []string `json:"dockerTiers"`
 	// Checkouts is every tier's pinned checkouts, as the selector holds
 	// them: each owner/repo, and every path any tier pins it at. What names
@@ -96,18 +92,12 @@ type Config struct {
 	// has a credential, and may be left out when it does.
 	Apps map[string]App `json:"apps"`
 	// Approver is chase.approver: the program that asks a person to
-	// approve a checkout's envelope. Empty is none, and nothing is
+	// approve a checkout's grant. Empty is none, and nothing is
 	// approved.
 	Approver string `json:"approver,omitempty"`
-	// Evaluator is chase's envelope evaluator flake, in the store: its one
-	// input is the checkout, given on the command line and evaluated
-	// purely.
-	Evaluator string `json:"evaluator"`
-
-	// Nix, Sops and Diff are the absolute paths of the tools run: nix to
-	// evaluate, sops to decrypt, and diffutils' diff to show a person
-	// what changed. None is looked up on PATH, which is the caller's.
-	Nix  string `json:"nix"`
+	// Sops and Diff are the absolute paths of the tools run: sops to
+	// decrypt, and diffutils' diff to show a person what changed. Neither
+	// is looked up on PATH, which is the caller's.
 	Sops string `json:"sops"`
 	Diff string `json:"diff"`
 
@@ -157,13 +147,13 @@ func LoadConfig(path string) (Config, error) {
 // as a store path or the module's own is. A tool named without a slash is
 // looked up by exec on PATH, which is the caller's, and a path left out of
 // a hand-written file is "" -- a Hosts of "" is a file that is never there,
-// so the host's names would silently go unchecked when a claim is made, and
-// an Evaluator of "" is the flake ref "path:#envelope". So a file the module
-// did not write is refused, rather than half obeyed, as the selector's is.
+// so the host's names would silently go unchecked when a claim is made. So
+// a file the module did not write is refused, rather than half obeyed, as
+// the selector's is.
 func (c Config) paths() error {
 	for _, p := range []struct{ name, path string }{
 		{"home", c.Home}, {"hosts", c.Hosts}, {"policies", c.Policies},
-		{"evaluator", c.Evaluator}, {"nix", c.Nix}, {"sops", c.Sops}, {"diff", c.Diff},
+		{"sops", c.Sops}, {"diff", c.Diff},
 	} {
 		if !filepath.IsAbs(p.path) {
 			return fmt.Errorf("%s is %q, which is not an absolute path", p.name, p.path)

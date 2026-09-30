@@ -19,9 +19,13 @@
     "what": "jq [\"-cS\" \".\"] of \"{\\\"bindings\\\": {\\\"docker\\\": {\\\"images\\\": [\\\"postgres:18\\\"], \\\"ports\\\": [64320, 64321]}}, \\\"dockerProject\\\": \\\"example/shop\\\", \\\"seccomp\\\": {\\\"allow\\\": [\\\"a\\\"], \\\"deny\\\": []}}\"",
     "output": "{\"bindings\":{\"docker\":{\"images\":[\"postgres:18\"],\"ports\":[64320,64321]}},\"dockerProject\":\"example/shop\",\"seccomp\":{\"allow\":[\"a\"],\"deny\":[]}}\n"
   },
+  "11336793511f8d2ad7d4cae05ec38de2e47b0f0f09a403cefa4611c71b41f5a2": {
+    "what": "jq [\"-n\" \"--arg\" \"workspace\" \"é \\u2028 <&>\" \"--arg\" \"diff\" \"é \\u2028 <&>\\n\" \"{workspace: $workspace, diff: $diff}\"] of \"\"",
+    "output": "{\n  \"workspace\": \"é   <&>\",\n  \"diff\": \"é   <&>\\n\"\n}\n"
+  },
   "188ab5fdc141ddc47c71d64b1a179dce57c164b417b2fe4e8692cbe87774f89b": {
     "what": "jq [\".\"] of \"{\\\"z\\\": 1, \\\"a\\\": [], \\\"m\\\": {\\\"y\\\": [1, 2.50, 1e2, -0.0, 1E-7], \\\"b\\\": \\\"\\\\u0001\\\\u007f\\\\u001f\\\\\\\"\\\\\\\\/<>&\\u2028é\\\"}}\"",
-    "output": "{\n  \"z\": 1,\n  \"a\": [],\n  \"m\": {\n    \"y\": [\n      1,\n      2.50,\n      1E+2,\n      -0.0,\n      1E-7\n    ],\n    \"b\": \"\\u0001\\u007f\\u001f\\\"\\\\/<>&\u2028é\"\n  }\n}\n"
+    "output": "{\n  \"z\": 1,\n  \"a\": [],\n  \"m\": {\n    \"y\": [\n      1,\n      2.50,\n      1E+2,\n      -0.0,\n      1E-7\n    ],\n    \"b\": \"\\u0001\\u007f\\u001f\\\"\\\\/<>& é\"\n  }\n}\n"
   },
   "19ecdc062cd70b92a084d1f63bfac98e6a3d6818b155d5b658dd3e1b824882e8": {
     "what": "jq [\"-cS\" \".\"] of \"{\\\"bindings\\\": {}}\"",
@@ -33,15 +37,11 @@
   },
   "20ed7181d931d3a474575269542bfa52c33230ed866aab840f5982d23f81cbe6": {
     "what": "jq [\"-cS\" \".\"] of \"{\\\"z\\\": 1, \\\"a\\\": [], \\\"m\\\": {\\\"y\\\": [1, 2.50, 1e2, -0.0, 1E-7], \\\"b\\\": \\\"\\\\u0001\\\\u007f\\\\u001f\\\\\\\"\\\\\\\\/<>&\\u2028é\\\"}}\"",
-    "output": "{\"a\":[],\"m\":{\"b\":\"\\u0001\\u007f\\u001f\\\"\\\\/<>&\u2028é\",\"y\":[1,2.50,1E+2,-0.0,1E-7]},\"z\":1}\n"
+    "output": "{\"a\":[],\"m\":{\"b\":\"\\u0001\\u007f\\u001f\\\"\\\\/<>& é\",\"y\":[1,2.50,1E+2,-0.0,1E-7]},\"z\":1}\n"
   },
   "25036356cc9d94062b6e0a1caf09949736a5866bd58bdd244695d7b7e367bed4": {
     "what": "jq [\"-c\" \".\"] of \"{}\"",
     "output": "{}\n"
-  },
-  "296a5ba6fca19a37fe573271df61fb37965be90369df1b07b3ebe8d995843023": {
-    "what": "jq [\"-n\" \"--arg\" \"kind\" \"flake\" \"--arg\" \"workspace\" \"nul\\x01\" \"--arg\" \"diff\" \"nul\\x01\\n\" \"{kind: $kind, workspace: $workspace, diff: $diff}\"] of \"\"",
-    "output": "{\n  \"kind\": \"flake\",\n  \"workspace\": \"nul\\u0001\",\n  \"diff\": \"nul\\u0001\\n\"\n}\n"
   },
   "2adbc766b2f9343fc0c0503faa5edf93ebd9642f3b2b8c22312b7dd126cd507e": {
     "what": "jq [\"-c\" \".\"] of \"{\\\"bindings\\\": {\\\"docker\\\": {\\\"images\\\": [\\\"postgres:18\\\"], \\\"ports\\\": [64320, 64321]}}, \\\"dockerProject\\\": \\\"example/shop\\\", \\\"seccomp\\\": {\\\"allow\\\": [\\\"a\\\"], \\\"deny\\\": []}}\"",
@@ -50,6 +50,10 @@
   "2d12a193258ccb6617488c69c50e38404abc03c908f7368e255e67f60c3ac0ad": {
     "what": "jq [\"-r\" \"@sh\"] of \"true\"",
     "output": "true\n"
+  },
+  "2d50d0ced1919ea53ee0c679206ef9dce19fb4e4ea0a0db5a3a66cd835cd0046": {
+    "what": "jq [\"-n\" \"--arg\" \"workspace\" \"nul\\x01\" \"--arg\" \"diff\" \"nul\\x01\\n\" \"{workspace: $workspace, diff: $diff}\"] of \"\"",
+    "output": "{\n  \"workspace\": \"nul\\u0001\",\n  \"diff\": \"nul\\u0001\\n\"\n}\n"
   },
   "2e9e6c5cc90aeb4e7acf5ab573e98eb26669b25f34ccfdcfd3f95efc8bce3c5a": {
     "what": "jq [\"-r\" \"@sh\"] of \"\\\"a'b'c\\\"\"",
@@ -67,17 +71,13 @@
     "what": "jq [\"-r\" \"@sh\"] of \"[\\\"a\\\", 1, \\\"b'c\\\"]\"",
     "output": "'a' 1 'b'\\''c'\n"
   },
-  "472afcc8cada20e32cf4fc55c2369653079354b264c48bde12e504d7b2dcf0c3": {
-    "what": "jq [\"-n\" \"--arg\" \"kind\" \"flake\" \"--arg\" \"workspace\" \"plain\" \"--arg\" \"diff\" \"plain\\n\" \"{kind: $kind, workspace: $workspace, diff: $diff}\"] of \"\"",
-    "output": "{\n  \"kind\": \"flake\",\n  \"workspace\": \"plain\",\n  \"diff\": \"plain\\n\"\n}\n"
-  },
   "4ae90910cdc1810f14cc3e22b63255e3904b00babbbbdec1cd2ceba3f35ca987": {
     "what": "jq [\"-r\" \"@sh\"] of \"[]\"",
     "output": "\n"
   },
-  "6ac339e63ce24bd11de2e743ff0843254aa2df643edb1b550d08d526f303d0f2": {
-    "what": "jq [\"-n\" \"--arg\" \"kind\" \"flake\" \"--arg\" \"workspace\" \"bad \\xff\\xfe utf-8\" \"--arg\" \"diff\" \"bad \\xff\\xfe utf-8\\n\" \"{kind: $kind, workspace: $workspace, diff: $diff}\"] of \"\"",
-    "output": "{\n  \"kind\": \"flake\",\n  \"workspace\": \"bad �� utf-8\",\n  \"diff\": \"bad �� utf-8\\n\"\n}\n"
+  "6eafb206b1b44c2fe3880208677689805356ba80d5533a7588e41f40714590a1": {
+    "what": "jq [\"-n\" \"--arg\" \"workspace\" \"bad \\xff\\xfe utf-8\" \"--arg\" \"diff\" \"bad \\xff\\xfe utf-8\\n\" \"{workspace: $workspace, diff: $diff}\"] of \"\"",
+    "output": "{\n  \"workspace\": \"bad �� utf-8\",\n  \"diff\": \"bad �� utf-8\\n\"\n}\n"
   },
   "74105175cc68d134418dcfb1566f786dd0c1066898bad8e5ff760f743d751fd9": {
     "what": "jq [\"-S\" \".\"] of \"{\\\"bindings\\\": {}}\"",
@@ -91,13 +91,17 @@
     "what": "jq [\"-c\" \"sort\"] of \"[{\\\"b\\\": 1}, {\\\"a\\\": 2}, {\\\"a\\\": 1, \\\"b\\\": 1}, [2], [1, 2], \\\"b\\\", \\\"a\\\", \\\"ab\\\", 10, 9.5, true, false, null, {\\\"a\\\": 1}]\"",
     "output": "[null,false,true,9.5,10,\"a\",\"ab\",\"b\",[1,2],[2],{\"a\":1},{\"a\":2},{\"a\":1,\"b\":1},{\"b\":1}]\n"
   },
+  "8446a50debac6eda604c1e8b0987568cdf6bf335b419cfbf800a8435e6268284": {
+    "what": "jq [\"-n\" \"--arg\" \"workspace\" \"x\\x1b]0;TITLE\\ay\" \"--arg\" \"diff\" \"x\\x1b]0;TITLE\\ay\\n\" \"{workspace: $workspace, diff: $diff}\"] of \"\"",
+    "output": "{\n  \"workspace\": \"x\\u001b]0;TITLE\\u0007y\",\n  \"diff\": \"x\\u001b]0;TITLE\\u0007y\\n\"\n}\n"
+  },
   "8d4de7ea2966ecdb8cfe5778f9edf8146e20387e09e0745fa5a8aa375be15649": {
     "what": "jq [\"-r\" \"@sh\"] of \"null\"",
     "output": "null\n"
   },
-  "8d9a898a7ab0e3496017936f8c0fe101a0dab7992cdebf7f907ecc06523a6665": {
-    "what": "jq [\"-n\" \"--arg\" \"kind\" \"flake\" \"--arg\" \"workspace\" \"é \\u2028 <&>\" \"--arg\" \"diff\" \"é \\u2028 <&>\\n\" \"{kind: $kind, workspace: $workspace, diff: $diff}\"] of \"\"",
-    "output": "{\n  \"kind\": \"flake\",\n  \"workspace\": \"é \u2028 <&>\",\n  \"diff\": \"é \u2028 <&>\\n\"\n}\n"
+  "9079a6017d293140e795400cb70ab6dc851c728bc1d9c824fc80f1ab6f6c1d5e": {
+    "what": "jq [\"-n\" \"--arg\" \"workspace\" \"tab\\tnewline\\n\\\"quote\\\" \\\\ back\" \"--arg\" \"diff\" \"tab\\tnewline\\n\\\"quote\\\" \\\\ back\\n\" \"{workspace: $workspace, diff: $diff}\"] of \"\"",
+    "output": "{\n  \"workspace\": \"tab\\tnewline\\n\\\"quote\\\" \\\\ back\",\n  \"diff\": \"tab\\tnewline\\n\\\"quote\\\" \\\\ back\\n\"\n}\n"
   },
   "9b389110ba3dc4cd2bfc625d04b68d55a7e5d243f863b190614428a13a7ba516": {
     "what": "jq [\"-cS\" \".\"] of \"{\\\"a\\\": {\\\"b\\\": {\\\"c\\\": [[], {}, [{}], [[1]]]}}, \\\"B\\\": true, \\\"_\\\": false, \\\"\\\": null}\"",
@@ -105,19 +109,19 @@
   },
   "9d89ffa11797b91cf1159fe58d81008db097ae2087e788a034c52d49496b8349": {
     "what": "jq [\"-S\" \".\"] of \"{\\\"z\\\": 1, \\\"a\\\": [], \\\"m\\\": {\\\"y\\\": [1, 2.50, 1e2, -0.0, 1E-7], \\\"b\\\": \\\"\\\\u0001\\\\u007f\\\\u001f\\\\\\\"\\\\\\\\/<>&\\u2028é\\\"}}\"",
-    "output": "{\n  \"a\": [],\n  \"m\": {\n    \"b\": \"\\u0001\\u007f\\u001f\\\"\\\\/<>&\u2028é\",\n    \"y\": [\n      1,\n      2.50,\n      1E+2,\n      -0.0,\n      1E-7\n    ]\n  },\n  \"z\": 1\n}\n"
+    "output": "{\n  \"a\": [],\n  \"m\": {\n    \"b\": \"\\u0001\\u007f\\u001f\\\"\\\\/<>& é\",\n    \"y\": [\n      1,\n      2.50,\n      1E+2,\n      -0.0,\n      1E-7\n    ]\n  },\n  \"z\": 1\n}\n"
   },
   "a41a0daaef531f51ab3690efc5a3936e918b0ec4a68a845b1b425ee250d7b606": {
     "what": "jq [\"-S\" \".\"] of \"{\\\"bindings\\\": {\\\"docker\\\": {\\\"images\\\": [\\\"postgres:18\\\"], \\\"ports\\\": [64320, 64321]}}, \\\"dockerProject\\\": \\\"example/shop\\\", \\\"seccomp\\\": {\\\"allow\\\": [\\\"a\\\"], \\\"deny\\\": []}}\"",
     "output": "{\n  \"bindings\": {\n    \"docker\": {\n      \"images\": [\n        \"postgres:18\"\n      ],\n      \"ports\": [\n        64320,\n        64321\n      ]\n    }\n  },\n  \"dockerProject\": \"example/shop\",\n  \"seccomp\": {\n    \"allow\": [\n      \"a\"\n    ],\n    \"deny\": []\n  }\n}\n"
   },
-  "a9eec35d9486824d742379a34c0997f42493c6ee6aaadbb5312a4a079a146fe0": {
-    "what": "jq [\"-n\" \"--arg\" \"kind\" \"flake\" \"--arg\" \"workspace\" \"tab\\tnewline\\n\\\"quote\\\" \\\\ back\" \"--arg\" \"diff\" \"tab\\tnewline\\n\\\"quote\\\" \\\\ back\\n\" \"{kind: $kind, workspace: $workspace, diff: $diff}\"] of \"\"",
-    "output": "{\n  \"kind\": \"flake\",\n  \"workspace\": \"tab\\tnewline\\n\\\"quote\\\" \\\\ back\",\n  \"diff\": \"tab\\tnewline\\n\\\"quote\\\" \\\\ back\\n\"\n}\n"
-  },
   "aa668dc62b6f555e1076183d609d36f0b886489283fc438c8eb8414c4265a6b1": {
     "what": "jq [\"-c\" \".\"] of \"{\\\"z\\\": 1, \\\"a\\\": [], \\\"m\\\": {\\\"y\\\": [1, 2.50, 1e2, -0.0, 1E-7], \\\"b\\\": \\\"\\\\u0001\\\\u007f\\\\u001f\\\\\\\"\\\\\\\\/<>&\\u2028é\\\"}}\"",
-    "output": "{\"z\":1,\"a\":[],\"m\":{\"y\":[1,2.50,1E+2,-0.0,1E-7],\"b\":\"\\u0001\\u007f\\u001f\\\"\\\\/<>&\u2028é\"}}\n"
+    "output": "{\"z\":1,\"a\":[],\"m\":{\"y\":[1,2.50,1E+2,-0.0,1E-7],\"b\":\"\\u0001\\u007f\\u001f\\\"\\\\/<>& é\"}}\n"
+  },
+  "b66649aa78027295e49f5a5c984686a38d388b437cea3a7a3ce532e64f8d80f0": {
+    "what": "jq [\"-n\" \"--arg\" \"workspace\" \"plain\" \"--arg\" \"diff\" \"plain\\n\" \"{workspace: $workspace, diff: $diff}\"] of \"\"",
+    "output": "{\n  \"workspace\": \"plain\",\n  \"diff\": \"plain\\n\"\n}\n"
   },
   "b8d3a965693ec944166f44666cb0ce86ab4881834fa2d615b4acc341dfee5805": {
     "what": "jq [\"-r\" \"@sh\"] of \"\\\"\\\"\"",
@@ -150,10 +154,6 @@
   "ef43ebbb51e94df62e3a62cc084ae1b19f806abf47a08603ed6097d7f4b24710": {
     "what": "jq [\".\"] of \"null\"",
     "output": "null\n"
-  },
-  "f42ab6deae234ac571bb96bce92c02751f33810b7e6c34aa60f93eac65bb0839": {
-    "what": "jq [\"-n\" \"--arg\" \"kind\" \"flake\" \"--arg\" \"workspace\" \"x\\x1b]0;TITLE\\ay\" \"--arg\" \"diff\" \"x\\x1b]0;TITLE\\ay\\n\" \"{kind: $kind, workspace: $workspace, diff: $diff}\"] of \"\"",
-    "output": "{\n  \"kind\": \"flake\",\n  \"workspace\": \"x\\u001b]0;TITLE\\u0007y\",\n  \"diff\": \"x\\u001b]0;TITLE\\u0007y\\n\"\n}\n"
   },
   "fa780f56f89bee766c50077dbd09b7d53dfd6e75b09ca2a0d6649f2d2daf943c": {
     "what": "jq [\".\"] of \"{\\\"bindings\\\": {\\\"docker\\\": {\\\"images\\\": [\\\"postgres:18\\\"], \\\"ports\\\": [64320, 64321]}}, \\\"dockerProject\\\": \\\"example/shop\\\", \\\"seccomp\\\": {\\\"allow\\\": [\\\"a\\\"], \\\"deny\\\": []}}\"",

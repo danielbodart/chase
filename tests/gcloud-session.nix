@@ -262,7 +262,7 @@ let
   '';
 
   # The project as a developer would set it up: its key in sops, to her age
-  # key, and a chase section binding it.
+  # key, and a chase.jsonc binding it.
   mkProject = pkgs.writeShellScript "mk-project" ''
     set -euo pipefail
     export PATH=${lib.makeBinPath (with pkgs; [ coreutils git sops jq ])}
@@ -270,18 +270,16 @@ let
     mkdir -p ~/proj
     cd ~/proj
     git init -q -b main
-    cat > flake.nix <<'EOF'
+    cat > chase.jsonc <<'EOF'
     {
-      outputs = { self }: {
-        chaseModules.default = {
-          chase.secrets = "secrets.yaml";
-          chase.bindings.gcloud = {
-            credential.secret = "gcloud-key";
-            serviceAccount = "${sa}";
-            apis.add = [ "pubsub" ];
-          };
-        };
-      };
+      "secrets": "secrets.yaml",
+      "bindings": {
+        "gcloud": {
+          "credential": { "secret": "gcloud-key" },
+          "serviceAccount": "${sa}",
+          "apis": { "add": ["pubsub"] },
+        },
+      },
     }
     EOF
     tmp=$(mktemp)
@@ -289,7 +287,7 @@ let
     sops --encrypt --age "$recipient" --input-type json --output-type yaml "$tmp" > secrets.yaml
     rm -f "$tmp"
     printf 'out/\n' > .gitignore
-    git add flake.nix secrets.yaml .gitignore
+    git add chase.jsonc secrets.yaml .gitignore
     git -c user.name=alice -c user.email=alice@example.com commit -qm project
   '';
 in
@@ -386,7 +384,7 @@ in
       tiers.trusted = {
         egress = "direct";
         allow = [ "*" ];
-        envelope = true;
+        grants = true;
         apps.gcloud = { enable = true; apis = [ "storage" ]; };
       };
     };
@@ -475,7 +473,7 @@ in
           run = f"/run/user/1000/chase/{name}"
           print(machine.succeed("cat /tmp/session.out"))
           approvals = machine.succeed("journalctl -t chase-test-approver -o cat --no-pager")
-          assert '"kind": "flake"' in approvals and '"kind": "envelope"' in approvals, approvals
+          assert '"workspace": "/home/alice/proj"' in approvals and '\\"serviceAccount\\": \\"${sa}\\"' in approvals, approvals
           assert user_unit("is-active", f"chase-gcloud-renew@{name}.service") == "active"
           issued = [l["issued"] for l in google_log() if "issued" in l]
           assert len(issued) >= 1, google_log()
@@ -576,7 +574,7 @@ in
           machine.wait_until_succeeds(f"test ! -e /run/user/1000/flong/sessions/{name}", timeout=timedelta(minutes=1))
           machine.wait_until_succeeds(f"test ! -e {run}")
           assert user_unit("is-active", f"chase-gcloud-renew@{name}.service") != "active"
-          machine.succeed(f"test ! -e /run/user/1000/chase/.envelope/{name}.json")
+          machine.succeed(f"test ! -e /run/user/1000/chase/.grant/{name}.json")
           assert found("/run/user/1000", patterns) == [], found("/run/user/1000", patterns)
           machine.succeed(f"test -e {kept}")
     '';

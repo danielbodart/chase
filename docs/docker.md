@@ -116,7 +116,7 @@ address.
 route host.** The route is declared for `docker.frisket.internal`, which
 frisket's DNS answers with the service address, as it does for every
 intercepted host. The session is given, through the Docker app's `prepare`
-and only when its envelope binds Docker:
+and only when its grant binds Docker:
 
     DOCKER_HOST=tcp://docker.frisket.internal:2376
     DOCKER_TLS_VERIFY=1
@@ -226,7 +226,7 @@ reads a form body as query parameters. `ImageCreate` only for a `fromImage`
 and `tag` that spell an image in the project's list: the pull is the one
 request where the daemon, not the session, reaches the network, as a
 fixed-output derivation does for Nix. Images are matched as strings. The
-envelope names each once, in the form `docker pull` shortens it to, with a
+grant names each once, in the form `docker pull` shortens it to, with a
 tag or digest, and never by an image's ID: `sha256:<hex>`, `sha256:<prefix>`
 or a 64-hex component in any part of the name is refused, by chase and by
 frisket, since the daemon would run whatever local image has that ID, made
@@ -243,7 +243,7 @@ name among them.
 by frisket.** The project is `owner/repo`, lower-cased, from the checkout's
 origin on GitHub (`git@github.com:`, `ssh://git@github.com/` or
 `https://github.com/`, with or without `.git`). chase derives it on the host
-in `approve` (`project` in internal/envelope), and never with a git that
+in `approve` (`project` in internal/grant), and never with a git that
 reads the checkout's config, which a session can write and which can name
 a command for git to run: the checkout is found from where the directory is
 (`chase checkout`), and `chase origin` reads `remote.origin.url` from its
@@ -258,11 +258,11 @@ real root. And only from the repository kept at that path itself — its own
 `.git`, or a worktree of it — or in its `.bare`: a clone nested under a
 pinned path writes its own `.git`, origin included. A project no tier pins
 is a claim, shown in the approval, which a person approves. It goes into the
-approved envelope as `dockerProject`, so a changed origin is a diff someone
+approved grant as `dockerProject`, so a changed origin is a diff someone
 approves, and from there into the Docker route of the session's own policy
 document as `docker.project`. A checkout with no usable origin gets no
-Docker: its launch is refused. Never from what the envelope says: a project
-that could name itself could name another, and an envelope's own
+Docker: its launch is refused. Never from what the grant says: a project
+that could name itself could name another, and a grant's own
 `dockerProject` is dropped.
 
 frisket adds `frisket.project=<owner/repo>` to every `ContainerCreate`,
@@ -306,7 +306,7 @@ name (decision 14). A `HostIp` that is empty, absent, `0.0.0.0` or
 `127.0.0.1` is rewritten to it. The address itself is accepted. Anything
 else refuses, IPv6 included: the daemon would bind `::` beside `0.0.0.0`,
 and a v6 address is not the project's. The `HostPort` must be one the
-envelope names in `chase.bindings.docker.ports` (1024 to 65535, at most 64,
+grant names in `bindings.docker.ports` (1024 to 65535, at most 64,
 never frisket's own 15001), never a range or a random one. Two projects that
 both use 64320 now publish it at two addresses, and neither reaches the
 other's.
@@ -424,7 +424,7 @@ approved at each address, written by nothing else and pruned only by hand.
 It refuses a project whose address another holds there, among the projects
 the tiers pin, or in `/etc/chase/docker-hosts.json`, whose addresses are
 read as given, not derived again. It checks before anyone is asked and
-again once the envelope is approved, and only then records the project: one
+again once the grant is approved, and only then records the project: one
 refused approval holds no address. frisket refuses to open a session
 whose address a live session of another project holds. And the relay's
 ownership check keeps a session from reaching another project's container
@@ -480,8 +480,8 @@ since dropped a port refuses connections to it.
    frisket's own `docker.Address` and `docker.Names`, printed by
    `chase docker-address`, and `lib.docker` in Nix.
 6. **chase: `apps/docker.nix`** — `chase.tiers.<tier>.apps.docker.enable`,
-   only on a direct-egress tier that takes envelopes;
-   `chase.bindings.docker.images` and `.ports` in the envelope; the route,
+   only on a direct-egress tier that takes grants;
+   `bindings.docker.images` and `.ports` in the grant; the route,
    prepared per launch with the project, its address, names, images and
    ports, by an app with no credential; the Docker CLI and Compose in the
    container, and `DOCKER_HOST`, `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH`
@@ -595,7 +595,7 @@ address.
   flong builds a trusted one (`pasta --config-net --no-map-gw`) was refused
   at the same address, because pasta copies the address into the session
   and the session dials itself. So project A's containers, with the image
-  and command from A's envelope and Compose file, reach the host's wildcard
+  and command from A's grant and Compose file, reach the host's wildcard
   services that the LAN is firewalled from, other auto-tier sessions'
   forwarded `*:P` listeners (another project's dev server) and frisket's
   `*:15001`. rootlesskit's pasta driver does not close it: it gives the

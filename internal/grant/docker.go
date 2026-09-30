@@ -1,4 +1,4 @@
-package envelope
+package grant
 
 import (
 	"bytes"
@@ -29,7 +29,7 @@ var (
 // owner/repo its origin names on GitHub. It decides which containers,
 // volumes and networks a session may touch, and at which address, so it is
 // derived here, from the checkout, and never taken from anything the
-// envelope says: the session writes that, and would name itself as another
+// grant says: the session writes that, and would name itself as another
 // project to reach its database.
 //
 // The checkout is chase-checkout's, found from where the directory is, and
@@ -205,7 +205,7 @@ func realpathM(p string) (string, error) {
 // script's flock took, so the two agree while both are about.
 //
 // record false refuses before anyone is asked; record true checks again,
-// once the envelope is approved, and remembers the project: one that was
+// once the grant is approved, and remembers the project: one that was
 // refused approval holds no address.
 func claim(c Config, ws, slug, addr string, record bool) error {
 	dir := c.state() + "/docker"
@@ -436,13 +436,13 @@ func Show(ctx context.Context, c Config, ws, tier string, stdout, stderr io.Writ
 	}
 	root, _, _ := strings.Cut(gitsafe.Output(out.Bytes()), "\t")
 	result := jnull
-	if p := c.state() + "/approved/" + key(root) + "/envelope.json"; regular(p) {
+	if p := c.state() + "/approved/" + key(root) + "/grant.json"; regular(p) {
 		b, err := os.ReadFile(p)
 		if err == nil {
 			result, err = parseJSON(b)
 		}
 		if err != nil {
-			return refuse("%s: its approved envelope cannot be read", ws)
+			return refuse("%s: its approved grant cannot be read", ws)
 		}
 	}
 	ports, err := approvedPorts(result, slug)
@@ -455,7 +455,7 @@ func Show(ctx context.Context, c Config, ws, tier string, stdout, stderr io.Writ
 	return nil
 }
 
-// approvedPorts is the ports the approved envelope gives slug, as `chase
+// approvedPorts is the ports the approved grant gives slug, as `chase
 // docker` says them: none unless it was approved as this project.
 func approvedPorts(result *value, slug string) (string, error) {
 	var ports []string

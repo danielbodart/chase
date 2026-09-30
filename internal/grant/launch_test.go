@@ -1,4 +1,4 @@
-package envelope_test
+package grant_test
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 
 	"github.com/danielbodart/chase/internal/apps"
 	"github.com/danielbodart/chase/internal/apps/docker"
-	"github.com/danielbodart/chase/internal/envelope"
+	"github.com/danielbodart/chase/internal/grant"
 	"github.com/danielbodart/chase/internal/session"
 )
 
@@ -55,21 +55,21 @@ func (h *harness) policyDoc(machine string) policy.Document {
 func no() *bool { f := false; return &f }
 
 // newProjectLaunch is the project-launch check's system: example/shop pinned
-// in trusted, which has no Docker, and probe an app with no credential.
+// in trusted, which has no Docker, and probe an app with no credential, bound
+// as cloudflare, a name a grant may bind.
 func newProjectLaunch(t *testing.T) (*harness, *probe, string) {
 	h := newHarness(t)
 	r := h.root()
 	h.cfg.Checkouts["example/shop"] = []string{r + "/p/shop"}
-	h.cfg.Apps["docker"] = envelope.App{Credential: no()}
-	h.cfg.Apps["probe"] = envelope.App{Credential: no()}
-	h.cfg.Apps["gcloud"] = envelope.App{}
+	h.cfg.Apps["docker"] = grant.App{Credential: no()}
+	h.cfg.Apps["cloudflare"] = grant.App{Credential: no()}
+	h.cfg.Apps["gcloud"] = grant.App{}
 	p := &probe{runtime: h.cfg.Runtime}
 	h.cfg.Docker = &docker.Config{Routes: map[string]policy.Route{}}
-	h.registry = map[string]apps.App{"probe": p}
+	h.registry = map[string]apps.App{"cloudflare": p}
 	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": [], "routes": []}`)
 	ws := r + "/p/shop"
 	h.repo(ws, "git@github.com:example/shop.git")
-	h.flake(ws)
 	return h, p, ws
 }
 
@@ -80,12 +80,12 @@ func newProjectLaunch(t *testing.T) (*harness, *probe, string) {
 // has. An app with a credential is still bound only with one.
 func TestAnAppWithNoCredentialIsMadeFromItsBinding(t *testing.T) {
 	h, p, ws := newProjectLaunch(t)
-	h.launched(ws, "m1", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320]}, "probe": {"x": 1}, "gcloud": {"serviceAccount": "a@p.iam.gserviceaccount.com"}}}`)
+	h.launched(ws, "m1", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}, "gcloud": {"serviceAccount": "a@p.iam.gserviceaccount.com"}}}`)
 	if len(p.requests) != 1 {
 		t.Fatalf("probe was prepared %d times", len(p.requests))
 	}
 	r := p.requests[0]
-	if string(r.Binding) != `{"x":1}` {
+	if string(r.Binding) != `{"accountId":"11111111111111111111111111111111"}` {
 		t.Errorf("prepare was not given the binding: %s", r.Binding)
 	}
 	if r.Project != "example/shop" {
@@ -101,7 +101,7 @@ func TestAnAppWithNoCredentialIsMadeFromItsBinding(t *testing.T) {
 	if env := h.env(); !slices.Equal(env, []string{"PROBE=1"}) {
 		t.Errorf("probe's env, and nothing else, was not given the session: %q", env)
 	}
-	if !h.said("chase: " + ws + ": probe from no credential") {
+	if !h.said("chase: " + ws + ": cloudflare from no credential") {
 		t.Errorf("where probe came from was not said: %s", h.err)
 	}
 	if strings.Contains(h.err, "gcloud from") {
@@ -122,7 +122,7 @@ func TestAnAppWithNoCredentialIsMadeFromItsBinding(t *testing.T) {
 	if len(p.requests) != 1 {
 		t.Error("probe was prepared with no binding")
 	}
-	if strings.Contains(h.err, "probe from") {
+	if strings.Contains(h.err, "cloudflare from") {
 		t.Errorf("probe was said with no binding: %s", h.err)
 	}
 	if d := h.policyDoc("m2"); len(d.Allow) != 0 {
@@ -130,8 +130,8 @@ func TestAnAppWithNoCredentialIsMadeFromItsBinding(t *testing.T) {
 	}
 
 	// Without Docker, there is no project to give, and it is empty.
-	h.launched(ws, "m3", "trusted", `{"bindings": {"probe": {"x": 2}}}`)
-	if r := p.requests[len(p.requests)-1]; r.Project != "" || string(r.Binding) != `{"x":2}` {
+	h.launched(ws, "m3", "trusted", `{"bindings": {"cloudflare": {"accountId": "22222222222222222222222222222222"}}}`)
+	if r := p.requests[len(p.requests)-1]; r.Project != "" || string(r.Binding) != `{"accountId":"22222222222222222222222222222222"}` {
 		t.Errorf("prepare was given a project with no Docker, or not the binding: %+v", r)
 	}
 	if h.log("sops.log") != nil {
@@ -144,50 +144,48 @@ func TestAnAppWithNoCredentialIsMadeFromItsBinding(t *testing.T) {
 func TestAnAppWithNoCredentialAndNoCodeIsRefused(t *testing.T) {
 	h, _, ws := newProjectLaunch(t)
 	c := h.cfg
-	c.Apps = map[string]envelope.App{"bad": {Credential: no()}, "fine": {}}
-	err := envelope.Validate(c, nil)
+	c.Apps = map[string]grant.App{"bad": {Credential: no()}, "fine": {}}
+	err := grant.Validate(c, nil)
 	if err == nil || err.Error() != "chase.internal.projectApps.bad has no credential and no prepare, so nothing could be made of its binding" {
 		t.Errorf("an app with no credential and no prepare was built: %v", err)
 	}
-	if err := envelope.Validate(c, map[string]apps.App{"bad": &probe{}}); err != nil {
+	if err := grant.Validate(c, map[string]apps.App{"bad": &probe{}}); err != nil {
 		t.Errorf("an app with code was refused: %v", err)
 	}
 
-	h.cfg.Apps["bad"] = envelope.App{Credential: no()}
-	h.approved(ws, "m1", "trusted", `{"bindings": {"bad": {"x": 1}}}`)
+	h.cfg.Apps["huggingface"] = grant.App{Credential: no()}
+	h.approved(ws, "m1", "trusted", `{"bindings": {"huggingface": {"ask": ["x"]}}}`)
 	if h.launch("trusted", ws, "m1") == 0 {
 		t.Error("an app with no credential and no prepare was launched")
 	}
-	h.mustSay("chase: " + ws + ": bad has no credential and no prepare")
+	h.mustSay("chase: " + ws + ": huggingface has no credential and no prepare")
 }
 
 // Every path the script had spliced in is an absolute one: a tool named
 // without a slash would be looked up on the caller's PATH, and a path left
-// out would be "", which is a Hosts never there and a flake ref of nothing.
+// out would be "", which is a Hosts never there.
 // Empty is a default only where there is one, and no approver.
 func TestAConfigsPathsAreAbsolute(t *testing.T) {
 	h := newHarness(t)
-	if err := envelope.Validate(h.cfg, nil); err != nil {
+	if err := grant.Validate(h.cfg, nil); err != nil {
 		t.Fatalf("the harness's Config was refused: %v", err)
 	}
 	for _, c := range []struct {
 		name string
-		set  func(*envelope.Config)
+		set  func(*grant.Config)
 		want string
 	}{
-		{"nix", func(c *envelope.Config) { c.Nix = "nix" }, `nix is "nix", which is not an absolute path`},
-		{"sops", func(c *envelope.Config) { c.Sops = "" }, `sops is "", which is not an absolute path`},
-		{"diff", func(c *envelope.Config) { c.Diff = "bin/diff" }, `diff is "bin/diff", which is not an absolute path`},
-		{"hosts", func(c *envelope.Config) { c.Hosts = "" }, `hosts is "", which is not an absolute path`},
-		{"evaluator", func(c *envelope.Config) { c.Evaluator = "" }, `evaluator is "", which is not an absolute path`},
-		{"policies", func(c *envelope.Config) { c.Policies = "policies" }, `policies is "policies", which is not an absolute path`},
-		{"home", func(c *envelope.Config) { c.Home = "" }, `home is "", which is not an absolute path`},
-		{"approver", func(c *envelope.Config) { c.Approver = "approver" }, `approver is "approver", which is neither empty nor an absolute path`},
-		{"state", func(c *envelope.Config) { c.State = "state" }, `state is "state", which is neither empty nor an absolute path`},
+		{"sops", func(c *grant.Config) { c.Sops = "" }, `sops is "", which is not an absolute path`},
+		{"diff", func(c *grant.Config) { c.Diff = "bin/diff" }, `diff is "bin/diff", which is not an absolute path`},
+		{"hosts", func(c *grant.Config) { c.Hosts = "" }, `hosts is "", which is not an absolute path`},
+		{"policies", func(c *grant.Config) { c.Policies = "policies" }, `policies is "policies", which is not an absolute path`},
+		{"home", func(c *grant.Config) { c.Home = "" }, `home is "", which is not an absolute path`},
+		{"approver", func(c *grant.Config) { c.Approver = "approver" }, `approver is "approver", which is neither empty nor an absolute path`},
+		{"state", func(c *grant.Config) { c.State = "state" }, `state is "state", which is neither empty nor an absolute path`},
 	} {
 		cfg := h.cfg
 		c.set(&cfg)
-		if err := envelope.Validate(cfg, nil); err == nil || err.Error() != c.want {
+		if err := grant.Validate(cfg, nil); err == nil || err.Error() != c.want {
 			t.Errorf("%s: %v, not %s", c.name, err, c.want)
 		}
 		b, err := json.Marshal(cfg)
@@ -195,13 +193,13 @@ func TestAConfigsPathsAreAbsolute(t *testing.T) {
 			t.Fatal(err)
 		}
 		write(t, h.dir+"/config.json", string(b))
-		if _, err := envelope.LoadConfig(h.dir + "/config.json"); err == nil || err.Error() != c.want {
+		if _, err := grant.LoadConfig(h.dir + "/config.json"); err == nil || err.Error() != c.want {
 			t.Errorf("%s, loaded: %v, not %s", c.name, err, c.want)
 		}
 	}
 	cfg := h.cfg
 	cfg.Approver, cfg.State, cfg.Runtime = "", "", ""
-	if err := envelope.Validate(cfg, nil); err != nil {
+	if err := grant.Validate(cfg, nil); err != nil {
 		t.Errorf("no approver, and the default state and runtime, were refused: %v", err)
 	}
 }
@@ -373,7 +371,7 @@ func frisketCheck(t *testing.T, path string) {
 
 // The ported docker-launch check, as far as the launch goes (the prepare's
 // own refusals are internal/apps/docker's): DOCKER, LAUNCHED. A checkout
-// whose envelope binds Docker gets a route to the rootless daemon, as the
+// whose grant binds Docker gets a route to the rootless daemon, as the
 // project approve staged, and the variables that point the CLI at it. A
 // checkout that binds nothing of Docker's gets no route, and a binding in a
 // tier without Docker is said and adds nothing.
@@ -382,14 +380,13 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 	r := h.root()
 	h.cfg.Checkouts["example/shop"] = []string{r + "/p/shop"}
 	h.cfg.DockerTiers = []string{"trusted"}
-	h.cfg.Apps["docker"] = envelope.App{Credential: no()}
+	h.cfg.Apps["docker"] = grant.App{Credential: no()}
 	h.cfg.Docker = &docker.Config{Routes: map[string]policy.Route{"trusted": dockerTemplate(t)}}
 	for _, tier := range []string{"trusted", "plain"} {
 		write(t, h.cfg.Policies+"/"+tier+".json", `{"name": "`+tier+`", "allow": ["github.com"], "routes": []}`)
 	}
 	ws := r + "/p/shop"
 	h.repo(ws, "git@github.com:Example/Shop.git")
-	h.flake(ws)
 	launched := func(tier, machine, env string) {
 		t.Helper()
 		h.approved(ws, machine, tier, env)
@@ -503,8 +500,8 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 // its own.
 func TestALaunchAppliesOneApprovalOnce(t *testing.T) {
 	h, _, ws := newProjectLaunch(t)
-	h.launched(ws, "m1", "trusted", `{"bindings": {"probe": {"x": 1}}}`)
-	if _, err := os.Stat(h.dir + "/run/chase/.envelope/m1.json"); err == nil {
+	h.launched(ws, "m1", "trusted", `{"bindings": {"cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
+	if _, err := os.Stat(h.dir + "/run/chase/.grant/m1.json"); err == nil {
 		t.Error("the stage outlived its launch")
 	}
 	if fi, err := os.Stat(h.dir + "/run/chase/m1"); err != nil || fi.Mode().Perm() != 0o700 {
@@ -523,10 +520,10 @@ func TestALaunchAppliesOneApprovalOnce(t *testing.T) {
 		t.Errorf("the policy document is not the user's alone: %v", fi)
 	}
 	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["api.github.com"], "routes": [{"name": "github", "host": "api.github.com", "upstream": "https://api.github.com", "credentialFile": "/run/secrets/gh", "placeholder": "proxy-injected", "paths": [{"methods": ["GET"], "prefix": "/"}]}]}`)
-	write(t, ws+"/flake.nix", "{ outputs = _: { }; }\n")
+	os.Remove(ws + "/chase.jsonc")
 	h.approved(ws, "m2", "trusted", "")
-	if got := read(t, h.dir+"/run/chase/.envelope/m2.json"); got != "null\n" {
-		t.Errorf("a flake without chaseModules was staged as %q", got)
+	if got := read(t, h.dir+"/run/chase/.grant/m2.json"); got != "null\n" {
+		t.Errorf("a checkout without chase.jsonc was staged as %q", got)
 	}
 	if h.launch("trusted", ws, "m2") != 0 {
 		t.Fatalf("the tier as it is was not launched: %s", h.err)
@@ -561,7 +558,9 @@ func TestALaunchAppliesOneApprovalOnce(t *testing.T) {
 // app has its secret. One changed after the approval is refused.
 func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 	h, _, ws := newProjectLaunch(t)
-	h.cfg.Apps["cloudflare"] = envelope.App{
+	// The real Cloudflare, with its credential, in probe's place.
+	delete(h.registry, "cloudflare")
+	h.cfg.Apps["cloudflare"] = grant.App{
 		Routes: map[string]json.RawMessage{"trusted": json.RawMessage(`{"name": "cloudflare", "host": "api.cloudflare.com", "upstream": "https://api.cloudflare.com"}`)},
 		Allow:  []string{"api.cloudflare.com"},
 		Env:    map[string]string{"CLOUDFLARE_API_TOKEN": "proxy-injected"},
@@ -572,7 +571,7 @@ func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 	}
 	write(t, ws+"/secrets.json", `{"cloudflare-token": "the token"}`)
 	h.fx.Run("-C", ws, "add", "secrets.json")
-	env := `{"secrets": "secrets.json", "bindings": {"cloudflare": {"credential": {"secret": "cloudflare-token"}, "accountId": "it's 023e"}}}`
+	env := `{"secrets": "secrets.json", "bindings": {"cloudflare": {"credential": {"secret": "cloudflare-token"}, "accountId": "023e105f4ecef8ad9ca31a8372d0c353"}}}`
 	h.launched(ws, "m1", "trusted", env)
 	if !h.said("chase: " + ws + ": cloudflare from secrets.json:cloudflare-token") {
 		t.Errorf("where cloudflare came from was not said: %s", h.err)
@@ -593,13 +592,13 @@ func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 	if len(d.Routes) != 1 || d.Routes[0].CredentialFile != h.dir+"/run/chase/m1/secrets/cloudflare" || !slices.Equal(d.Allow, []string{"api.cloudflare.com"}) {
 		t.Errorf("cloudflare's route was not bound with the project's secret: %+v", d)
 	}
-	if got := h.env(); !slices.Equal(got, []string{"CLOUDFLARE_API_TOKEN=proxy-injected", "CLOUDFLARE_ACCOUNT_ID=it's 023e"}) {
+	if got := h.env(); !slices.Equal(got, []string{"CLOUDFLARE_API_TOKEN=proxy-injected", "CLOUDFLARE_ACCOUNT_ID=023e105f4ecef8ad9ca31a8372d0c353"}) {
 		t.Errorf("the session's environment is %q", got)
 	}
 
 	// The staged copy, changed after its digest was approved.
 	h.approved(ws, "m2", "trusted", env)
-	p := h.dir + "/run/chase/.envelope/m2.json"
+	p := h.dir + "/run/chase/.grant/m2.json"
 	var doc map[string]any
 	json.Unmarshal([]byte(read(t, p)), &doc)
 	doc["secrets"].(map[string]any)["text"] = `{"cloudflare-token": "another"}`
@@ -628,7 +627,7 @@ func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 
 	// A binding naming a secret, and no sops file.
 	h.approved(ws, "m5", "trusted", `{"bindings": {"cloudflare": {"credential": {"secret": "cloudflare-token"}}}}`)
-	if h.launch("trusted", ws, "m5") == 0 || !h.said("chase: "+ws+": a binding names secret 'cloudflare-token', and chase.secrets names no file") {
+	if h.launch("trusted", ws, "m5") == 0 || !h.said("chase: "+ws+": a binding names secret 'cloudflare-token', and the grant names no secrets file") {
 		t.Errorf("a secret with no sops file: %s", h.err)
 	}
 }
@@ -639,7 +638,7 @@ func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 func TestListsOfAnAppTheTierLacksOrHasAnonymouslyAreIgnored(t *testing.T) {
 	h, _, ws := newProjectLaunch(t)
 	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["github.com"], "routes": [{"name": "github", "host": "api.github.com", "upstream": "https://api.github.com"}]}`)
-	h.launched(ws, "m1", "trusted", `{"bindings": {"github": {"allow": ["repos/delete"]}, "huggingface": {"ask": ["x"]}, "probe": {"x": 1}}}`)
+	h.launched(ws, "m1", "trusted", `{"bindings": {"github": {"allow": ["repos/delete"]}, "huggingface": {"ask": ["x"]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
 	if !h.said("chase: " + ws + ": github's lists ignored: github is anonymous in trusted") {
 		t.Errorf("an anonymous app's lists were not said to be ignored: %s", h.err)
 	}
@@ -674,18 +673,18 @@ func (seeder) Stop(context.Context, string) error { return nil }
 // with nothing to give adds nothing.
 func TestTheSessionIsGivenEachAppsVariablesAndFiles(t *testing.T) {
 	h, _, ws := newProjectLaunch(t)
-	h.cfg.Apps["docker"] = envelope.App{Credential: no(), Env: map[string]string{"A": "1"}}
-	h.cfg.Apps["seeder"] = envelope.App{Credential: no()}
-	h.registry["seeder"] = seeder{}
-	h.launched(ws, "m1", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"]}, "probe": {"x": 1}, "seeder": {"x": 1}}}`)
-	if got := h.env(); !slices.Equal(got, []string{"A=1", "PROBE=1", "SEEDER_KEY=" + h.dir + "/home/.config/seeder/key"}) {
+	h.cfg.Apps["docker"] = grant.App{Credential: no(), Env: map[string]string{"A": "1"}}
+	h.cfg.Apps["gcloud"] = grant.App{Credential: no()}
+	h.registry["gcloud"] = seeder{}
+	h.launched(ws, "m1", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}, "gcloud": {"serviceAccount": "s@p.iam.gserviceaccount.com"}}}`)
+	if got := h.env(); !slices.Equal(got, []string{"PROBE=1", "A=1", "SEEDER_KEY=" + h.dir + "/home/.config/seeder/key"}) {
 		t.Errorf("the session's environment is %q", got)
 	}
 	if got := h.given.Files; len(got) != 1 || got[0] != (session.File{Path: h.dir + "/home/.config/seeder/key", Mode: 0o600, Content: "for " + ws}) {
 		t.Errorf("the session's files are %+v", got)
 	}
-	h.cfg.Apps["docker"] = envelope.App{Credential: no()}
-	h.launched(ws, "m2", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"]}, "probe": {"x": 1}}}`)
+	h.cfg.Apps["docker"] = grant.App{Credential: no()}
+	h.launched(ws, "m2", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
 	if got := h.env(); !slices.Equal(got, []string{"PROBE=1"}) {
 		t.Errorf("the session's environment is %q", got)
 	}
@@ -697,12 +696,12 @@ func TestTheSessionIsGivenEachAppsVariablesAndFiles(t *testing.T) {
 			t.Errorf("the launch wrote %s, which is the payload's to be given", left)
 		}
 	}
-	given, err := envelope.Launch(context.Background(), h.cfg, h.registry, "trusted", ws, "m3", &strings.Builder{})
+	given, err := grant.Launch(context.Background(), h.cfg, h.registry, "trusted", ws, "m3", &strings.Builder{})
 	if err == nil {
 		t.Errorf("an unapproved launch gave %v", given)
 	}
-	h.approved(ws, "m3", "trusted", `{"bindings": {"probe": {"x": 1}}}`)
-	given, err = envelope.Launch(context.Background(), h.cfg, h.registry, "trusted", ws, "m3", &strings.Builder{})
+	h.approved(ws, "m3", "trusted", `{"bindings": {"cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
+	given, err = grant.Launch(context.Background(), h.cfg, h.registry, "trusted", ws, "m3", &strings.Builder{})
 	if err != nil || len(given.Env) != 1 || given.Env[0] != (session.Var{Name: "PROBE", Value: "1"}) {
 		t.Errorf("the launch's environment is %v: %v", given, err)
 	}
@@ -712,15 +711,15 @@ func TestTheSessionIsGivenEachAppsVariablesAndFiles(t *testing.T) {
 // and then the directory and anything staged for it, gone.
 func TestTheSessionsEndStopsEachAppFirst(t *testing.T) {
 	h, p, ws := newProjectLaunch(t)
-	h.launched(ws, "m1", "trusted", `{"bindings": {"probe": {"x": 1}}}`)
-	h.approved(ws, "m1", "trusted", `{"bindings": {"probe": {"x": 1}}}`)
-	if rc := envelope.RunPostStop(context.Background(), h.cfg, h.registry, []string{"m1"}, nil, &strings.Builder{}, &strings.Builder{}); rc != 0 {
+	h.launched(ws, "m1", "trusted", `{"bindings": {"cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
+	h.approved(ws, "m1", "trusted", `{"bindings": {"cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
+	if rc := grant.RunPostStop(context.Background(), h.cfg, h.registry, []string{"m1"}, nil, &strings.Builder{}, &strings.Builder{}); rc != 0 {
 		t.Errorf("postStop failed: %d", rc)
 	}
 	if !slices.Equal(p.stopped, []string{"m1"}) || !slices.Equal(p.running, []bool{true}) {
 		t.Errorf("probe was not stopped before its directory went: %v %v", p.stopped, p.running)
 	}
-	for _, gone := range []string{"/run/chase/m1", "/run/chase/.envelope/m1.json"} {
+	for _, gone := range []string{"/run/chase/m1", "/run/chase/.grant/m1.json"} {
 		if _, err := os.Lstat(h.dir + gone); err == nil {
 			t.Errorf("%s outlived the session", gone)
 		}

@@ -148,7 +148,7 @@ let
         type = types.bool;
         default = false;
         description = ''
-          Run with no sandbox at all: no container, no frisket, no envelope.
+          Run with no sandbox at all: no container, no frisket, no grant.
           For work a container cannot do -- real sudo, /dev/input, KVM, the
           network namespaces sessions are made of. Everything below is a
           sandbox's, and a bare tier sets none of it.
@@ -191,16 +191,16 @@ let
         description = ''
           flong's `seccomp` for this tier's sessions: its tier, and the
           loosenings a tier's own work needs. Empty is flong's default,
-          `strict`. A checkout's envelope can add to it, once approved.
+          `strict`. A checkout's grant can add to it, once approved.
         '';
       };
-      envelope = mkOption {
+      grants = mkOption {
         type = types.bool;
         default = false;
         description = ''
-          Whether a checkout's own envelope -- its `chaseModules.default` --
-          is applied to its sessions in this tier, once approved. Not for a
-          tier that runs other people's code (PLAN.md, decision 13).
+          Whether a checkout's own grant -- what its `chase.jsonc` asks for
+          -- is applied to its sessions in this tier, once approved. Not for
+          a tier that runs other people's code (PLAN.md, decision 13).
         '';
       };
     };
@@ -221,7 +221,7 @@ in
     ./apps/gcloud.nix
     ./apps/docker.nix
     ./apps/gcloud-renew.nix
-    ./project
+    ./grant.nix
   ] ++ map
     (name: lib.mkRemovedOptionModule [ "chase" name ] ''
       chase ships no tiers and no selector opinions: a tier says what puts a
@@ -388,11 +388,11 @@ in
           message = "chase.tiers.${name} is a sandbox and sets no `egress`: say `direct` or `frisket`.";
         }
         {
-          assertion = !tier.bare || !(tier.envelope
+          assertion = !tier.bare || !(tier.grants
             || config.containers ? "agent-${name}"
             || config.flong ? "agent-${name}"
             || config.services.frisket.policies ? ${name});
-          message = "chase.tiers.${name} is bare, and something gives it a sandbox's settings: an app enabled in it, or `envelope`. A bare tier runs with none.";
+          message = "chase.tiers.${name} is bare, and something gives it a sandbox's settings: an app enabled in it, or `grants`. A bare tier runs with none.";
         }
       ]) cfg.tiers);
 
@@ -470,7 +470,7 @@ in
       # container's environment, and the files seeded into its home, Claude
       # Code's placeholder login among them. Nothing of chase's runs in a
       # session but the agent (internal/session). A tier that takes
-      # envelopes applies the approved one here first (./project).
+      # grants applies the approved one here first (./grant.nix).
       exec = [ (lib.getExe cfg.package) "hook" "exec" name ];
       # The checkout's root, so all of it is mounted wherever you start;
       # otherwise the directory itself, which only a `paths` rule can place.

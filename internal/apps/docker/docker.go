@@ -2,7 +2,7 @@
 // containers, on the rootless daemon of the tier's user, reached by the
 // session only through a route frisket judges request by request, and
 // published only on the project's own loopback address. What the project is
-// was approved with its envelope, from its checkout's origin; the route is
+// was approved with its grant, from its checkout's origin; the route is
 // made at launch, from that and the binding's images and ports.
 //
 // It was chase-docker-prepare, a script apps/docker.nix built, run by the
@@ -93,7 +93,7 @@ func (a *App) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
 	}
 
 	// The project approve derived from the checkout's origin, and was
-	// approved as: never anything the envelope says, which would let a
+	// approved as: never anything the grant says, which would let a
 	// project name another's containers as its own.
 	if r.Project == "" {
 		return die("no project was approved for it, so its containers could be nobody's")
@@ -105,9 +105,9 @@ func (a *App) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
 	if len(b.images) == 0 {
 		return die("no images: say which the project's containers may run")
 	}
-	// As options.nix refuses it, again here, since every spelling below is
-	// made from it: an image's ID, or sha256:<prefix>, which the daemon
-	// answers with whatever local image has it.
+	// As the grant refuses it (internal/grant), again here, since every
+	// spelling below is made from it: an image's ID, or sha256:<prefix>,
+	// which the daemon answers with whatever local image has it.
 	for _, img := range b.images {
 		if !notAnID(img) {
 			return die("an image named by its ID: name it by its repository and a tag or digest")
@@ -127,7 +127,7 @@ func (a *App) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
 
 	// frisket compares an image as the string a client sends, and the CLI
 	// sends what it was given: every spelling that names the same image on
-	// Docker Hub. The envelope allows only the shortest, so each is given
+	// Docker Hub. The grant allows only the shortest, so each is given
 	// all of its own here.
 	images := []string{}
 	seen := map[string]bool{}
@@ -182,7 +182,7 @@ func (a *App) stderr() io.Writer {
 }
 
 // Spellings are every spelling the CLI could send of an image as the
-// envelope names it, the image itself first: a Docker Hub image with no
+// grant names it, the image itself first: a Docker Hub image with no
 // namespace is also library/, docker.io/ and docker.io/library/ it, one with
 // a namespace also docker.io/ it, and one whose first component is a
 // registry -- a '.' or ':' in it, or localhost -- is only itself.
@@ -210,7 +210,7 @@ var hex64 = regexp.MustCompile(`^[0-9a-f]{64}\n?$`)
 // rule: split("@")[0] | split(":")[0] | ascii_downcase. jq splits an empty
 // string into no parts, so a part that is empty, or empty before its '@',
 // has no name, and jq failed on it; the script's `|| die` said that failure
-// as this refusal, and so does this. options.nix and ValidImage both refuse
+// as this refusal, and so does this. The grant and ValidImage both refuse
 // such an image anyway.
 //
 // It differs from the script in one image: the empty one. jq split "" on

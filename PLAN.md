@@ -24,19 +24,20 @@ needs without depending on the machine it is being worked on.
 ```
                  chase
                 ↑     ↑
-        nix-config     a project's flake
+        nix-config     a project's chase.jsonc
 ```
 
-Both depend on chase; neither depends on the other. A project imports the
-envelope schema, overrides what it needs, and ships that in its own flake. The
-machine's configuration is private, host-specific and no business of a
-project's — and a project is no business of the machine's either.
+Neither depends on the other. nix-config imports chase's module; a project
+writes a grant in the vocabulary chase reads, and depends on nothing at all
+— not a flake, not chase's source. The machine's configuration is private,
+host-specific and no business of a project's — and a project is no business
+of the machine's either.
 
 **The machine never enumerates projects.** It knows the *shape* of what it will
 find, not which projects exist. This is the distinction between an eval-time
 dependency (nix-config lists the project in `flake.lock`) and a runtime one
-(the launcher evaluates whatever directory it was started in). `agent-tier`
-already works the second way: it reads `git remote get-url origin` at launch
+(the launcher reads whatever directory it was started in). `agent-tier`
+already works the second way: it reads the checkout's origin at launch
 rather than holding a list.
 
 ## Locked decisions
@@ -68,17 +69,17 @@ own, and nothing to protect by pinning one's store path: a launcher a project
 built can do no more than the caller running bwrap directly.
 
 What stops a checkout from widening its own sandbox is therefore not who runs
-the launcher but what the launcher applies. A project's declaration is
-evaluated dynamically, at launch, and nothing it says — a binding, a secret,
+the launcher but what the launcher applies. A project's grant is read
+at launch, and nothing it says — a binding, a secret,
 a syscall it wants back — takes effect until `chase.approver` has shown a
 person the change and they have said yes (decision 17). `guard` stays, as a
 consistency check between the wrapper and the launcher rather than a gate:
 it catches a launcher started by hand on a checkout the wrapper would have
 sorted differently.
 
-The envelope is data, and the launcher still validates it: the module system
-refuses an option chase does not define (decision 10), and flong refuses a
-syscall name systemd does not list.
+The grant is data, and the launcher still validates it: chase refuses a key
+it does not define and a value its field may not hold (decision 10), and
+flong refuses a syscall name systemd does not list.
 
 **3. Apps declare their credentials; they never reach for one.** An app says
 *"github needs a credential of this shape"*. What binds it is the consumer:
@@ -136,7 +137,7 @@ project.)
 **8. Report, do not refuse, what cannot be prevented anyway.** Inherited from
 the existing selector, which reports a workspace group member's tier rather
 than refusing it, *"because vendoring the same code into the workspace would
-bypass a refusal anyway"*. An envelope that opened a host port, or a project
+bypass a refusal anyway"*. A grant that opened a host port, or a project
 secret that was decrypted, is printed at launch. The human sees what was
 applied.
 
@@ -149,26 +150,42 @@ Cloudflare, with an account scoped to its zone.
 This is what makes decision 6 more than a preference: there is no broad
 credential to fall back to, so a project either has a narrow one or has none.
 
-**10. The envelope is a module, not a document.** A project's flake output is a
-NixOS module referencing chase's option names. chase evaluates it, with the
-machine's own chase. Two things fall out for free: the module system rejects an
-unknown option, so there is no schema language to invent and no validator to
-write; and version drift disappears, because the project never evaluates chase
-at all — it only names options that chase then defines.
+**10. A grant is data, not a program.** A project's grant is `chase.jsonc` at
+its root: JSON with comments and trailing commas, which chase reads and never
+runs. chase decodes it into a fixed schema that refuses a key it does not
+name, and checks each value — an image in the one spelling frisket compares,
+a port in range and named once, a syscall's name — so a misspelt key or a bad
+value refuses the launch rather than quietly applying nothing (decision 4).
+The project never loads chase, so there is no version to drift: it names
+fields, and the machine's chase says what they mean.
 
-Evaluated as the caller, like everything else in a launch (decision 2).
+This replaces a NixOS module, `chaseModules.default` in the project's flake,
+evaluated against chase's options. That was chosen while chase was Nix, for
+the module system's unknown-option check and typed options. Once chase was
+Go, the module system was only a cost. Evaluating a flake fetches its inputs,
+and an input can be any file of the user's or any URL, so the flake's own
+files had to be approved before anything ran — and a module can import other
+files, so what it evaluated to had to be approved again. Two dialogs for one
+change. A module could also declare an option chase already defines, with a
+type or an `apply` of its own, to put a value past chase's check, so every
+check had to be written to survive that. A data file has none of this: what a
+person approves is what is applied, and one dialog covers it (decision 17).
+Nothing a project has used needs computing. If a grant ever does, the
+project generates `chase.jsonc` and commits the result, which is then what is
+approved.
 
-**11. The launcher evaluates; direnv is not the trigger.** It is tempting to
-have `cd` into a project build the envelope and the launcher read the result.
-It does not work: direnv's hook only fires in a shell that reaches a prompt,
-*"which no editor, script or coding agent has"* — nix-config's own note on why
-containers get nothing from it. A launch from an editor would silently get no
-envelope.
+Read as the caller, like everything else in a launch (decision 2).
 
-So the launcher runs `nix build` itself and is self-sufficient. Nix caches
-flake evaluation, so a repeat is cheap, and a project direnv has already warmed
-is cheaper still — direnv is not the mechanism, it just does no harm. A
-project with no `flake.nix` costs a stat, which is the ordinary case.
+**11. The launcher reads the grant; direnv is not the trigger.** It is
+tempting to have `cd` into a project build the grant and the launcher read
+the result. It does not work: direnv's hook only fires in a shell that
+reaches a prompt, *"which no editor, script or coding agent has"* —
+nix-config's own note on why containers get nothing from it. A launch from
+an editor would silently get no grant.
+
+So the launcher reads the checkout's `chase.jsonc` itself and is
+self-sufficient. A project with no `chase.jsonc` costs a stat, which is the
+ordinary case.
 
 **12. chase ships the machinery, not the tiers.** A tier is a name and what it
 is — a container, its network, its filter, its apps, how their writes are
@@ -195,10 +212,10 @@ credential files are the user's own and a process with sudo simply reads
 them, and since a netns can be left with `nsenter`. So there is nothing that
 containerising such work would buy, for as long as it has root.
 
-**13. A tier for other people's code takes no envelope.** `envelope` is a
+**13. A tier for other people's code takes no grant.** `grants` is a
 tier's switch, and a tier that runs code nobody vouched for leaves it off: it
 has no network to open a port on, and "nothing local is reachable" is the
-whole of what such a tier is for. A project that ships an envelope and is
+whole of what such a tier is for. A project that ships a grant and is
 sorted into it has it ignored.
 
 **14. An app declares a credential's shape; a consumer binds its source.**
@@ -215,7 +232,7 @@ reaches a running session.
 
 **15. Reaching the host is `hostPorts`, and it is the shareable direction.**
 flong has two: `hostPorts` lets a session reach a port on the host's loopback,
-and `forwardPorts` publishes a session's port on the host. An envelope uses the
+and `forwardPorts` publishes a session's port on the host. A grant uses the
 first. The second is exclusive — *"a host port is one session's at a time. A
 second concurrent session asking for the same one fails to attach its network,
 and is ended rather than left running without it"* — and many sessions of one
@@ -227,13 +244,13 @@ Docker sets `hostPorts` aside ([docs/docker.md](docs/docker.md), decision
 12). `-T` reaches only the host's `127.0.0.1`, which every project shares, and
 a project's containers publish on its own loopback address instead. Its ports
 reach the host by frisket's relay: the session's loopback steers each port
-the envelope names to frisket, which sends it on to the project's address and
+the grant names to frisket, which sends it on to the project's address and
 to nothing else. flong is given no port for it.
 
-**16. A port alone is not enough; the envelope carries environment too.**
+**16. A port alone is not enough; the grant carries environment too.**
 flong starts a session clean and direnv's hook never fires in it, so a session
 with 5432 open still has no `DATABASE_URL` and nothing tells it to look. This
-is why the envelope is not a port list: ports and environment are the same
+is why the grant is not a port list: ports and environment are the same
 feature, and shipping one without the other opens a door nothing walks through.
 
 nix-config's note that *"no tier that could use a devShell runs in one"* stops
@@ -244,56 +261,52 @@ Docker needs no environment beyond what its app sets: `DOCKER_HOST`,
 frisket's route. A Compose file's `localhost` already reaches its ports,
 through the relay, so a project names its ports and nothing else.
 
-**17. Nothing of a checkout's runs until a person has approved it.** An
-envelope is the project's own flake output, `chaseModules.default`, and
-nothing is hidden from the session. Instead, each launch works on a snapshot
-of the checkout's tracked files and approves in two stages:
+**17. Nothing of a checkout's takes effect until a person has approved it.**
+The checkout is the agent's to edit, and nothing in it is hidden from the
+session, so an agent could write a grant that widens its own sandbox. Each
+launch therefore works on a snapshot of the checkout's tracked `chase.jsonc`,
+and of the sops file it names, and approves once:
 
-- **The flake's own files, before anything runs.** `flake.nix` and
-  `flake.lock` alone declare and pin its inputs, and evaluating a flake
-  resolves them first — so an input could otherwise read any of the user's
-  files, or fetch any URL, before anyone had looked. Different bytes from the
-  ones last approved for that checkout go to `chase.approver` as a diff; only
-  then is anything evaluated. Inputs that are files on this machine (`path:`,
-  `git+file:`, relative ones) are refused outright: what they hold is in
-  nothing approved.
-- **What the chase section says, after.** It is evaluated purely, against
-  chase's project options only, and can import other files of the project; a
-  change to its result — which includes the digest of the project's sops file
-  — is asked about too.
+- **What it says, and what chase derives beside it.** The grant as chase
+  reads it (decision 10), with the digest of its sops file and, for a grant
+  that binds Docker, `dockerProject`: the `owner/repo` chase read from the
+  checkout's origin rather than anything the grant says
+  ([docs/docker.md](docs/docker.md), decision 9). If that is not what was
+  last approved for the checkout, `chase.approver` is shown the difference
+  and the launch waits for its answer. New ciphertext or a changed origin is
+  a change like any other. A change that says nothing new — a comment, the
+  order things are written in — asks nothing, and the comments never reach
+  the dialog, so the project's words cannot argue for a change.
 
-Both stages run before the session is built, in flong's `seccompPolicy`,
-because what the chase section says includes the syscalls a project wants
-beyond its tier's filter, and a filter is installed before anything in the
-session runs. The approved result is staged for `exec` under the session's
-name, which flong gives both, so two launches of one checkout keep their
-approvals apart; `exec`, still before the session is built, applies the rest
-— secrets, the policy document — without looking at the checkout again, and
-hands what the envelope exports and seeds straight to the payload it prints,
-so nothing is written for a session to source. The policy document is written
-for every launch, the tier's own for a checkout with no envelope, so frisket
-reads one path for every session of the tier. For a
-checkout whose envelope binds Docker, the approved result also carries
-`dockerProject`, the `owner/repo` chase read from the checkout's origin
-rather than anything the envelope says, so a changed origin is a diff someone
-approves ([docs/docker.md](docs/docker.md), decision 9).
+The approval runs before the session is built, in flong's `seccompPolicy`,
+because a grant can name syscalls beyond its tier's filter, and a filter is
+installed before anything in the session runs. The approved grant is staged
+for `exec` under the session's name, which flong gives both, so two launches
+of one checkout keep their approvals apart; `exec`, still before the session
+is built, applies the rest — secrets, the policy document — without looking
+at the checkout again, and hands what the grant exports and seeds straight to
+the payload it prints, so nothing is written for a session to source. The
+policy document is written for every launch, the tier's own for a checkout
+with no grant, so frisket reads one path for every session of the tier.
 
-Only a `flake.nix` that says `chaseModules` is looked at, so an ordinary
-project flake never prompts. Approvals live in `~/.local/state/chase/`, on
-the host and bound into no session. Refused, the launch ends rather than
-running without the envelope. Working from the snapshot is what makes the
-approval mean something: a session of the same checkout cannot change a file
-between the approval and its use.
+A checkout with no `chase.jsonc` is the tier as it is, and is never asked
+about. One whose `chase.jsonc` is not tracked is refused rather than passed
+over: a grant that silently did not apply would be a session without what the
+project asked for. Approvals live in `~/.local/state/chase/`, on the host and
+bound into no session. Refused, the launch ends rather than running without
+the grant. Working from the snapshot is what makes the approval mean
+something: a session of the same checkout cannot change a file between the
+approval and its use.
 
 The snapshot is taken without running anything the checkout's config names:
 which files are tracked is read from the index alone (`chase ls-files`,
 internal/checkout), in an empty repository, never by `git ls-files` in the
-checkout, whose `core.fsmonitor` is a command git would run; and they are
-copied (internal/snapshot) following no link above the tracked files, so a
-directory the session made a link cannot bring a host file into what is
-evaluated and decrypted.
+checkout, whose `core.fsmonitor` is a command git would run; and each file is
+copied (internal/snapshot) following no link above it, so a directory the
+session made a link cannot bring a host file into what is approved and
+decrypted.
 
-This replaces decision 8's report for the envelope itself: a line printed at
+This replaces decision 8's report for the grant itself: a line printed at
 launch is easy to miss, and a dialog is not.
 
 **18. Every app answers the same way: three classes, a tier's switch per
@@ -313,7 +326,7 @@ exception:
 
 A request is answered by the most specific of these that says anything:
 
-1. **The project, by name**: `chase.bindings.<app>.allow`, `.ask` and
+1. **The project, by name**: `bindings.<app>.allow`, `.ask` and
    `.refuse`, each a list of operation ids, or methods and an exact path for
    an endpoint the description does not name. Any operation can be named,
    guarded ones too; the name is exact, and the list is part of what is
@@ -350,7 +363,7 @@ written out in the tier, not a conversion hidden in each app. frisket's asker is
 tier's, so there is nothing for a tier to be checked against: saying so is
 what makes it so. An anonymous app refuses all three whatever its tier says.
 A project's lists are ignored for both, and that is reported (decision 8):
-such a tier takes no envelope anyway (decision 13), and a project that needs
+such a tier takes no grant anyway (decision 13), and a project that needs
 more goes into another tier, which is the machine's decision (decision 5), not
 the checkout's.
 
@@ -381,10 +394,19 @@ one project's `ImageTag` would change what another's container runs.
   confirmation gate and for read/write asymmetry, but not as the thing that
   keeps one project out of another's resources.
 
-- **A `.chase.toml` (or any bespoke file) in the project.** A project already
-  has a flake, and a NixOS module is already a validated, typed, composable
-  declaration. A new format would mean a new parser, a new schema language and
-  a new validator, all in the privileged path. Decision 10.
+- **A NixOS module in the project's flake, `chaseModules.default`.** What
+  chase first did, when chase was Nix and the module system was the
+  validator it already had. Refused once chase was Go: a flake is a program,
+  so approving it took two dialogs — its inputs before evaluation, its result
+  after — and a module could re-declare chase's own options to get past their
+  checks. The parser is now `encoding/json` and the validator Go chase
+  already carries. Decision 10.
+
+- **TOML, YAML or plain JSON for the grant.** Plain JSON has no comments,
+  and a grant's reasons belong next to its values. TOML and YAML would each
+  add a parser, and YAML many ways to write one value, to a path that runs
+  before anyone has approved anything. JSON with comments is JSON once they
+  are removed, so the privileged path parses only JSON. Decision 10.
 
 - **nix-config importing a project as a flake input.** The arrow points the
   wrong way: it makes the machine enumerate its projects, pins each one in
@@ -399,18 +421,17 @@ one project's `ImageTag` would change what another's container runs.
   against a pinned flong. A guarantee should be tested by the component that
   owns it, not by a consumer. Decision 1.
 
-- **A host-declared ceiling on what a project's envelope may ask for.** Built
+- **A host-declared ceiling on what a project's grant may ask for.** Built
   for a threat model a tier for your own code does not have. One already grants a
   real network stack with the host and LAN reachable; a declared loopback port
   is not a new surface, and the answer to an invisible change is decision 8,
   not a ceiling.
 
-- **Hiding the project's declaration from the session**, so only a person
-  outside could edit it. A flake is not one file: its imports, its
-  `flake.lock` and its `path:` inputs are all in the read-write workspace, and
-  git can put an agent's version in place through a human's own checkout.
-  Decision 17 approves what the declaration evaluates to instead, which covers
-  every way it could change.
+- **Hiding the project's grant from the session**, so only a person outside
+  could edit it. The file is in the read-write workspace, and git can put an
+  agent's version in place through a human's own checkout. Decision 17
+  approves what the grant says instead, which covers every way it could
+  change.
 
 - **A Unix socket in the workspace instead of a host port.** Genuinely good
   where it works — a pathname `AF_UNIX` socket is governed by the filesystem

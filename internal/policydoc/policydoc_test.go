@@ -294,36 +294,36 @@ func sorted(t *testing.T, s string) string {
 	return string(b)
 }
 
-// An envelope approved before its apps' empty fields were left out reads
-// as the same envelope now.
-func TestAnEnvelopeApprovedBeforeReadsAsTheSame(t *testing.T) {
+// A grant approved before its apps' empty fields were left out reads
+// as the same grant now.
+func TestAnGrantApprovedBeforeReadsAsTheSame(t *testing.T) {
 	old := `{"secrets": "s.yaml", "seccomp": {"allow": [], "deny": []}, "bindings": {"github": {"allow": ["x"], "ask": [], "refuse": []}, "cloudflare": {"allow": [], "credential": {"secret": null}, "accountId": null}}}`
 	now := `{"secrets": "s.yaml", "bindings": {"github": {"allow": ["x"]}}}`
 	if a, b := sorted(t, normal(t, old)), sorted(t, normal(t, now)); a != b {
-		t.Errorf("an envelope approved before reads as another: %s", a)
+		t.Errorf("a grant approved before reads as another: %s", a)
 	}
 	if got := normal(t, `{"secrets": "s.yaml"}`); got != `{"secrets":"s.yaml"}` {
-		t.Errorf("an envelope without bindings was changed: %s", got)
+		t.Errorf("a grant without bindings was changed: %s", got)
 	}
-	// Docker's binding is new: an envelope that names no image and no port
+	// Docker's binding is new: a grant that names no image and no port
 	// reads as one approved before there was a binding to name.
 	old = `{"secrets": "s.yaml", "bindings": {"github": {"allow": ["x"]}}}`
 	now = `{"secrets": "s.yaml", "bindings": {"github": {"allow": ["x"]}, "docker": {"images": [], "ports": []}}}`
 	if a, b := sorted(t, normal(t, old)), sorted(t, normal(t, now)); a != b {
-		t.Errorf("an envelope without Docker reads as another: %s", b)
+		t.Errorf("a grant without Docker reads as another: %s", b)
 	}
 	if got := normal(t, `{"bindings": {"docker": {"images": ["postgres:18"], "ports": []}}}`); got != `{"bindings":{"docker":{"images":["postgres:18"]}}}` {
-		t.Errorf("an envelope's Docker images were not kept: %s", got)
+		t.Errorf("a grant's Docker images were not kept: %s", got)
 	}
 	if got := normal(t, `{"bindings": {"docker": {"images": [], "ports": [5432]}}}`); got != `{"bindings":{"docker":{"ports":[5432]}}}` {
-		t.Errorf("an envelope's Docker ports were not kept: %s", got)
+		t.Errorf("a grant's Docker ports were not kept: %s", got)
 	}
 }
 
 // What jq wrote, byte for byte, for what it was given: keys where they
 // were, numbers as decNumber writes them, strings as jq escapes them, and
 // what is not null, [] or {} kept, false, 0 and "" too.
-func TestAnEnvelopeIsWrittenAsJqWroteIt(t *testing.T) {
+func TestAnGrantIsWrittenAsJqWroteIt(t *testing.T) {
 	for in, want := range map[string]string{
 		`null`: `null`,
 		`{"bindings":{"x":{"a":[{}],"b":false,"c":0,"d":"","e":{"f":[]}}},"seccomp":{"deny":[],"allow":[]}}`: `{"bindings":{"x":{"a":[{}],"b":false,"c":0,"d":""}}}`,

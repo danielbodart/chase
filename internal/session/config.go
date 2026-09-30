@@ -11,7 +11,7 @@
 // The payload was a bash script the module wrote and flong ran as the
 // session's command, inside it. Everything it worked out -- which agent, with
 // which flags, the directories it may write, the placeholder logins, a
-// codex home, a Cloudflare account, an envelope's environment -- is worked
+// codex home, a Cloudflare account, a grant's environment -- is worked
 // out here instead, on the host, where a test can hold it, and the session
 // runs the agent's own program with nothing between.
 package session

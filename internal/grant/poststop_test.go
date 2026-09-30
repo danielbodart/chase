@@ -1,4 +1,4 @@
-package envelope
+package grant
 
 import (
 	"context"
@@ -18,7 +18,7 @@ func TestPostStopRemovesOnlyASessionsOwnDirectory(t *testing.T) {
 		os.MkdirAll(filepath.Join(run, "chase", m, "secrets"), 0o700)
 	}
 	c := Config{Runtime: run}
-	for _, bad := range []string{"", "a/b", "../x", ".envelope"} {
+	for _, bad := range []string{"", "a/b", "../x", ".grant"} {
 		if err := PostStop(context.Background(), c, map[string]apps.App{}, bad); err == nil {
 			t.Errorf("%q was taken for a session's name", bad)
 		}

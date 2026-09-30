@@ -1,7 +1,7 @@
 // Package snapshot copies a checkout's tracked files into a directory of the
 // user's own, following no link at any component on either side.
 //
-// What is copied is evaluated and decrypted on the host, and the checkout is
+// What is copied is read and decrypted on the host, and the checkout is
 // one a session writes. A copier that opens WS/dir/f by its path lets the
 // kernel resolve dir, so a session that makes dir a link to a host directory
 // -- another project's sops directory, say -- has that host's f copied in,
@@ -164,7 +164,7 @@ func copyLeaf(ws, src int, name, path string) error {
 		}
 		// Where the copy is written -- NFS, FUSE, a home with a quota -- a
 		// write may fail only when it is closed, and a copy cut short is
-		// what would be compared, evaluated and decrypted: the copier this
+		// what would be compared, read and decrypted: the copier this
 		// replaces died of it, and so does this. Close is not retried on
 		// EINTR: on Linux the descriptor is gone either way.
 		if err := unix.Close(out); err != nil {

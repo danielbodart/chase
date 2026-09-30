@@ -30,7 +30,7 @@ func host(t *testing.T) string {
 func checkout(t *testing.T, tracked ...string) string {
 	t.Helper()
 	d := t.TempDir()
-	must(t, os.WriteFile(filepath.Join(d, "flake.nix"), []byte("{ outputs = _: { chaseModules.default = { }; }; }\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(d, "chase.jsonc"), []byte("{}\n"), 0o644))
 	for _, f := range tracked {
 		must(t, os.MkdirAll(filepath.Dir(filepath.Join(d, f)), 0o755))
 		must(t, os.WriteFile(filepath.Join(d, f), []byte("the project's own\n"), 0o644))
@@ -90,7 +90,7 @@ func TestALinkAboveATrackedFileIsRefusedAndNothingOfTheHostsIsCopied(t *testing.
 			must(t, os.RemoveAll(filepath.Join(ws, v.prefix)))
 			must(t, os.Symlink(h, filepath.Join(ws, v.prefix)))
 			out := t.TempDir()
-			code, stdout, _ := run(t, ws, out, "flake.nix", v.prefix+"/secrets.yaml")
+			code, stdout, _ := run(t, ws, out, "chase.jsonc", v.prefix+"/secrets.yaml")
 			if code != 1 {
 				t.Fatalf("the copier copied through %q: %d %q", v.prefix, code, stdout)
 			}
@@ -116,7 +116,7 @@ func TestCopyTrackedRefusesALinkAboveATrackedFile(t *testing.T) {
 	ws := checkout(t, "link/secrets.yaml")
 	must(t, os.RemoveAll(filepath.Join(ws, "link")))
 	must(t, os.Symlink(h, filepath.Join(ws, "link")))
-	err := CopyTracked(ws, t.TempDir(), []string{"flake.nix", "link/secrets.yaml"})
+	err := CopyTracked(ws, t.TempDir(), []string{"chase.jsonc", "link/secrets.yaml"})
 	r, ok := err.(*Refused)
 	if !ok || r.Reason != "link is a link, so what is tracked under it would be copied from wherever it points" {
 		t.Errorf("%#v", err)
@@ -215,7 +215,7 @@ func TestATrackedLinkIsCopiedAsItselfAndAFileWithItsExecBit(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(out, "tool")); string(b) != "the project's own\n" {
 		t.Errorf("a tracked file was copied as %q", b)
 	}
-	fi, err = os.Lstat(filepath.Join(out, "flake.nix"))
+	fi, err = os.Lstat(filepath.Join(out, "chase.jsonc"))
 	if err != nil || !fi.Mode().IsRegular() || fi.Mode()&0o111 != 0 {
 		t.Errorf("a plain file was copied executable: %v %v", fi, err)
 	}
@@ -247,7 +247,7 @@ func TestOnlyTheExecBitIsCarried(t *testing.T) {
 func TestATrackedDirectoryIsMadeEmpty(t *testing.T) {
 	ws := checkout(t, "vendor/lib/f")
 	out := t.TempDir()
-	if code, stdout, stderr := run(t, ws, out, "vendor/lib", "flake.nix"); code != 0 {
+	if code, stdout, stderr := run(t, ws, out, "vendor/lib", "chase.jsonc"); code != 0 {
 		t.Fatalf("%d %q %q", code, stdout, stderr)
 	}
 	entries, err := os.ReadDir(filepath.Join(out, "vendor/lib"))
@@ -261,7 +261,7 @@ func TestATrackedDirectoryIsMadeEmpty(t *testing.T) {
 func TestAPathThatLeavesTheCheckoutIsRefused(t *testing.T) {
 	ws := checkout(t)
 	out := t.TempDir()
-	for _, p := range []string{"/etc/passwd", "../hostsecret/secrets.yaml", "a/../../x", "a//b", "./flake.nix", "a/.", "", "a/", "..", "."} {
+	for _, p := range []string{"/etc/passwd", "../hostsecret/secrets.yaml", "a/../../x", "a//b", "./chase.jsonc", "a/.", "", "a/", "..", "."} {
 		code, stdout, _ := run(t, ws, out, p)
 		if code != 1 {
 			t.Errorf("the copier took %q", p)
@@ -279,7 +279,7 @@ func TestAPathThatLeavesTheCheckoutIsRefused(t *testing.T) {
 // copy would find its first and fail.
 func TestAnUnmergedPathIsCopiedOnce(t *testing.T) {
 	ws := checkout(t)
-	if code, stdout, stderr := run(t, ws, t.TempDir(), "flake.nix", "flake.nix", "flake.nix"); code != 0 {
+	if code, stdout, stderr := run(t, ws, t.TempDir(), "chase.jsonc", "chase.jsonc", "chase.jsonc"); code != 0 {
 		t.Errorf("a path listed three times was refused: %d %q %q", code, stdout, stderr)
 	}
 }
@@ -323,15 +323,15 @@ func TestAFaultOfTheHostsIsNotARefusal(t *testing.T) {
 	ws := checkout(t)
 	out := t.TempDir()
 	elsewhere := filepath.Join(t.TempDir(), "elsewhere")
-	must(t, os.Symlink(elsewhere, filepath.Join(out, "flake.nix")))
-	code, stdout, stderr := run(t, ws, out, "flake.nix")
+	must(t, os.Symlink(elsewhere, filepath.Join(out, "chase.jsonc")))
+	code, stdout, stderr := run(t, ws, out, "chase.jsonc")
 	if code != 1 || stdout != "" || !strings.HasPrefix(stderr, "chase: copy-tracked: ") {
 		t.Errorf("%d %q %q", code, stdout, stderr)
 	}
 	if _, err := os.Lstat(elsewhere); err == nil {
 		t.Errorf("a link in the destination was written through")
 	}
-	code, stdout, stderr = run(t, filepath.Join(ws, "nope"), out, "flake.nix")
+	code, stdout, stderr = run(t, filepath.Join(ws, "nope"), out, "chase.jsonc")
 	if code != 1 || stdout != "" || stderr == "" {
 		t.Errorf("a missing WS: %d %q %q", code, stdout, stderr)
 	}
@@ -370,7 +370,7 @@ func TestALinkSwappedInWhileCopyingIsNeverFollowed(t *testing.T) {
 	for i := 0; i < 500; i++ {
 		out, err := os.MkdirTemp(outs, "out")
 		must(t, err)
-		err = CopyTracked(ws, out, []string{"d/secrets.yaml", "d/e/secrets.yaml", "flake.nix"})
+		err = CopyTracked(ws, out, []string{"d/secrets.yaml", "d/e/secrets.yaml", "chase.jsonc"})
 		if _, ok := err.(*Refused); err != nil && !ok {
 			t.Errorf("a swap was a fault of the host's: %v", err)
 		}

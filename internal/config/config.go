@@ -22,8 +22,8 @@ import (
 
 	"github.com/danielbodart/chase/internal/apps/claude"
 	"github.com/danielbodart/chase/internal/apps/codex"
-	"github.com/danielbodart/chase/internal/envelope"
 	"github.com/danielbodart/chase/internal/gcloud"
+	"github.com/danielbodart/chase/internal/grant"
 	"github.com/danielbodart/chase/internal/selector"
 	"github.com/danielbodart/chase/internal/session"
 )
@@ -59,12 +59,12 @@ type Config struct {
 	// before they start: flong's binds.
 	Session session.Config `json:"session"`
 
-	// Envelope is how a checkout's own envelope is approved and applied,
+	// Grant is how a checkout's own grant is approved and applied,
 	// for the tiers that take one.
-	Envelope *envelope.Config `json:"envelope,omitempty"`
+	Grant *grant.Config `json:"grant,omitempty"`
 
-	// EnvelopeTiers are the tiers that take a checkout's envelope.
-	EnvelopeTiers []string `json:"envelopeTiers,omitempty"`
+	// GrantTiers are the tiers that take a checkout's grant.
+	GrantTiers []string `json:"grantTiers,omitempty"`
 }
 
 // Wrapper is what one agent runs as on a bare tier.
@@ -87,9 +87,9 @@ func Load(path string) (Config, error) {
 	if err := c.Selector.Validate(); err != nil {
 		return Config{}, fmt.Errorf("%s: selector: %w", path, err)
 	}
-	if c.Envelope != nil {
-		if err := envelope.Validate(*c.Envelope, envelope.DefaultApps(*c.Envelope, io.Discard)); err != nil {
-			return Config{}, fmt.Errorf("%s: envelope: %w", path, err)
+	if c.Grant != nil {
+		if err := grant.Validate(*c.Grant, grant.DefaultApps(*c.Grant, io.Discard)); err != nil {
+			return Config{}, fmt.Errorf("%s: grant: %w", path, err)
 		}
 	}
 	for name, w := range c.Wrappers {

@@ -22,7 +22,7 @@ file, updating the hash, and reading the diff of `operations.json`.
 Three things about it that the shared generator handles:
 
 - **No operation ids.** They are derived from the method and the path, in the
-  characters an envelope may name one by:
+  characters a grant may name one by:
   `GET /api/models/{namespace}/{repo}/xet-write-token/{rev}` is
   `get-api-models-namespace-repo-xet-write-token-rev`.
 - **File paths.** A parameter whose schema the spec calls a "Wildcard path

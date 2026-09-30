@@ -11,9 +11,9 @@ import (
 )
 
 // value is JSON as jq holds it: an object's keys in the order they came, and
-// a number as the literal it was written as. An envelope is read and written
+// a number as the literal it was written as. A grant is read and written
 // back through here, rather than through a map, so that what is stored and
-// compared is the bytes jq wrote for the same envelope.
+// compared is the bytes jq wrote for the same grant.
 type value struct {
 	// kind is '{', '[', '"', '0' (a number), 't', 'f' or 'n'.
 	kind    byte
@@ -215,8 +215,8 @@ const overflowed = "1.7976931348623157e+308"
 // decNumber's scientific string of it, so 1e2 is 1E+2 and 1.50e1 is 15.0,
 // and the digits written are all kept -- within decNumber's own limits,
 // beyond which jq writes what decNumber made of it, or, past emax, the
-// double. Nix never writes such a literal, but an envelope approved under jq
-// must read as the same envelope, whatever was in it.
+// double. Nix never writes such a literal, but a grant approved under jq
+// must read as the same grant, whatever was in it.
 func number(lit string) string {
 	sign := ""
 	if strings.HasPrefix(lit, "-") {
@@ -306,7 +306,7 @@ func roundHalfUp(digits string, drop int) string {
 }
 
 // Number is a JSON number's literal as jq writes one it did not compute, for
-// what else prints an envelope as jq printed it: the approval's diff, and
+// what else prints a grant as jq printed it: the approval's diff, and
 // the lines said beside it.
 func Number(lit string) string { return number(lit) }
 

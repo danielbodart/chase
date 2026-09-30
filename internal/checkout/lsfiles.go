@@ -21,7 +21,7 @@ import (
 // it.
 const copyTimeout = 20 * time.Second
 
-// LsFiles is WHAT A CHECKOUT TRACKS, for what copies it: chase-envelope's
+// LsFiles is WHAT A CHECKOUT TRACKS, for what copies it: the grant's
 // snapshot. `git ls-files` in the checkout would read its config, and with
 // it core.fsmonitor, a command git runs on any read of the index -- on the
 // host, as the user, before anything is approved. So the checkout is Find's,

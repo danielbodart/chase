@@ -31,9 +31,9 @@ in
       options.apps.gcloud = ops.appOptions config // {
         enable = mkEnableOption ''
           Google Cloud in this tier, as the service account a project binds
-          in its envelope: what Google's API descriptions call a read goes
+          in its grant: what Google's API descriptions call a read goes
           straight through, and the rest is answered as `writes`, `guarded`
-          and `unmatched` say. Only for a tier that takes envelopes: there is
+          and `unmatched` say. Only for a tier that takes grants: there is
           never a Google account of the machine's'';
         apis = mkOption {
           type = types.listOf (types.strMatching "[A-Za-z0-9_-]+");
@@ -51,8 +51,8 @@ in
   config = {
     assertions = lib.concatLists (lib.mapAttrsToList (name: tier: [
       {
-        assertion = !tier.apps.gcloud.enable || tier.envelope;
-        message = "chase.tiers.${name}.apps.gcloud is enabled, but the tier takes no envelope: a Google credential is only ever a project's.";
+        assertion = !tier.apps.gcloud.enable || tier.grants;
+        message = "chase.tiers.${name}.apps.gcloud is enabled, but the tier takes no grant: a Google credential is only ever a project's.";
       }
       {
         assertion = lib.all (a: lib.elem a known) tier.apps.gcloud.apis;
@@ -73,7 +73,7 @@ in
     # The session's route, key and first token are made at launch, and its
     # renewer started and stopped (internal/apps/gcloud).
     chase.internal.config = mkIf (enabled != { }) {
-      envelope.gcloud = {
+      grant.gcloud = {
         tiers = lib.mapAttrs (_: tier: ops.settings tier.apps.gcloud // { inherit (tier.apps.gcloud) apis; }) enabled;
         catalogue = "${./gcloud}";
         inherit (ops) every;

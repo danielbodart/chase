@@ -1,4 +1,4 @@
-package envelope_test
+package grant_test
 
 import (
 	"os"
@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// The ported docker-show check, as far as chase-envelope goes: WHERE A
+// The ported docker-show check, as far as the grant goes: WHERE A
 // PROJECT'S DOCKER IS, SAID (docs/docker.md). `chase docker` prints a
 // checkout's project, address, session names and approved ports, and calls a
 // name the host's only where the host's map gives it this project at this
@@ -40,7 +40,6 @@ func TestWhereAProjectsDockerIsIsSaid(t *testing.T) {
 	h.cfg.DockerTiers = []string{"trusted"}
 	ws := r + "/p/shop"
 	h.repo(ws, "git@github.com:Example/Shop.git")
-	h.flake(ws)
 	os.MkdirAll(ws+"/sub", 0o755)
 	only := "(address only; not in this host's /etc/hosts)"
 	both := "shop.internal shop.example.internal"
@@ -78,7 +77,6 @@ func TestWhereAProjectsDockerIsIsSaid(t *testing.T) {
 	// one's ports.
 	app := r + "/w/app"
 	h.repo(app, "git@github.com:acme/app.git")
-	h.flake(app)
 	h.approved(app, "m2", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"], "ports": [5432]}}}`)
 	if h.run("docker", app, "trusted") != 0 || !h.hasLine("  ports    5432   (approved)") {
 		t.Errorf("acme/app's ports were not shown: %s %s", h.out, h.err)
@@ -98,7 +96,7 @@ func TestWhereAProjectsDockerIsIsSaid(t *testing.T) {
 	if h.out != "" {
 		t.Errorf("a checkout with no origin printed: %q", h.out)
 	}
-	if rc := h.run("docker", ws); rc != 1 || h.err != "chase: usage: chase envelope docker WS TIER\n" {
+	if rc := h.run("docker", ws); rc != 1 || h.err != "chase: usage: chase grant docker WS TIER\n" {
 		t.Errorf("docker with one argument: %d %q", rc, h.err)
 	}
 }

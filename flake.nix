@@ -69,7 +69,7 @@
         # policy document's types, so chase builds what frisket reads with
         # frisket's own code. The frisket-pin check holds go.mod's frisket to
         # the one flake.lock pins.
-        vendorHash = "sha256-3V6+tyYBTAbphAoqGVA07mHIbhDzBTJcfSYwDxEJTlQ=";
+        vendorHash = "sha256-Cbg3IWAi26u6k34iS0OB83pKmPnpdR6wpZqPGgTkeeA=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -167,7 +167,7 @@
 
           # THE MODULE AND THE BINARY AGREE: the configuration the module
           # writes for the example tiers is one the binary loads, strictly,
-          # and answers from -- every section, the envelope's included. The
+          # and answers from -- every section, the grant's included. The
           # binary's own tests cover what it does with one; this covers the
           # module writing it.
           module-config =
@@ -200,7 +200,7 @@
                 || fail "strict's environment is not flong's: $(jq -c .session.tiers.strict.environment ${file})"
               # A closed list: nothing else on the container's PATH runs.
               ! workspace=/w chase -config ${file} hook exec strict sh -c id > /dev/null 2>&1 || fail "strict ran sh"
-              for section in selector session envelope wrappers claude codex; do
+              for section in selector session grant wrappers claude codex; do
                 jq -e --arg s "$section" 'has($s)' ${file} >/dev/null || fail "no $section section"
               done
               touch $out
@@ -419,11 +419,11 @@
               && ! lib.any (p: p.ask or false) route.paths)
               || throw "assertions: an anonymous huggingface did not hold together";
             # Google Cloud is only ever a project's (PLAN.md, decision 9): a
-            # tier that takes no envelope cannot enable it, an API it names
+            # tier that takes no grant cannot enable it, an API it names
             # must exist, and a tier that has it gets gcloud and nothing in
             # its own document.
-            assert refused "gcloud in a tier that takes no envelope"
-              { chase.tiers.strict.apps.gcloud.enable = true; } "takes no envelope";
+            assert refused "gcloud in a tier that takes no grant"
+              { chase.tiers.strict.apps.gcloud.enable = true; } "takes no grant";
             assert refused "an unknown Google API"
               { chase.tiers.trusted.apps.gcloud = { enable = true; apis = [ "bigquery" "nope" ]; }; } "names no Google API: nope";
             assert
@@ -444,9 +444,9 @@
             # Docker is only ever a project's, and only where a session has
             # the network a container on the host's daemon has anyway.
             assert refused "Docker in a tier with no network but frisket"
-              { chase.tiers.strict = { envelope = true; apps.docker.enable = true; }; } "chase.tiers.strict.apps.docker is enabled, but the tier's egress is not direct";
-            assert refused "Docker in a tier that takes no envelope"
-              { chase.tiers.open = { egress = "direct"; apps.docker.enable = true; }; } "chase.tiers.open.apps.docker is enabled, but the tier takes no envelope";
+              { chase.tiers.strict = { grants = true; apps.docker.enable = true; }; } "chase.tiers.strict.apps.docker is enabled, but the tier's egress is not direct";
+            assert refused "Docker in a tier that takes no grant"
+              { chase.tiers.open = { egress = "direct"; apps.docker.enable = true; }; } "chase.tiers.open.apps.docker is enabled, but the tier takes no grant";
             # trusted publishes what a session listens on ("auto"), which
             # Docker's relay is not refused over: it listens on nothing a
             # session's pasta would see. The tier gets the CLI and the CA it
@@ -516,7 +516,7 @@
               && failed == [ ]
                 || throw "assertions: a session is granted sudo, or flong refused them: ${builtins.toJSON failed}");
             # The example tiers' filters: trusted can debug, strict cannot;
-            # only a tier that takes envelopes asks the checkout for more.
+            # only a tier that takes grants asks the checkout for more.
             assert
               (let config = configWith { }; in
               config.flong.agent-trusted.seccomp.debug
@@ -748,86 +748,6 @@
               unloaded "another project's names" '.routes[0].docker.names = ["billing.internal", "billing.example.internal"]' "$own"
               unloaded "an address it does not derive" '.routes[0].docker.address = "127.101.170.172"' "is not 127.101.170.171, the project's own"
 
-              touch $out
-            '';
-
-          # WHAT AN ENVELOPE MAY NAME FOR DOCKER (docs/docker.md): each
-          # image in the one form frisket compares against, never at a
-          # registry the host's loopback or an address would answer for, and
-          # ports frisket can listen on in the session. options.nix is
-          # evaluated alone, as chase-envelope evaluates it, so a bad value
-          # has to fail the evaluation itself.
-          docker-envelope =
-            let
-              lib = nixpkgs.lib;
-              # A binding is either the value of chase.bindings.docker or a
-              # project module of its own, evaluated beside options.nix as
-              # chase-envelope evaluates a project's chaseModules.default.
-              docker = binding: (lib.evalModules {
-                modules = [ ./project/options.nix (if binding ? module then binding.module else { chase.bindings.docker = binding; }) ];
-              }).config.chase.bindings.docker;
-              evaluates = binding: (builtins.tryEval (builtins.deepSeq (docker binding) true)).success;
-              digest = lib.concatStrings (lib.replicate 8 "0123abcd");
-              refused = [
-                { images = [ "docker.io/postgres:18" ]; }
-                { images = [ "index.docker.io/x:1" ]; }
-                { images = [ "library/postgres:18" ]; }
-                { images = [ "postgres" ]; }
-                { images = [ "127.0.0.1:5000/x:1" ]; }
-                { images = [ "10.0.0.1/x:1" ]; }
-                { images = [ "localhost/x:1" ]; }
-                # Names and spellings that resolve to the host's loopback.
-                { images = [ "registry.localhost/x:1" ]; }
-                { images = [ "localhost.localdomain/x:1" ]; }
-                { images = [ "0x7f.1/x:1" ]; }
-                { images = [ "127.1/x:1" ]; }
-                { images = [ "a.internal/x:1" ]; }
-                { images = [ "127.0.0.1.nip.io/x:1" ]; }
-                { images = [ "evil.eu.gcr.io.example/x:1" ]; }
-                { images = [ "a.b-docker.pkg.dev/x:1" ]; }
-                # An image's ID, or a prefix of one, for whatever local image
-                # has it.
-                { images = [ "sha256:${digest}" ]; }
-                { images = [ "sha256:0123abcd" ]; }
-                { images = [ "${digest}:1" ]; }
-                { images = [ "o/${digest}:1" ]; }
-                { images = [ "o/sha256:1" ]; }
-                # A project module that declares the option again, to put
-                # its own value past the check.
-                {
-                  name = "a module that redeclares images with an apply";
-                  module = { lib, ... }: {
-                    options.chase.bindings.docker.images = lib.mkOption { apply = _: [ "127.0.0.1:5000/x:1" ]; };
-                  };
-                }
-                {
-                  name = "a module that redeclares ports as any int, for port 80";
-                  module = { lib, ... }: {
-                    options.chase.bindings.docker.ports = lib.mkOption { type = lib.types.listOf lib.types.int; };
-                    config.chase.bindings.docker.ports = [ 80 ];
-                  };
-                }
-                {
-                  name = "a module that redeclares ports as 0 to 70000, for ports 0 and 99999";
-                  module = { lib, ... }: {
-                    options.chase.bindings.docker.ports = lib.mkOption { type = lib.types.listOf (lib.types.ints.between 0 70000); };
-                    config.chase.bindings.docker.ports = [ 0 99999 ];
-                  };
-                }
-                { ports = [ 80 ]; }
-                { ports = [ 15001 ]; }
-                { ports = [ 5432 5432 ]; }
-                { ports = lib.range 2000 2064; }
-              ];
-              accepted = [
-                { images = [ "postgres:18" "bitnami/postgresql:16" "ghcr.io/o/x:1" "postgres@sha256:${digest}" "eu.gcr.io/p/x:1" "europe-west2-docker.pkg.dev/p/r/x:1" ]; ports = [ 5432 ]; }
-                { ports = lib.range 2000 2063; }
-                { }
-              ];
-              wrong = builtins.filter evaluates refused ++ builtins.filter (b: ! evaluates b) accepted;
-            in
-            pkgs.runCommand "docker-envelope" { wrong = builtins.toJSON (map (b: b.name or b) wrong); passAsFile = [ "wrong" ]; } ''
-              [ "$(cat "$wrongPath")" = "[]" ] || { echo "docker-envelope: evaluated wrongly: $(cat "$wrongPath")" >&2; exit 1; }
               touch $out
             '';
 

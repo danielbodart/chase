@@ -1,4 +1,4 @@
-package envelope
+package grant
 
 import (
 	"context"
@@ -9,9 +9,9 @@ import (
 	"github.com/danielbodart/chase/internal/term"
 )
 
-const usage = "usage: chase envelope approve WS MACHINE TIER | project WS TIER | docker WS TIER"
+const usage = "usage: chase grant approve WS MACHINE TIER | project WS TIER | docker WS TIER"
 
-// Run is `chase envelope`: its first argument the subcommand, and the rest
+// Run is `chase grant`: its first argument the subcommand, and the rest
 // that subcommand's. Every entry point returns the script's exit status,
 // prints on stdout exactly what the script printed there, and says
 // everything else on stderr through term.Say. Every entry point that reads
@@ -49,7 +49,7 @@ func fail(stderr io.Writer, err error) int {
 // unset is what the script did with an argument it needed and was not
 // given: bash's `set -u` stopped it.
 func unset(stderr io.Writer, what string) int {
-	term.Say(stderr, "%s: no %s was given (%s)", "chase envelope", what, usage)
+	term.Say(stderr, "%s: no %s was given (%s)", "chase grant", what, usage)
 	return 1
 }
 
@@ -73,7 +73,7 @@ func RunApprove(ctx context.Context, c Config, args []string, _ io.Reader, stdou
 // approve derives it, on a line.
 func RunProject(ctx context.Context, c Config, args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if len(args) != 2 {
-		return fail(stderr, refuse("usage: chase envelope project WS TIER"))
+		return fail(stderr, refuse("usage: chase grant project WS TIER"))
 	}
 	slug, err := Project(ctx, c, args[0], args[1], stderr)
 	if err != nil {
@@ -87,7 +87,7 @@ func RunProject(ctx context.Context, c Config, args []string, _ io.Reader, stdou
 // project, address, names and ports.
 func RunDocker(ctx context.Context, c Config, args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if len(args) != 2 {
-		return fail(stderr, refuse("usage: chase envelope docker WS TIER"))
+		return fail(stderr, refuse("usage: chase grant docker WS TIER"))
 	}
 	return fail(stderr, Show(ctx, c, args[0], args[1], stdout, stderr))
 }

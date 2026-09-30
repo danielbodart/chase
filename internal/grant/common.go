@@ -1,4 +1,4 @@
-package envelope
+package grant
 
 import (
 	"bytes"
@@ -15,7 +15,7 @@ import (
 	"github.com/danielbodart/chase/internal/term"
 )
 
-// Refusal is why an envelope was not applied, in the words the script's die
+// Refusal is why a grant was not applied, in the words the script's die
 // said, without its "chase: ": the entry points say it through term.Say, so
 // what a session named in it -- a path in its checkout, its origin -- reaches
 // the terminal with no control byte but a newline.
@@ -45,7 +45,7 @@ func checkoutDir(c Config, ws string) string { return c.state() + "/checkouts/" 
 // one checkout approved at once each get their own. A machine name never
 // starts with a dot.
 func staged(c Config, machine string) string {
-	return c.runtime() + "/chase/.envelope/" + machine + ".json"
+	return c.runtime() + "/chase/.grant/" + machine + ".json"
 }
 
 // regular is `[ -f P ]`: a plain file once links are followed.
@@ -55,15 +55,14 @@ func regular(p string) bool {
 }
 
 // ask is the approver protocol (PLAN.md, decision 17): the approver is run
-// with one JSON document on stdin, {kind, workspace, diff}, as `jq -n`
-// printed it, and exit 0 approves. Its own output goes to stderr: under
+// with one JSON document on stdin, {workspace, diff}, as `jq -n` printed
+// it, and exit 0 approves. Its own output goes to stderr: under
 // seccompPolicy, stdout is the policy flong reads.
-func ask(ctx context.Context, c Config, kind, ws, diff string, stderr io.Writer) error {
+func ask(ctx context.Context, c Config, ws, diff string, stderr io.Writer) error {
 	if c.Approver == "" {
-		return refuse("%s: its %s has changed, and there is no chase.approver to ask", ws, kind)
+		return refuse("%s: its grant has changed, and there is no chase.approver to ask", ws)
 	}
 	doc := jobject()
-	doc.set("kind", jstr(kind))
 	doc.set("workspace", jstr(ws))
 	doc.set("diff", jstr(diff))
 	cmd := exec.CommandContext(ctx, c.Approver)
@@ -75,7 +74,7 @@ func ask(ctx context.Context, c Config, kind, ws, diff string, stderr io.Writer)
 			// as chase says anything.
 			term.Say(stderr, "%v", err)
 		}
-		return refuse("%s: its %s was not approved", ws, kind)
+		return refuse("%s: its grant was not approved", ws)
 	}
 	return nil
 }

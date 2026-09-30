@@ -1,4 +1,4 @@
-package envelope
+package grant
 
 import (
 	"context"
@@ -12,8 +12,8 @@ import (
 
 // Exec is `chase hook exec TIER`, flong's exec for a sandbox tier: the
 // payload, printed on stdout as flong reads it, for the launcher's
-// arguments args, and its status. e is the envelope's configuration when
-// tier takes envelopes, nil when it takes none; a nil registry is
+// arguments args, and its status. e is the grant's configuration when
+// tier takes grants, nil when it takes none; a nil registry is
 // DefaultApps'. binds is flong's $binds.
 //
 // In order:
@@ -24,7 +24,7 @@ import (
 //     decrypted, no token minted with a real key, no unit started;
 //   - what earlier versions left on the host that nothing reads now
 //     (forget), gone;
-//   - for a tier that takes envelopes, what seccompPolicy approved,
+//   - for a tier that takes grants, what seccompPolicy approved,
 //     applied (Launch) -- its secrets decrypted, its apps prepared, the
 //     session's policy document written for frisket -- and what it exports
 //     and seeds handed to the payload, with nothing written for a session

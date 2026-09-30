@@ -1,4 +1,4 @@
-package envelope_test
+package grant_test
 
 import (
 	"context"
@@ -13,9 +13,9 @@ import (
 
 	"github.com/danielbodart/chase/internal/apps"
 	appsgcloud "github.com/danielbodart/chase/internal/apps/gcloud"
-	"github.com/danielbodart/chase/internal/envelope"
 	renew "github.com/danielbodart/chase/internal/gcloud"
 	"github.com/danielbodart/chase/internal/gcloud/gcloudtest"
+	"github.com/danielbodart/chase/internal/grant"
 )
 
 // The launcher-level parts of the ported gcloud-launch check (the prepare's
@@ -136,7 +136,7 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 
 	// The session's end: the renewer stopped, while the key it signs with
 	// is still there, and then the session's directory gone.
-	if rc := envelope.RunPostStop(context.Background(), h.cfg, h.registry, []string{"m1"}, nil, &strings.Builder{}, &strings.Builder{}); rc != 0 {
+	if rc := grant.RunPostStop(context.Background(), h.cfg, h.registry, []string{"m1"}, nil, &strings.Builder{}, &strings.Builder{}); rc != 0 {
 		t.Fatalf("postStop failed: %d", rc)
 	}
 	if log := h.log("systemctl.log"); len(log) != 2 || log[1] != h.cfg.Runtime+" --user stop chase-gcloud-renew@m1.service" {

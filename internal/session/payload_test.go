@@ -305,8 +305,8 @@ func TestOnlyTheTiersAgentsRun(t *testing.T) {
 
 // CLOUDFLARE: the account id is read on the host at each launch, without the
 // newlines a command substitution took off, and given as a variable. A
-// project's own account, from its envelope, is the session's instead, in
-// the tier's place; what else the envelope gives follows, and its files
+// project's own account, from its grant, is the session's instead, in
+// the tier's place; what else the grant gives follows, and its files
 // after the tier's own.
 func TestTheCloudflareAccountIsReadOnTheHostAndAProjectsWins(t *testing.T) {
 	f := newFixture(t)

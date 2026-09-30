@@ -4,7 +4,7 @@
 # rootless daemon of the tier's user, reached by the session only through a
 # route frisket judges request by request, and published only on the
 # project's own loopback address. What the project is was approved with its
-# envelope, from its checkout's origin; the route is made at launch, from
+# grant, from its checkout's origin; the route is made at launch, from
 # that and the binding's images and ports.
 
 let
@@ -68,11 +68,11 @@ in
   options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule {
       options.apps.docker.enable = mkEnableOption ''
-        Docker in this tier, for a project whose envelope binds it: its
+        Docker in this tier, for a project whose grant binds it: its
         containers run on `chase.user`'s rootless daemon, reached through
         frisket, which admits only what is the project's own, and publish
         their ports on the project's own loopback address. Only for a tier
-        that takes envelopes, with direct egress, since a container reaches
+        that takes grants, with direct egress, since a container reaches
         whatever the host does. chase runs no daemon: the machine runs
         rootless Docker for `chase.user`, its socket at
         /run/user/<uid>/docker.sock, as NixOS's
@@ -87,8 +87,8 @@ in
         message = "chase.tiers.${name}.apps.docker is enabled, but the tier's egress is not direct: a container on the host's daemon reaches whatever the host does.";
       }
       {
-        assertion = !tier.apps.docker.enable || tier.envelope;
-        message = "chase.tiers.${name}.apps.docker is enabled, but the tier takes no envelope: Docker is only ever a project's.";
+        assertion = !tier.apps.docker.enable || tier.grants;
+        message = "chase.tiers.${name}.apps.docker is enabled, but the tier takes no grant: Docker is only ever a project's.";
       }
     ]) cfg.tiers);
 
@@ -105,6 +105,6 @@ in
     # Made at launch, for the project approved and its images and ports
     # (internal/apps/docker), from each tier's route as it is here.
     chase.internal.projectApps = lib.mkIf (enabled != { }) { docker.credential = false; };
-    chase.internal.config = lib.mkIf (enabled != { }) { envelope.docker.routes = lib.mapAttrs (_: _: route) enabled; };
+    chase.internal.config = lib.mkIf (enabled != { }) { grant.docker.routes = lib.mapAttrs (_: _: route) enabled; };
   };
 }

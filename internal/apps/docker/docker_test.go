@@ -168,7 +168,7 @@ func document(p apps.Patch, allow ...string) policy.Document {
 const shop = `{"images": ["postgres:18", "bitnami/redis:7", "ghcr.io/o/x:1"], "ports": [64320, 64321]}`
 
 // docker-launch, THE ROUTE: its address and names are the project's, never
-// the envelope's, every spelling the CLI could send of each image is there,
+// the grant's, every spelling the CLI could send of each image is there,
 // and the rest is the template's, which frisket loads.
 func TestTheRouteIsTheProjects(t *testing.T) {
 	c := template(t)
@@ -346,7 +346,7 @@ func TestWhatIsRefused(t *testing.T) {
 		// NO PROJECT, NO ROUTE: approve always stages one for a Docker
 		// binding, so this is the prepare run as launch would with none.
 		{"no project", "", `{"images": ["postgres:18"]}`, "no project was approved for it, so its containers could be nobody's"},
-		// AN IMAGE'S ID is refused by the prepare too, though the envelope's
+		// AN IMAGE'S ID is refused by the prepare too, though the grant's
 		// options refuse it first: every spelling the route gets is made
 		// from what reaches it.
 		{"an ID", "example/shop", `{"images": ["sha256:` + strings.Repeat("0123abcd", 8) + `"]}`, id},

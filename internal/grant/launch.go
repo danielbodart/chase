@@ -1,4 +1,4 @@
-package envelope
+package grant
 
 import (
 	"bytes"
@@ -25,7 +25,7 @@ import (
 	"github.com/danielbodart/chase/internal/term"
 )
 
-// Launch is the envelope's half of flong's exec hook, run on the host after
+// Launch is the grant's half of flong's exec hook, run on the host after
 // seccompPolicy and before the session is built: what seccompPolicy staged
 // for this launch, applied. It consumes the stage, so a launch applies one
 // approval once; re-checks that the sops file beside it is the one whose
@@ -39,7 +39,7 @@ import (
 //
 // The document is written for every launch, an approval of the tier as it
 // is too, when it is the tier's own: frisket's policyFile names this one
-// path for every session of a tier that takes envelopes, so there is no
+// path for every session of a tier that takes grants, so there is no
 // choosing between two when frisket steers the session, and so nothing to
 // run then.
 //
@@ -237,7 +237,7 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 // session cannot: the runtime directory is bound into no container.
 func decrypt(ctx context.Context, c Config, ws, file, secret, out string, stderr io.Writer) error {
 	if file == "" {
-		return refuse("%s: a binding names secret '%s', and chase.secrets names no file", ws, secret)
+		return refuse("%s: a binding names secret '%s', and the grant names no secrets file", ws, secret)
 	}
 	f, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o666)
 	if err != nil {
@@ -289,7 +289,7 @@ func staticPatch(a App, tier, cred string) (apps.Patch, error) {
 // exportsOf is what an app puts in the session's environment: its own env,
 // then what its patch adds, then each variable it takes from a field of the
 // binding that is there, a later one in place of an earlier of the same
-// name. A value that was not a string in the envelope is its JSON: a number
+// name. A value that was not a string in the grant is its JSON: a number
 // or a boolean as written.
 func exportsOf(a App, patch apps.Patch, binding *value) ([]session.Var, error) {
 	merged := jobject()

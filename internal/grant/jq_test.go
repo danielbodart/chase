@@ -1,4 +1,4 @@
-package envelope
+package grant
 
 import (
 	"bytes"
@@ -108,7 +108,7 @@ func jq(t *testing.T, input string, args ...string) string {
 	return out
 }
 
-var envelopes = []string{
+var grants = []string{
 	`null`,
 	`{}`,
 	`{"bindings": {}}`,
@@ -117,9 +117,9 @@ var envelopes = []string{
 	`{"a": {"b": {"c": [[], {}, [{}], [[1]]]}}, "B": true, "_": false, "": null}`,
 }
 
-// What an envelope is written, compared and shown as is what jq wrote.
-func TestAnEnvelopeIsPrintedAsJqPrintedIt(t *testing.T) {
-	for _, e := range envelopes {
+// What a grant is written, compared and shown as is what jq wrote.
+func TestAnGrantIsPrintedAsJqPrintedIt(t *testing.T) {
+	for _, e := range grants {
 		v, err := parseJSON([]byte(e))
 		if err != nil {
 			t.Fatal(err)
@@ -140,16 +140,15 @@ func TestAnEnvelopeIsPrintedAsJqPrintedIt(t *testing.T) {
 	}
 }
 
-// The approver's stdin is what `jq -n --arg ...` made of the three strings,
-// whatever is in them: a path a session named, a diff of its flake.
+// The approver's stdin is what `jq -n --arg ...` made of the two strings,
+// whatever is in them: a path a session named, a diff of its grant.
 func TestTheApproversDocumentIsJqs(t *testing.T) {
 	for _, s := range []string{"plain", "x\x1b]0;TITLE\x07y", "tab\tnewline\n\"quote\" \\ back", "é   <&>", "bad \xff\xfe utf-8", "nul\x01"} {
 		doc := jobject()
-		doc.set("kind", jstr("flake"))
 		doc.set("workspace", jstr(s))
 		doc.set("diff", jstr(s+"\n"))
-		want := jq(t, "", "-n", "--arg", "kind", "flake", "--arg", "workspace", s, "--arg", "diff", s+"\n",
-			"{kind: $kind, workspace: $workspace, diff: $diff}")
+		want := jq(t, "", "-n", "--arg", "workspace", s, "--arg", "diff", s+"\n",
+			"{workspace: $workspace, diff: $diff}")
 		if got := doc.pretty() + "\n"; got != want {
 			t.Errorf("%q: %q, not %q", s, got, want)
 		}

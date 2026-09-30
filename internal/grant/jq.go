@@ -1,4 +1,4 @@
-package envelope
+package grant
 
 import (
 	"bytes"
@@ -13,10 +13,10 @@ import (
 	"github.com/danielbodart/chase/internal/policydoc"
 )
 
-// WHAT JQ DID TO AN ENVELOPE. The envelope was read, compared, shown and
+// WHAT JQ DID TO A GRANT. The grant was read, compared, shown and
 // stored by jq, and some of what jq did is what a person reads -- the
 // approval's diff is `jq -S .` of each side -- and some is what is compared
-// -- `jq -cS .` of the approved and the proposed. So an envelope is held
+// -- `jq -cS .` of the approved and the proposed. So a grant is held
 // here as jq held it: an object's keys in the order they came, a number as
 // the literal it was written as and written back as jq writes it
 // (policydoc.Number), a string escaped as jq escapes one (policydoc.Quote),

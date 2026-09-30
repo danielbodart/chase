@@ -1,11 +1,11 @@
 // Package policydoc is what a launch does to a session's policy document,
-// and to the envelope it is made from: an app's routes merged into the
-// tier's, a project's lists applied to an app's route, and an envelope put in
+// and to the grant it is made from: an app's routes merged into the
+// tier's, a project's lists applied to an app's route, and a grant put in
 // the form it is approved in.
 //
 // The policy document is frisket's own types, so a field frisket does not
 // know is a compile error here rather than a document frisket refuses on
-// someone's machine. The envelope is not frisket's, and is JSON as jq held
+// someone's machine. The grant is not frisket's, and is JSON as jq held
 // it.
 package policydoc
 
@@ -20,7 +20,7 @@ import (
 	"github.com/danielbodart/frisket/policy"
 )
 
-// Lists are a project's lists for one app, as its envelope binds them
+// Lists are a project's lists for one app, as its grant binds them
 // (PLAN.md, decision 18): `allow`, `ask` and `refuse`, each naming
 // operations by id, whole categories as "category:<name>", or methods and an
 // exact path for an endpoint the description does not name.
@@ -45,7 +45,7 @@ type Endpoint struct {
 }
 
 // UnmarshalJSON reads a name or an endpoint, and refuses anything else, and
-// any field of an endpoint but its methods and path: the envelope's options
+// any field of an endpoint but its methods and path: the grant's options
 // admit nothing else, and an entry read as something else would be one that
 // silently decides nothing.
 func (e *Entry) UnmarshalJSON(b []byte) error {
@@ -144,7 +144,7 @@ func overlaps(path, rulePath, rulePrefix string) bool {
 // beats a "*", so {DELETE, /repos/me/app} would decide repos/delete without
 // naming it. An operation the description has is loosened by its name,
 // which is what the person approving it reads. And so is an entry in two
-// lists, which the envelope refuses before approval: were one to get here,
+// lists, which the grant refuses before approval: were one to get here,
 // nothing here would refuse it, and the later of allow, ask and refuse would
 // decide, as it always has.
 //

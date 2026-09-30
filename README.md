@@ -21,8 +21,8 @@ chase holds no secrets, names no machine and ships no tiers. What it carries is
 the machinery — the selector and its predicates, the containers, the apps and
 what each app's credential looks like. Who the user is, which tiers there are,
 what sorts a checkout into each and where a credential comes from all arrive
-as options — so a project can declare what its agents need by depending on
-chase, never on the configuration of the machine it is being worked on.
+as options — so a project can declare what its agents need in a grant of its
+own, never in the configuration of the machine it is being worked on.
 
 The design, what was decided and what was turned down, is in [PLAN.md](PLAN.md).
 
@@ -59,7 +59,7 @@ The design, what was decided and what was turned down, is in [PLAN.md](PLAN.md).
       match = [ { owners = [ "alice" ]; rootAuthorDomains = [ "example.com" ]; } ];
       egress = "direct";
       allow = [ "*" ];
-      envelope = true;
+      grants = true;
       apps.claude = { state = "shared"; connectors = true; };
       apps.git.enable = true;
       apps.github.enable = true;
@@ -98,6 +98,43 @@ a-fork                     strict    first commit by someone@upstream.org
 
 [examples/tiers.nix](examples/tiers.nix) is a fuller set, with the reasoning
 behind each choice, and is what chase's own checks evaluate against.
+
+## A project's grant
+
+A tier is the machine's: which sandbox a checkout gets, and what it may do
+there. A **grant** is the project's: what this one repository asks for on top
+of its tier — a secret for an app, a binding such as the Docker images it
+runs, operations it wants let through or refused, a syscall its tests need.
+It lives in the checkout as `chase.jsonc`: JSON, with comments and trailing
+commas allowed, and nothing in it is ever run.
+
+```jsonc
+{
+  "secrets": "secrets.yaml",  // sops, encrypted to admin keys
+  "bindings": {
+    "cloudflare": {
+      "credential": { "secret": "cloudflare-token" },
+      "accountId": "023e105f4ecef8ad9ca31a8372d0c353",
+      // Local development makes these too often to ask each time.
+      "allow": ["workers-ai-post-run-model"],
+    },
+  },
+  "seccomp": { "allow": ["io_uring_setup", "io_uring_enter"] },
+}
+```
+
+The checkout belongs to the agent working in it, so an agent could write a
+grant that widens its own sandbox. So nothing in it takes effect until a
+person has approved it. At launch chase reads the tracked `chase.jsonc` and
+refuses anything it does not recognise: a misspelt key, an image in a
+spelling frisket would not match, or a port outside the range. When what it
+asks for differs from what was last approved for that checkout,
+`chase.approver` shows the difference and the launch waits for a yes. A
+change to a comment, or to the order the file lists things in, asks nothing.
+A new secret ciphertext or a changed origin does ask, because both are part
+of what is approved. Only a tier with `grants = true` applies grants; one
+for other people's code leaves it off, and the project gets the tier as it
+is.
 
 ## Tiers
 
@@ -203,32 +240,34 @@ model is downloaded once — not in a tier that runs other people's code, since
 the host loads what is in it.
 
 **Google Cloud.** gcloud and Google's client libraries, as a project's own
-service account: the project binds its key in its envelope, and the session
+service account: the project binds its key in its grant, and the session
 gets a key file of the same shape whose key Google has never seen. frisket
 answers what it signs with the placeholder and puts the real token, which
 chase renews, on every `*.googleapis.com` request. A tier names the APIs it
 carries (`apps.gcloud.apis`), a project adds or removes, and each request is
 answered by an allowlist generated from Google's own descriptions. Only in a
-tier that takes envelopes. See [docs/gcloud.md](docs/gcloud.md).
+tier that takes grants. See [docs/gcloud.md](docs/gcloud.md).
 
 **Docker.** The Docker CLI and Compose, against `chase.user`'s rootless
 daemon, for a project whose tests start their services with Compose. A tier
 turns it on with `chase.tiers.<tier>.apps.docker.enable`, and only a tier
-that takes envelopes and whose egress is direct may: a container reaches
-whatever the host does. The project names what it runs, in its envelope:
+that takes grants and whose egress is direct may: a container reaches
+whatever the host does. The project names what it runs, in its grant:
 
-```nix
-chaseModules.default = {
-  chase.bindings.docker = {
-    images = [ "postgres:18" ];   # exactly as `docker pull` shortens it, with a tag or digest
-    ports = [ 64320 ];            # the host ports its containers publish
-  };
-};
+```jsonc
+{
+  "bindings": {
+    "docker": {
+      "images": ["postgres:18"],  // exactly as `docker pull` shortens it, with a tag or digest
+      "ports": [64320],           // the host ports its containers publish
+    },
+  },
+}
 ```
 
 The project is its checkout's GitHub origin, `owner/repo`, read by chase from
-the checkout's `.git` and never from anything the envelope says, approved with
-the envelope and held to the tiers' pinned `checkouts`. frisket admits only
+the checkout's `.git` and never from anything the grant says, approved with
+the grant and held to the tiers' pinned `checkouts`. frisket admits only
 operations chase lists, and only on what is that project's own: containers,
 volumes and networks it labelled when they were made, the images named, and no
 bind mount, privilege or host namespace. Everything else is refused; nothing
@@ -286,22 +325,23 @@ chase.tiers.trusted = {
 A tier with no one to ask on its behalf says `refuse` for all three, and an
 anonymous app refuses all three whatever the tier says.
 
-A project names what it wants otherwise in its envelope, per app — by
+A project names what it wants otherwise in its grant, per app — by
 operation id, by the API's own category, or by method and path for an
 endpoint the description does not name — and that decides before the tier
 does:
 
-```nix
-chaseModules.default = {
-  chase.bindings.github.allow = [ "category:pulls" ];
-  chase.bindings.github.refuse = [ "repos/delete" ];
-  chase.bindings.git.allow = [ "git-receive-pack" ];   # its pushes
-};
+```jsonc
+{
+  "bindings": {
+    "github": { "allow": ["category:pulls"], "refuse": ["repos/delete"] },
+    "git": { "allow": ["git-receive-pack"] },  // its pushes
+  },
+}
 ```
 
 It is part of what is approved, a name in two lists is refused before anyone
 is asked, and a name the app does not have fails the launch. Not in a tier
-that takes no envelope, nor for an app a tier has anonymously.
+that takes no grant, nor for an app a tier has anonymously.
 
 The line is only where the list starts. `exceptions.json` beside each app says,
 operation by operation and with a reason each, where it is wrong: the reads

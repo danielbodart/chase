@@ -152,7 +152,7 @@ Two things are deliberately left out, to be added only on evidence:
    rather than replacing it.
 3. **chase: the Cloudflare app**, declaring the route for
    `api.cloudflare.com`, the credential it needs, and the generated rules.
-4. **The envelope**, so the token comes from the project rather than the
+4. **The grant**, so the token comes from the project rather than the
    machine. This is the larger piece (PLAN.md decisions 10, 11 and the
    required changes to flong and frisket), and it is *not* needed to prove
    1–3.
@@ -161,12 +161,12 @@ Two things are deliberately left out, to be added only on evidence:
 
 ## Order of work
 
-Prove the gate and the classification before the envelope. For the test
+Prove the gate and the classification before the grant. For the test
 project, bind a token for a **sandbox account** from nix-config directly, and
 mark that binding as temporary in a comment. It contradicts decision 9 on
 purpose and for a short time: a disposable account's token is not a
 "system-level cloud account", and it lets the gate be built and exercised
-without waiting on the project-carried credential. When the envelope lands,
+without waiting on the project-carried credential. When the grant lands,
 that binding goes and the project carries it.
 
 1. A sandbox account, separate from a real app's, with no zone — the gate only
@@ -193,8 +193,8 @@ that binding goes and the project carries it.
    dialog. Anything else is a gap in the classification. *Done:* both
    dialogs, a refusal read by wrangler in Cloudflare's own error shape, and
    no request unmatched.
-6. Then the envelope, then a real app. *Done:* a real app's flake has a chase
-   section binding a token for its own account, restricted to local
+6. Then the grant, then a real app. *Done:* a real app's `chase.jsonc`
+   binds a token for its own account, restricted to local
    development, from its sops file; `wrangler dev` runs with remote D1, R2
    and AI, and its allow-list names the two preview-session endpoints
    Cloudflare's description does not. The sandbox binding in nix-config is

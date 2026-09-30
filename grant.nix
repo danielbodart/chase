@@ -1,18 +1,18 @@
-# A project's envelope, applied at launch (PLAN.md, decisions 7, 10, 11, 17).
+# A project's grant, applied at launch (PLAN.md, decisions 7, 10, 11, 17).
 #
-# For a tier that takes envelopes, each launch:
+# For a tier that takes grants, each launch:
 #
-#   seccompPolicy  before the session is built: evaluates the checkout's
-#                  `chaseModules.default` against ./options.nix; asks
-#                  `chase.approver` if the result is not the one last
-#                  approved for this checkout; stages the approved result for
-#                  this launch's exec, and prints its syscall loosenings for
-#                  flong
+#   seccompPolicy  before the session is built: reads the checkout's
+#                  tracked `chase.jsonc` -- data, never evaluated -- checks
+#                  it against what a grant may say; asks `chase.approver` if
+#                  the grant is not the one last approved for this checkout;
+#                  stages the approved grant for this launch's exec, and
+#                  prints its syscall loosenings for flong
 #   exec           still before the session is built: decrypts the secrets
 #                  the staged result binds into /run/user/<uid>/chase/<machine>/;
 #                  prepares each bound app; writes the session's policy
 #                  document there -- the tier's own, for a checkout with no
-#                  envelope -- and gives what each app exports and seeds to
+#                  grant -- and gives what each app exports and seeds to
 #                  the payload it prints (internal/session)
 #   frisket        steers the session under that document
 #   postStop       stops each app; removes
@@ -26,18 +26,18 @@
 # environment: nothing is written for a session to source, and nothing of
 # chase's runs inside one.
 #
-# A checkout with no flake, or a flake with no `chaseModules.default`, is the
-# tier as it is. Anything that goes wrong on the way ends the launch: an
-# envelope is applied whole or the session does not start.
+# A checkout with no `chase.jsonc` is the tier as it is. Anything that goes
+# wrong on the way ends the launch: a grant is applied whole or the session
+# does not start.
 #
-# Each step is `chase hook ... TIER` (internal/envelope); what is here is
-# its configuration, and the flake it evaluates an envelope with.
+# Each step is `chase hook ... TIER` (internal/grant); what is here is its
+# configuration.
 { config, lib, pkgs, ... }:
 
 let
   inherit (lib) mkOption types;
   cfg = config.chase;
-  tiers = lib.filterAttrs (_: t: t.envelope) cfg.tiers;
+  tiers = lib.filterAttrs (_: t: t.grants) cfg.tiers;
   chase = lib.getExe cfg.package;
 
   # Every tier's pinned checkouts, as the selector holds them: each
@@ -47,34 +47,8 @@ let
     (lib.concatMap (t: lib.concatMap (rule: lib.mapAttrsToList (s: p: { ${lib.toLower s} = p; }) rule.checkouts) t.match)
       (lib.attrValues cfg.tiers));
 
-  # The tiers apps/docker.nix gives Docker, which it asserts take envelopes.
+  # The tiers apps/docker.nix gives Docker, which it asserts take grants.
   dockerTiers = lib.attrNames (lib.filterAttrs (_: t: !t.bare && (t.apps.docker.enable or false)) tiers);
-
-  # WHAT EVALUATES AN ENVELOPE: a flake of chase's, in the store, whose one
-  # input is the checkout -- given on the command line, never spliced into Nix
-  # source -- evaluated PURELY. The checkout is the agent's to edit, and this
-  # runs before anyone has approved anything: pure evaluation is what keeps
-  # an envelope to its own source and locked inputs, rather than able to read
-  # any file of the user's and fetch a URL with it in. nixpkgs' lib comes
-  # along as a copy, so the flake needs nothing it does not carry.
-  evaluator = pkgs.runCommand "chase-envelope-evaluator" { } ''
-    mkdir -p "$out/nixpkgs"
-    cp -r ${pkgs.path}/lib "$out/nixpkgs/lib"
-    cp ${pkgs.path}/.version "$out/nixpkgs/.version"
-    cp ${./options.nix} "$out/options.nix"
-    cat > "$out/flake.nix" <<'EOF'
-    {
-      inputs.project.url = "path:/nonexistent";
-      outputs = { project, ... }: {
-        envelope =
-          let lib = import ./nixpkgs/lib; in
-          if project ? chaseModules && project.chaseModules ? default
-          then (lib.evalModules { modules = [ ./options.nix project.chaseModules.default ]; }).config.chase
-          else null;
-      };
-    }
-    EOF
-  '';
 in
 {
   options.chase = {
@@ -82,12 +56,10 @@ in
       type = types.nullOr (types.strMatching "/.*");
       default = null;
       description = ''
-        The program that asks a person to approve a checkout's envelope when
-        what it evaluates to has changed (PLAN.md, decision 17). It runs as
-        the user, from the launch, with one JSON document on stdin: `kind`,
-        `workspace` and `diff`. `kind` is `flake` -- the checkout's flake.nix
-        or flake.lock changed, and nothing of it has run yet -- or `envelope`,
-        what its chase section evaluates to changed; `diff` is unified. Exit 0
+        The program that asks a person to approve a checkout's grant when
+        it has changed (PLAN.md, decision 17). It runs as the user, from the
+        launch, with one JSON document on stdin: `workspace`, and `diff`,
+        unified, of the grant last approved against the one proposed. Exit 0
         approves; anything else ends the launch. Null: nothing is approved.
       '';
     };
@@ -115,8 +87,8 @@ in
   };
 
   config = lib.mkIf (tiers != { }) {
-    chase.internal.config.envelopeTiers = lib.attrNames tiers;
-    chase.internal.config.envelope = {
+    chase.internal.config.grantTiers = lib.attrNames tiers;
+    chase.internal.config.grant = {
       inherit (cfg.internal.config.selector) git emptySha1 emptySha256;
       inherit (cfg) uid home;
       hosts = "/etc/chase/docker-hosts.json";
@@ -124,22 +96,20 @@ in
       inherit dockerTiers checkouts;
       apps = cfg.internal.projectApps;
       approver = if cfg.approver == null then "" else cfg.approver;
-      evaluator = "${evaluator}";
-      nix = lib.getExe pkgs.nix;
       sops = lib.getExe pkgs.sops;
       diff = "${pkgs.diffutils}/bin/diff";
     };
 
     flong = lib.mapAttrs' (name: _: lib.nameValuePair "agent-${name}" {
       # After the guard, before bwrap: the filter is fixed before anything in
-      # the session runs, so this is where the envelope is approved. It is
+      # the session runs, so this is where the grant is approved. It is
       # applied in the tier's exec, module.nix's, which runs next.
       seccompPolicy = [ [ chase "hook" "approve" name ] ];
       postStop = [ [ chase "hook" "poststop" name ] ];
     }) tiers;
 
     # The session's own document, which exec writes for every launch, the
-    # tier's own when the checkout has no envelope: one path, so frisket has
+    # tier's own when the checkout has no grant: one path, so frisket has
     # nothing to choose, and {machine} is frisket's own to fill in.
     services.frisket.flong = lib.mapAttrs' (name: _: lib.nameValuePair "agent-${name}" {
       policyFile = "/run/user/${toString cfg.uid}/chase/{machine}/policy.json";

@@ -36,7 +36,7 @@ type File struct {
 }
 
 // Given is what the launch gives a session beyond what its tier does: an
-// envelope's environment and files (internal/envelope's Launch).
+// grant's environment and files (internal/grant's Launch).
 type Given struct {
 	Env   []Var
 	Files []File
@@ -73,7 +73,7 @@ const never = 4102444800000
 // Payload is flong's exec for tier, run on the host after seccompPolicy: the
 // payload a session of workspace runs, for the launcher's arguments args,
 // the first of which names the agent. binds is flong's $binds, one PATH:ro
-// or PATH:rw a line, and given what the launch's envelope adds. What it says
+// or PATH:rw a line, and given what the launch's grant adds. What it says
 // to a person, it says on stderr: stdout is the payload's.
 //
 // The agent is one of a closed list -- claude and codex where the tier has
@@ -93,7 +93,7 @@ const never = 4102444800000
 //
 // Its environment is the container's, which flong computes, and what the
 // tier and the launch add: an isolated codex's CODEX_HOME, the Cloudflare
-// account, and the envelope's exports, which win over the tier's of the
+// account, and the grant's exports, which win over the tier's of the
 // same name, a project's own account over the tier's. flong refuses an exec
 // that sets a name the container's environment already sets, or one the
 // launch sets itself, and so a variable the container sets to the same
@@ -106,7 +106,7 @@ const never = 4102444800000
 //
 // Its files are Claude Code's placeholder login, an isolated tier's
 // ~/.claude.json, which trusts the workspace and skips onboarding, and the
-// envelope's.
+// grant's.
 func Payload(c Config, tier, workspace, binds string, args []string, given Given, stderr io.Writer) (Exec, error) {
 	if err := Agent(c, tier, args); err != nil {
 		return Exec{}, err
@@ -234,7 +234,7 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 // tier runs, or whose tier is not a sandbox's, as Payload does: the same
 // words, from the same closed list. It is Payload's first step, and is
 // taken on its own before anything else the exec hook does, so a launch
-// that was always going to be refused is refused before an envelope is
+// that was always going to be refused is refused before a grant is
 // applied -- before its stage is consumed, a secret decrypted, a token
 // minted from Google with the real key or a unit started for it -- and not
 // after, with flong's postStop left to undo it all.

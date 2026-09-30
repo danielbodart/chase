@@ -1,4 +1,4 @@
-package envelope_test
+package grant_test
 
 import (
 	"bytes"
@@ -11,24 +11,24 @@ import (
 	"testing"
 
 	"github.com/danielbodart/chase/internal/apps"
-	"github.com/danielbodart/chase/internal/envelope"
+	"github.com/danielbodart/chase/internal/grant"
 	"github.com/danielbodart/chase/internal/session"
 )
 
 // exec is `chase hook exec TIER ARGS...` for machine, as flong runs it, the
-// envelope's configuration given when takes: its status, with what it
+// grant's configuration given when takes: its status, with what it
 // printed and said kept in h.out and h.err.
 func (h *harness) exec(s session.Config, takes bool, tier, ws, machine string, args ...string) int {
 	h.t.Helper()
-	var e *envelope.Config
+	var e *grant.Config
 	registry := map[string]apps.App{}
 	if takes {
 		e = &h.cfg
-		registry = envelope.DefaultApps(h.cfg, &bytes.Buffer{})
+		registry = grant.DefaultApps(h.cfg, &bytes.Buffer{})
 		maps.Copy(registry, h.registry)
 	}
 	var out, errb bytes.Buffer
-	rc := envelope.Exec(context.Background(), s, e, registry, tier, ws, machine, "", args, &out, &errb)
+	rc := grant.Exec(context.Background(), s, e, registry, tier, ws, machine, "", args, &out, &errb)
 	h.out, h.err = out.String(), errb.String()
 	return rc
 }
@@ -53,16 +53,16 @@ func sessionConfig(h *harness) session.Config {
 }
 
 // THE HOOK, WHOLE: the agent judged before anything is done for the launch,
-// then the approved envelope applied, and what it exports and seeds printed
+// then the approved grant applied, and what it exports and seeds printed
 // as the payload's, in flong's fields and nothing else. A launch refused at
 // any step prints nothing at all on stdout, where flong would read it as a
 // payload.
-func TestTheExecHookAppliesTheEnvelopeAndPrintsItsPayload(t *testing.T) {
+func TestTheExecHookAppliesTheGrantAndPrintsItsPayload(t *testing.T) {
 	h, p, ws := newProjectLaunch(t)
 	s := sessionConfig(h)
-	h.cfg.Apps["seeder"] = envelope.App{Credential: no()}
-	h.registry["seeder"] = seeder{}
-	bindings := `{"bindings": {"probe": {"x": 1}, "seeder": {"x": 1}}}`
+	h.cfg.Apps["gcloud"] = grant.App{Credential: no()}
+	h.registry["gcloud"] = seeder{}
+	bindings := `{"bindings": {"cloudflare": {"accountId": "11111111111111111111111111111111"}, "gcloud": {"serviceAccount": "s@p.iam.gserviceaccount.com"}}}`
 
 	// An agent the tier does not run, or none, is refused before the
 	// stage is consumed: nothing is prepared, no directory made, no policy
@@ -82,7 +82,7 @@ func TestTheExecHookAppliesTheEnvelopeAndPrintsItsPayload(t *testing.T) {
 		}
 	}
 
-	// An agent it runs: the envelope applied, once, and its variables and
+	// An agent it runs: the grant applied, once, and its variables and
 	// files the payload's, after the program and its arguments.
 	if rc := h.exec(s, true, "trusted", ws, "m1", "shell", "-c", "id"); rc != 0 {
 		t.Fatalf("the shell was refused: %s", h.err)
@@ -108,19 +108,19 @@ func TestTheExecHookAppliesTheEnvelopeAndPrintsItsPayload(t *testing.T) {
 	}
 	h.mustSay("nothing was approved for this launch")
 
-	// And so is a payload refused after the envelope was applied: an
+	// And so is a payload refused after the grant was applied: an
 	// export the container sets otherwise.
-	h.cfg.Apps["docker"] = envelope.App{Credential: no(), Env: map[string]string{"SSL_CERT_FILE": "/elsewhere"}}
-	h.approved(ws, "m3", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"]}, "probe": {"x": 1}}}`)
+	h.cfg.Apps["docker"] = grant.App{Credential: no(), Env: map[string]string{"SSL_CERT_FILE": "/elsewhere"}}
+	h.approved(ws, "m3", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
 	if rc := h.exec(s, true, "trusted", ws, "m3", "shell"); rc != 1 || h.out != "" {
 		t.Errorf("a refused payload: status %d, printed %q", rc, h.out)
 	}
 	h.mustSay("trusted's container sets SSL_CERT_FILE")
 }
 
-// A tier that takes no envelope is given its payload with nothing applied:
+// A tier that takes no grant is given its payload with nothing applied:
 // no stage looked for, no policy written.
-func TestAnExecHookWithNoEnvelopeAppliesNone(t *testing.T) {
+func TestAnExecHookWithNoGrantAppliesNone(t *testing.T) {
 	h := newHarness(t)
 	if rc := h.exec(sessionConfig(h), false, "trusted", "/w", "m1", "shell"); rc != 0 {
 		t.Fatalf("the shell was refused: %s", h.err)
@@ -129,19 +129,19 @@ func TestAnExecHookWithNoEnvelopeAppliesNone(t *testing.T) {
 		t.Errorf("the payload is %q", got)
 	}
 	if _, err := os.Stat(h.cfg.Runtime + "/chase/m1"); err == nil {
-		t.Error("a launch with no envelope made a session directory")
+		t.Error("a launch with no grant made a session directory")
 	}
 }
 
 // What the script and its postStart left on the host, and nothing reads
 // now -- each checkout's old environment directory, Google Cloud's old
 // session keys among it, and each tier's copy of the Cloudflare account id
-// -- is gone once a launch has run, with or without an envelope; what is
+// -- is gone once a launch has run, with or without a grant; what is
 // kept now is not touched.
 func TestTheExecHookRemovesWhatEarlierVersionsLeft(t *testing.T) {
 	for _, takes := range []bool{true, false} {
 		h := newHarness(t)
-		// The envelope's state directory, or with none the default one,
+		// The grant's state directory, or with none the default one,
 		// where it was.
 		state := h.cfg.State
 		if !takes {
@@ -155,7 +155,7 @@ func TestTheExecHookRemovesWhatEarlierVersionsLeft(t *testing.T) {
 		for _, f := range kept {
 			write(t, f, "x")
 		}
-		// Refused, with an envelope, for want of an approval: what is
+		// Refused, with a grant, for want of an approval: what is
 		// left is removed all the same, before the launch is judged.
 		if rc := h.exec(sessionConfig(h), takes, "trusted", "/w", "m1", "shell"); rc != 0 && !takes {
 			t.Fatalf("the shell was refused: %s", h.err)

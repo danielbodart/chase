@@ -243,12 +243,21 @@ PLAN.md: declared but unbound refuses).
 ```nix
 chase.tiers.trusted.apps.gcloud = { enable = true; apis = [ "bigquery" "storage" ]; };
 
-chaseModules.default.chase.bindings.gcloud = {
-  credential.secret = "gcloud-key";
-  serviceAccount = "agent@my-project.iam.gserviceaccount.com";
-  apis.add = [ "secretmanager" ];
-  allow = [ "category:bigquery" ];
-};
+```
+
+and in the project's `chase.jsonc`:
+
+```jsonc
+{
+  "bindings": {
+    "gcloud": {
+      "credential": { "secret": "gcloud-key" },
+      "serviceAccount": "agent@my-project.iam.gserviceaccount.com",
+      "apis": { "add": ["secretmanager"] },
+      "allow": ["category:bigquery"],
+    },
+  },
+}
 ```
 
 Resolved at launch: the named APIs' rules, one rule per method and template,
@@ -262,7 +271,7 @@ decides another's `*:verb`. A carried API's own rule wins where both have a
 template. The floor is answered as the tier's `guarded` says, refused by
 default in trusted and strict alike, and a project may name any of its
 operations; it has no categories, since a category is an API the session
-carries. Only a tier that takes envelopes can enable it, and nothing of
+carries. Only a tier that takes grants can enable it, and nothing of
 Google's is in a tier's own policy.
 
 ## What frisket needs

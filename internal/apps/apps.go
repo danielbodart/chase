@@ -20,7 +20,7 @@ import (
 )
 
 // Request is what an app is prepared from: which session, where it may keep
-// what it makes, and what the project's approved envelope binds it to.
+// what it makes, and what the project's approved grant binds it to.
 type Request struct {
 	// Tier is the session's tier, whose routes and settings apply.
 	Tier string
@@ -38,10 +38,10 @@ type Request struct {
 	// a Patch's files are seeded, and what its variables name them by.
 	Home string
 	// Project is the Docker project approved for the checkout, from its
-	// origin and never from anything its envelope says; empty if its
-	// envelope binds no Docker.
+	// origin and never from anything its grant says; empty if its
+	// grant binds no Docker.
 	Project string
-	// Binding is the app's binding, as the approved envelope holds it.
+	// Binding is the app's binding, as the approved grant holds it.
 	Binding json.RawMessage
 }
 
@@ -57,7 +57,7 @@ type Patch struct {
 }
 
 // App is an app whose routes are made at launch. An error from Prepare ends
-// the launch: an envelope is applied whole or the session does not start.
+// the launch: a grant is applied whole or the session does not start.
 type App interface {
 	Prepare(ctx context.Context, r Request) (Patch, error)
 	// Stop releases what Prepare started, when the session ends, before

@@ -1,4 +1,4 @@
-package envelope_test
+package grant_test
 
 import (
 	"os"
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// The ported envelope-snapshot check, as far as approve goes (the copier's
+// The ported grant-snapshot check, as far as approve goes (the copier's
 // own assertions are internal/snapshot's): A SNAPSHOT FOLLOWS NO LINK. What
 // is evaluated and decrypted is the checkout's tracked files, copied; a
 // session writes the checkout, and can make a directory above a tracked file
@@ -27,7 +27,7 @@ func newSnapshotCase(t *testing.T) *snapshotCase {
 	h := newHarness(t)
 	s := &snapshotCase{harness: h, r: h.root(), host: h.dir + "/hostsecret"}
 	write(t, s.host+"/secrets.yaml", "TOPSECRET\n")
-	write(t, h.dir+"/hostflake.nix", flake)
+	write(t, h.dir+"/hostgrant.jsonc", `{"secrets": "../../hostsecret/secrets.yaml"}`)
 	return s
 }
 
@@ -47,14 +47,20 @@ func (s *snapshotCase) leaked() bool {
 	return found
 }
 
-// refused is DIR MACHINE PREFIX: refused, naming the link, with nothing
-// staged and no host byte kept.
+// refused is DIR MACHINE PREFIX: the sops file named under PREFIX refused,
+// naming the link as it is said, with nothing staged and no host byte kept.
 func (s *snapshotCase) refused(ws, machine, prefix string) {
 	s.t.Helper()
-	if s.approve(ws, machine, "trusted", `{"secrets": "`+prefix+`/secrets.yaml", "bindings": {}}`) == 0 {
+	s.refusedSaying(ws, machine, prefix, prefix)
+}
+
+// refusedSaying is refused, of a PREFIX said as SAID.
+func (s *snapshotCase) refusedSaying(ws, machine, prefix, said string) {
+	s.t.Helper()
+	if s.approve(ws, machine, "trusted", `{"secrets": `+jqString(prefix+"/secrets.yaml")+`, "bindings": {}}`) == 0 {
 		s.t.Errorf("%s was approved with %s a link", ws, prefix)
 	}
-	s.mustSay("chase: " + ws + ": " + prefix + " is a link, so what is tracked under it would be copied from wherever it points")
+	s.mustSay("chase: " + ws + ": " + said + " is a link, so what is tracked under it would be copied from wherever it points")
 	if s.isStaged(machine) {
 		s.t.Errorf("%s was staged with %s a link", ws, prefix)
 	}
@@ -99,20 +105,23 @@ func TestALinkAboveATrackedFileIsRefused(t *testing.T) {
 }
 
 // A directory made a file is refused, and is not called a link; a tracked
-// file missing from the work tree is refused, as tar refused it.
+// file missing from the work tree is refused, as tar refused it. Only what
+// the grant reads is copied, so a tracked file it does not name is nothing
+// to it.
 func TestWhatIsNotAsTrackedIsRefused(t *testing.T) {
 	s := newSnapshotCase(t)
 	s.checkout(s.r+"/file", "d/secrets.yaml")
 	os.RemoveAll(s.r + "/file/d")
 	write(t, s.r+"/file/d", "x\n")
-	if s.approve(s.r+"/file", "m3", "trusted", `{"bindings": {}}`) == 0 {
+	s.approved(s.r+"/file", "m2", "trusted", `{"bindings": {}}`)
+	if s.approve(s.r+"/file", "m3", "trusted", `{"secrets": "d/secrets.yaml"}`) == 0 {
 		t.Error("a tracked directory made a file was approved")
 	}
 	s.mustSay("chase: " + s.r + "/file: its tracked files could not be copied: d: it is not a directory")
 
 	s.checkout(s.r+"/gone", "gone")
 	os.Remove(s.r + "/gone/gone")
-	if s.approve(s.r+"/gone", "m4", "trusted", `{"bindings": {}}`) == 0 {
+	if s.approve(s.r+"/gone", "m4", "trusted", `{"secrets": "gone"}`) == 0 {
 		t.Error("a checkout missing a tracked file was approved")
 	}
 	s.mustSay("chase: " + s.r + "/gone: its tracked files could not be copied: gone: ")
@@ -136,19 +145,21 @@ func TestATrackedLinkToAHostFileIsOutsideTheCheckout(t *testing.T) {
 	}
 }
 
-// (d) A flake.nix made a link, to a flake that says chaseModules, is not the
-// checkout's.
-func TestAFlakeMadeALinkIsNotTheCheckouts(t *testing.T) {
+// (d) A tracked chase.jsonc made a link, to a grant of the host's, is not
+// the checkout's.
+func TestAChaseJsoncMadeALinkIsNotTheCheckouts(t *testing.T) {
 	s := newSnapshotCase(t)
 	s.checkout(s.r + "/d")
-	os.Remove(s.r + "/d/flake.nix")
-	os.Symlink(s.dir+"/hostflake.nix", s.r+"/d/flake.nix")
-	if s.approve(s.r+"/d", "m6", "trusted", `{"bindings": {}}`) == 0 {
-		t.Error("a flake.nix made a link was approved")
+	write(t, s.r+"/d/chase.jsonc", "{}")
+	s.fx.Run("-C", s.r+"/d", "add", "chase.jsonc")
+	os.Remove(s.r + "/d/chase.jsonc")
+	os.Symlink(s.dir+"/hostgrant.jsonc", s.r+"/d/chase.jsonc")
+	if s.approve(s.r+"/d", "m6", "trusted", "") == 0 {
+		t.Error("a chase.jsonc made a link was approved")
 	}
-	s.mustSay("chase: " + s.r + "/d: flake.nix is not a tracked file")
+	s.mustSay("chase: " + s.r + "/d: chase.jsonc is not a tracked file")
 	if s.isStaged("m6") {
-		t.Error("a linked flake.nix was staged")
+		t.Error("a linked chase.jsonc was staged")
 	}
 }
 
@@ -160,16 +171,18 @@ func TestWhatASessionNamedIsSaidPlainly(t *testing.T) {
 	s.checkout(s.r+"/e", esc+"/secrets.yaml")
 	os.RemoveAll(s.r + "/e/" + esc)
 	os.Symlink(s.host, s.r+"/e/"+esc)
-	s.refused(s.r+"/e", "m7", "x?]0;TITLE?y")
+	s.refusedSaying(s.r+"/e", "m7", esc, "x?]0;TITLE?y")
 	if strings.ContainsAny(s.err, "\x1b\x07") {
 		t.Errorf("a control byte reached the terminal: %q", s.err)
 	}
 
-	c1 := "x\xc2\x9b1my\x9bz"
+	// A name is JSON's, so UTF-8: C1 as the raw byte is term's to make plain
+	// (internal/term), and cannot be named in a grant.
+	c1 := "x\xc2\x9b1my"
 	s.checkout(s.r+"/e1", c1+"/secrets.yaml")
 	os.RemoveAll(s.r + "/e1/" + c1)
 	os.Symlink(s.host, s.r+"/e1/"+c1)
-	s.refused(s.r+"/e1", "m8", "x?1my?z")
+	s.refusedSaying(s.r+"/e1", "m8", c1, "x?1my")
 	for i := 0; i < len(s.err); i++ {
 		if s.err[i] >= 0x80 && s.err[i] <= 0x9f {
 			t.Fatalf("a C1 control reached the terminal: %q", s.err)
@@ -180,7 +193,7 @@ func TestWhatASessionNamedIsSaidPlainly(t *testing.T) {
 // (f) The checkout's git config is the session's: a command it names, as
 // core.fsmonitor or a hook under core.hooksPath, is never run by approve.
 // The same config does run each when git is asked plainly, so the test would
-// see it. An untracked flake.nix is not the checkout's, and a workspace below
+// see it. An untracked chase.jsonc is not the checkout's, and a workspace below
 // its checkout's root copies what is tracked there, relative to itself.
 func TestTheCheckoutsGitConfigIsNeverRun(t *testing.T) {
 	s := newSnapshotCase(t)
@@ -215,20 +228,19 @@ func TestTheCheckoutsGitConfigIsNeverRun(t *testing.T) {
 
 	u := s.r + "/untracked"
 	s.fx.Run("init", "-q", u)
-	write(t, u+"/flake.nix", flake)
+	write(t, u+"/chase.jsonc", "{}")
 	s.fx.Run("-C", u, "config", "core.fsmonitor", "touch "+pwned+"; false")
-	if s.approve(u, "m10", "trusted", `{"bindings": {}}`) == 0 {
-		t.Error("an untracked flake.nix was approved")
+	if s.approve(u, "m10", "trusted", "") == 0 {
+		t.Error("an untracked chase.jsonc was approved")
 	}
-	s.mustSay("chase: " + u + ": flake.nix is not a tracked file")
+	s.mustSay("chase: " + u + ": chase.jsonc is not a tracked file")
 	if _, err := os.Stat(pwned); err == nil {
 		t.Error("approve ran the untracked checkout's core.fsmonitor")
 	}
 	if s.isStaged("m10") {
-		t.Error("an untracked flake.nix was staged")
+		t.Error("an untracked chase.jsonc was staged")
 	}
 
-	write(t, f+"/sub/flake.nix", flake)
 	write(t, f+"/sub/tracked", "the sub's own\n")
 	s.fx.Run("-C", f, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "add", "sub")
 	os.Remove(pwned)
@@ -247,11 +259,11 @@ func TestTheCheckoutsGitConfigIsNeverRun(t *testing.T) {
 // index would leave out what is under its sparse directories without a word.
 func TestAnIndexThatIsNotWholeIsNotRead(t *testing.T) {
 	s := newSnapshotCase(t)
-	write(t, s.r+"/nogit/flake.nix", flake)
-	if s.approve(s.r+"/nogit", "m12", "trusted", `{"bindings": {}}`) == 0 {
+	write(t, s.r+"/nogit/chase.jsonc", "{}")
+	if s.approve(s.r+"/nogit", "m12", "trusted", "") == 0 {
 		t.Error("a directory outside git was approved")
 	}
-	s.mustSay("chase: " + s.r + "/nogit: an envelope needs a git checkout")
+	s.mustSay("chase: " + s.r + "/nogit: a grant needs a git checkout")
 	if s.isStaged("m12") {
 		t.Error("a directory outside git was staged")
 	}
@@ -264,7 +276,7 @@ func TestAnIndexThatIsNotWholeIsNotRead(t *testing.T) {
 	if s.approve(s.r+"/split", "m13", "trusted", `{"bindings": {}}`) == 0 {
 		t.Error("a split index was approved")
 	}
-	s.mustSay("chase: " + s.r + "/split: an envelope needs a git checkout, so what is evaluated is what git tracks: the index of " + s.r + "/split cannot be read on its own")
+	s.mustSay("chase: " + s.r + "/split: a grant needs a git checkout, so what it says is what git tracks: the index of " + s.r + "/split cannot be read on its own")
 
 	s.checkout(s.r+"/sparse", "keep/f", "away/f")
 	s.fx.Run("-C", s.r+"/sparse", "-c", "user.name=x", "-c", "user.email=x@example.com", "commit", "-qm", "x")
@@ -272,5 +284,5 @@ func TestAnIndexThatIsNotWholeIsNotRead(t *testing.T) {
 	if s.approve(s.r+"/sparse", "m14", "trusted", `{"bindings": {}}`) == 0 {
 		t.Error("a sparse index was approved")
 	}
-	s.mustSay("chase: " + s.r + "/sparse: an envelope needs a git checkout, so what is evaluated is what git tracks: the index of " + s.r + "/sparse is sparse, or cannot be read on its own")
+	s.mustSay("chase: " + s.r + "/sparse: a grant needs a git checkout, so what it says is what git tracks: the index of " + s.r + "/sparse is sparse, or cannot be read on its own")
 }

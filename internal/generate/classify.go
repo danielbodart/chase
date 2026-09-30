@@ -128,7 +128,7 @@ var schemeAndHost = regexp.MustCompile(`^[a-z]+://[^/]+`)
 var notIDChars = regexp.MustCompile(`[^A-Za-z0-9_.:]+`)
 
 // idFrom is the operation id a spec with none gets, from the method and
-// the path, in the characters an envelope may name one by: what a person
+// the path, in the characters a grant may name one by: what a person
 // writes in exceptions.json, and in a project allow-list.
 func idFrom(method, spec string) string {
 	id := strings.ToLower(method) + spec
@@ -405,7 +405,7 @@ func classify(in classifyInput) (string, error) {
 	}
 
 	// A spec with no operation ids gets them from the method and the path,
-	// in the characters an envelope may name one by: what a person writes
+	// in the characters a grant may name one by: what a person writes
 	// in exceptions.json, and in a project allow-list.
 	for _, o := range ops {
 		if !truthy(o.id) {

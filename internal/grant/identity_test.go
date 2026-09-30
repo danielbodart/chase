@@ -1,4 +1,4 @@
-package envelope_test
+package grant_test
 
 import (
 	"encoding/json"
@@ -110,7 +110,7 @@ func TestWhatNamesNoProjectIsRefused(t *testing.T) {
 	}
 	os.MkdirAll(r+"/w/plain", 0o755)
 	h.refusedAs(r+"/w/plain", "not a git repository")
-	if rc := h.run("project", r+"/w/plain"); rc != 1 || h.err != "chase: usage: chase envelope project WS TIER\n" {
+	if rc := h.run("project", r+"/w/plain"); rc != 1 || h.err != "chase: usage: chase grant project WS TIER\n" {
 		t.Errorf("project with one argument: %d %q", rc, h.err)
 	}
 }
@@ -144,7 +144,7 @@ func TestAPinIsHeldBothWays(t *testing.T) {
 	h.refusedAs(r+"/p/shop/nested", "is a checkout of "+r+"/p/shop/nested, not of "+r+"/p/shop")
 }
 
-const dockerEnvelope = `{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}`
+const dockerGrant = `{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}`
 
 const shopLine = "Docker as example/shop at 127.101.170.171 (shop.internal, shop.example.internal), ports 64320 64321"
 
@@ -178,7 +178,7 @@ func (h *harness) stagedProject(machine string) any {
 	return d["result"].(map[string]any)["dockerProject"]
 }
 
-// APPROVAL, of an envelope that binds Docker: said beside the approval with
+// APPROVAL, of a grant that binds Docker: said beside the approval with
 // its address and names, and which the host has; asked about once while it
 // is unchanged, and again when its origin changes; recorded once.
 func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
@@ -186,22 +186,21 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	r := h.root()
 	ws := r + "/p/shop"
 	h.repo(ws, "git@github.com:Example/Shop.git")
-	h.flake(ws)
 
 	// No hosts file: the names are the session's, and the host has only the
 	// address.
-	h.approved(ws, "m1", "trusted", dockerEnvelope)
+	h.approved(ws, "m1", "trusted", dockerGrant)
 	if got := h.dockerSaid(ws); got != "chase: "+ws+": "+shopLine+"; on this host, 127.101.170.171 only" {
 		t.Errorf("the approval did not say where Docker is: %s", h.err)
 	}
 	if got := h.stagedProject("m1"); got != "example/shop" {
 		t.Errorf("the project was not staged: %v", got)
 	}
-	if n := len(h.approvals("envelope")); n != 1 {
-		t.Errorf("the envelope was asked about %d times", n)
+	if n := len(h.approvals()); n != 1 {
+		t.Errorf("the grant was asked about %d times", n)
 	}
-	if !strings.Contains(h.approvals("envelope")[0].Diff, `"dockerProject": "example/shop"`) {
-		t.Errorf("the approval's diff does not show the project: %s", h.approvals("envelope")[0].Diff)
+	if !strings.Contains(h.approvals()[0].Diff, `"dockerProject": "example/shop"`) {
+		t.Errorf("the approval's diff does not show the project: %s", h.approvals()[0].Diff)
 	}
 	if got := h.addresses(); got != `{"example/shop":"127.101.170.171"}` {
 		t.Errorf("the address was not recorded: %s", got)
@@ -212,12 +211,12 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	// those it gives. Approved again, the same project passes, is not asked
 	// about, and is held once.
 	write(t, h.cfg.Hosts, `{"example/shop": {"address": "127.101.170.171", "names": ["shop.internal", "shop.example.internal"]}}`)
-	h.approved(ws, "m2", "trusted", dockerEnvelope)
+	h.approved(ws, "m2", "trusted", dockerGrant)
 	if got := h.dockerSaid(ws); got != "chase: "+ws+": "+shopLine {
 		t.Errorf("the host's names were not recognised: %s", h.err)
 	}
-	if n := len(h.approvals("envelope")); n != 1 {
-		t.Error("an unchanged envelope was asked about again")
+	if n := len(h.approvals()); n != 1 {
+		t.Error("an unchanged grant was asked about again")
 	}
 	if got := h.addresses(); got != `{"example/shop":"127.101.170.171"}` {
 		t.Errorf("the address is not held once: %s", got)
@@ -226,29 +225,28 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 		t.Error("the project is recorded twice")
 	}
 	write(t, h.cfg.Hosts, `{"example/shop": {"address": "127.9.9.9", "names": ["shop.internal", "shop.example.internal"]}}`)
-	h.approved(ws, "m3", "trusted", dockerEnvelope)
+	h.approved(ws, "m3", "trusted", dockerGrant)
 	if got := h.dockerSaid(ws); got != "chase: "+ws+": "+shopLine+"; on this host, 127.101.170.171 only" {
 		t.Errorf("names at another address were taken as the host's: %s", h.err)
 	}
 	write(t, h.cfg.Hosts, `{"example/shop": {"address": "127.101.170.171", "names": ["shop.example.internal"]}}`)
-	h.approved(ws, "m4", "trusted", dockerEnvelope)
+	h.approved(ws, "m4", "trusted", dockerGrant)
 	if got := h.dockerSaid(ws); got != "chase: "+ws+": "+shopLine+"; on this host, 127.101.170.171 and shop.example.internal only" {
 		t.Errorf("a name the host lacks was taken as the host's: %s", h.err)
 	}
 	os.Remove(h.cfg.Hosts)
 
-	// A changed origin is a changed envelope, asked about again.
+	// A changed origin is a changed grant, asked about again.
 	app := r + "/w/scp"
 	h.repo(app, "git@github.com:acme/app.git")
-	h.flake(app)
-	h.approved(app, "m5", "trusted", dockerEnvelope)
-	if n := len(h.approvals("envelope")); n != 2 {
+	h.approved(app, "m5", "trusted", dockerGrant)
+	if n := len(h.approvals()); n != 2 {
 		t.Error("acme/app was not asked about")
 	}
 	h.mustSay("chase: " + app + ": Docker as acme/app at ")
 	h.fx.Run("-C", app, "remote", "set-url", "origin", "git@github.com:acme/app2.git")
-	h.approved(app, "m6", "trusted", dockerEnvelope)
-	envs := h.approvals("envelope")
+	h.approved(app, "m6", "trusted", dockerGrant)
+	envs := h.approvals()
 	if len(envs) != 3 {
 		t.Fatal("a changed origin was not asked about")
 	}
@@ -263,8 +261,7 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	// approval says it with its control bytes made plain.
 	esc := ws + "/x\x1b]0;PWNED\x07\x1b[8m"
 	os.MkdirAll(esc, 0o755)
-	h.flake(esc)
-	h.approved(esc, "m13", "trusted", dockerEnvelope)
+	h.approved(esc, "m13", "trusted", dockerGrant)
 	h.mustSay("chase: " + ws + "/x?]0;PWNED??[8m: Docker as example/shop at 127.101.170.171")
 	if strings.ContainsAny(h.err, "\x1b\x07") {
 		t.Errorf("a control byte reached the terminal: %q", h.err)
@@ -276,16 +273,15 @@ func TestADeclinedProjectHoldsNoAddress(t *testing.T) {
 	h := newIdentity(t)
 	d := h.root() + "/w/declined"
 	h.repo(d, "git@github.com:acme/declined.git")
-	h.flake(d)
-	// Its source is approved, so what is declined is the envelope, the
+	// Its source is approved, so what is declined is the grant, the
 	// approval the address is recorded after.
-	t.Setenv(refuseKind, "envelope")
-	if h.approve(d, "m14", "trusted", dockerEnvelope) == 0 {
-		t.Error("a declined envelope was applied")
+	t.Setenv(refuseAll, "1")
+	if h.approve(d, "m14", "trusted", dockerGrant) == 0 {
+		t.Error("a declined grant was applied")
 	}
-	h.mustSay("chase: " + d + ": its envelope was not approved")
+	h.mustSay("chase: " + d + ": its grant was not approved")
 	if h.isStaged("m14") {
-		t.Error("a declined envelope was staged")
+		t.Error("a declined grant was staged")
 	}
 	if strings.Contains(h.addresses(), "acme/declined") {
 		t.Errorf("a declined project holds its address: %s", h.addresses())
@@ -300,10 +296,9 @@ func TestAnAddressAnotherProjectHoldsIsRefused(t *testing.T) {
 	r := h.root()
 	ws := r + "/p/shop"
 	h.repo(ws, "git@github.com:Example/Shop.git")
-	h.flake(ws)
 
 	write(t, h.dir+"/state/docker/addresses.json", `{"evil/x": "127.101.170.171"}`)
-	if h.approve(ws, "m7", "trusted", dockerEnvelope) == 0 {
+	if h.approve(ws, "m7", "trusted", dockerGrant) == 0 {
 		t.Error("shop was approved at an address evil/x holds")
 	}
 	h.mustSay("chase: " + ws + ": example/shop would be at 127.101.170.171, which evil/x already holds")
@@ -315,7 +310,7 @@ func TestAnAddressAnotherProjectHoldsIsRefused(t *testing.T) {
 	}
 	os.RemoveAll(h.dir + "/state/docker")
 	write(t, h.cfg.Hosts, `{"evil/x": {"address": "127.101.170.171", "names": ["x.internal"]}}`)
-	if h.approve(ws, "m8", "trusted", dockerEnvelope) == 0 {
+	if h.approve(ws, "m8", "trusted", dockerGrant) == 0 {
 		t.Error("shop was approved at an address the host gives evil/x")
 	}
 	h.mustSay("chase: " + ws + ": example/shop would be at 127.101.170.171, which evil/x already holds")
@@ -331,10 +326,9 @@ func TestAnAddressAnotherProjectHoldsIsRefused(t *testing.T) {
 	// offline), so acme/app is refused.
 	app := r + "/w/scp"
 	h.repo(app, "git@github.com:acme/app.git")
-	h.flake(app)
 	h.cfg.Checkouts["collide/x33613042"] = []string{"/nowhere/collide"}
 	os.RemoveAll(h.dir + "/state/docker")
-	if h.approve(app, "m12", "trusted", dockerEnvelope) == 0 {
+	if h.approve(app, "m12", "trusted", dockerGrant) == 0 {
 		t.Error("acme/app was approved at an address a pinned project holds")
 	}
 	h.mustSay("chase: " + app + ": acme/app would be at 127.95.137.218, which collide/x33613042 already holds")
@@ -344,14 +338,13 @@ func TestAnAddressAnotherProjectHoldsIsRefused(t *testing.T) {
 }
 
 // No usable origin, and Docker: nothing is applied. Without Docker, no
-// project is named, or needed. What chase derives is not the envelope's to
+// project is named, or needed. What chase derives is not the grant's to
 // say: a module's own dockerProject or secretsSHA256 is dropped, not staged.
 func TestOnlyDockerNeedsAProject(t *testing.T) {
 	h := newIdentity(t)
 	none := h.root() + "/w/none"
 	h.repo(none)
-	h.flake(none)
-	if h.approve(none, "m9", "trusted", dockerEnvelope) == 0 {
+	if h.approve(none, "m9", "trusted", dockerGrant) == 0 {
 		t.Error("a checkout with no origin was given Docker")
 	}
 	h.mustSay("exactly one origin URL")
@@ -361,17 +354,19 @@ func TestOnlyDockerNeedsAProject(t *testing.T) {
 
 	h.approved(none, "m10", "trusted", `{"bindings": {"github": {"allow": ["x"]}}}`)
 	if _, has := h.stagedDoc("m10")["result"].(map[string]any)["dockerProject"]; has {
-		t.Error("an envelope without Docker gained a project")
+		t.Error("a grant without Docker gained a project")
 	}
 	if strings.Contains(h.err, "Docker as") {
-		t.Errorf("an envelope without Docker printed one: %s", h.err)
+		t.Errorf("a grant without Docker printed one: %s", h.err)
 	}
 
-	h.approved(none, "m11", "trusted", `{"dockerProject": "example/shop", "secretsSHA256": "0", "bindings": {"github": {"allow": ["x"]}}}`)
-	res := h.stagedDoc("m11")["result"].(map[string]any)
-	_, a := res["dockerProject"]
-	_, b := res["secretsSHA256"]
-	if a || b {
-		t.Errorf("an envelope's own dockerProject was staged: %v", res)
+	// What chase derives is never the grant's to say.
+	for _, own := range []string{`"dockerProject": "example/shop"`, `"secretsSHA256": "0"`} {
+		if h.approve(none, "m11", "trusted", `{`+own+`, "bindings": {"github": {"allow": ["x"]}}}`) == 0 {
+			t.Errorf("a grant saying %s was approved", own)
+		}
+		if h.isStaged("m11") {
+			t.Errorf("a grant saying %s was staged", own)
+		}
 	}
 }

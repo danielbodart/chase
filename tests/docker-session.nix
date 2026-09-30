@@ -1,10 +1,10 @@
 # A Docker session end to end: chase's launch, flong's session, frisket's
 # route and relay, and alice's rootless Docker daemon, all on one machine.
 # The checkout is shop as the machine knows it -- its origin, pinned at
-# its path -- with a flake binding postgres:18 on 64320, and a one-service
-# Compose file shaped like shop's own. The session runs Compose as its
-# scripts do, reaches the database as localhost and by its .internal name,
-# and is refused whatever would reach the host.
+# its path -- with a chase.jsonc binding postgres:18 on 64320, and a
+# one-service Compose file shaped like shop's own. The session runs Compose
+# as its scripts do, reaches the database as localhost and by its .internal
+# name, and is refused whatever would reach the host.
 { self, home-manager }:
 { lib, hostPkgs, ... }:
 
@@ -65,8 +65,8 @@ let
     done
   '';
 
-  # shop as a developer has it: its GitHub origin, a flake giving the
-  # envelope its image and port, and the Compose file its scripts run.
+  # shop as a developer has it: its GitHub origin, a chase.jsonc giving
+  # the grant its image and port, and the Compose file its scripts run.
   mkProject = pkgs.writeShellScript "mk-project" ''
     set -euo pipefail
     export PATH=${lib.makeBinPath (with pkgs; [ coreutils git ])}
@@ -74,19 +74,17 @@ let
     cd ${ws}
     git init -q -b main
     git remote add origin git@github.com:example/shop.git
-    cat > flake.nix <<'EOF'
+    cat > chase.jsonc <<'EOF'
     {
-      outputs = { self }: {
-        chaseModules.default = {
-          chase.bindings.docker.images = [ "postgres:18" ];
-          chase.bindings.docker.ports = [ 64320 ];
-        };
-      };
+      // shop's database, as its Compose file runs it.
+      "bindings": {
+        "docker": { "images": ["postgres:18"], "ports": [64320] },
+      },
     }
     EOF
     install -m 0644 ${compose} compose.yaml
     printf 'cmd/\n' > .gitignore
-    git add flake.nix compose.yaml .gitignore
+    git add chase.jsonc compose.yaml .gitignore
     git -c user.name=alice -c user.email=alice@example.com commit -qm project
   '';
 in
@@ -148,13 +146,13 @@ in
         claude.package = pkgs.hello;
         codex.package = pkgs.hello;
       };
-      # As trusted is on a desk: direct egress, envelopes, dev servers
+      # As trusted is on a desk: direct egress, grants, dev servers
       # forwarded with `auto`, and shop pinned where it lives.
       tiers.trusted = {
         match = [ { checkouts.${project} = ws; } ];
         egress = "direct";
         allow = [ "*" ];
-        envelope = true;
+        grants = true;
         forwardPorts = "auto";
         apps.docker.enable = true;
       };
@@ -262,7 +260,7 @@ in
           name = machine.succeed("cat /tmp/last-session").strip()
           run = f"/run/user/1000/chase/{name}"
           approvals = machine.succeed("journalctl -t chase-test-approver -o cat --no-pager")
-          assert '"kind": "envelope"' in approvals and '\\"dockerProject\\": \\"${project}\\"' in approvals, approvals
+          assert '\\"dockerProject\\": \\"${project}\\"' in approvals, approvals
           policy = json.loads(machine.succeed(f"cat {run}/policy.json"))
           [route] = [r for r in policy["routes"] if r["name"] == "docker"]
           d = route["docker"]
