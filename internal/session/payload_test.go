@@ -77,14 +77,15 @@ func newFixture(t *testing.T) fixture {
 		Placeholder: "proxy-injected",
 		Tiers: map[string]Tier{
 			"trusted": {
-				Claude:      &Claude{State: "shared", Settings: "/nix/store/0000-claude-trusted-settings.json", Connectors: true},
-				Codex:       &Codex{State: "shared"},
+				Claude:      &Claude{Scope: "host", Settings: "/nix/store/0000-claude-trusted-settings.json", Connectors: true},
+				Codex:       &Codex{Scope: "host"},
 				Cloudflare:  &Cloudflare{AccountIDFile: f.account},
 				Environment: map[string]string{"CLOUDFLARE_API_TOKEN": "proxy-injected", "SSL_CERT_FILE": "/etc/frisket/ca-bundle.crt"},
 			},
 			"strict": {
-				Claude: &Claude{State: "isolated", Settings: f.settings},
-				Codex:  &Codex{State: "isolated", StateDir: filepath.Join(f.home, ".local/state/agents/codex"), Placeholder: "/x"},
+				Claude: &Claude{Scope: "workspace", Settings: f.settings},
+				Codex:  &Codex{Scope: "workspace", Placeholder: "/x"},
+				Stores: map[string]Store{"codex": {Scope: "workspace", Root: filepath.Join(f.home, ".local/state/agents/codex"), Env: map[string]string{"CODEX_HOME": ""}}},
 			},
 			"plain": {},
 		},
@@ -194,12 +195,15 @@ func TestAnIsolatedClaudeTrustsItsWorkspace(t *testing.T) {
 
 // CODEX: its own sandbox bypassed, the workspace trusted by a -c override
 // whose TOML string holds it escaped as the script escaped it, the default
-// excludes off, and an --add-dir per writable bind. An isolated tier's
-// CODEX_HOME is the home Binds made for the workspace.
+// excludes off, and an --add-dir per writable bind. A workspace's
+// CODEX_HOME is the store Binds made for it, which is no --add-dir; the
+// host's is the host's ~/.codex, given nothing; and a session's own is
+// seeded with the placeholder login.
 func TestCodexIsTrustedInItsWorkspace(t *testing.T) {
 	f := newFixture(t)
 	ws := `/w/a "b" \c`
-	p, _ := f.run(t, "strict", ws, "/x:rw\n/y:ro\n/z:rw", Given{}, "codex", "exec", "hi")
+	home := filepath.Join(f.home, ".local/state/agents/codex", "strict", Munge(ws))
+	p, _ := f.run(t, "strict", ws, "/x:rw\n/y:ro\n"+home+":rw\n/z:rw", Given{}, "codex", "exec", "hi")
 	want := []string{"codex", "--dangerously-bypass-approvals-and-sandbox",
 		"-c", `projects."/w/a \"b\" \\c".trust_level="trusted"`,
 		"-c", "shell_environment_policy.ignore_default_excludes=true",
@@ -207,13 +211,46 @@ func TestCodexIsTrustedInItsWorkspace(t *testing.T) {
 	if !slices.Equal(p.argv, want) {
 		t.Errorf("argv is %q, not %q", p.argv, want)
 	}
-	if home := filepath.Join(f.home, ".local/state/agents/codex", Munge(ws)); !slices.Equal(p.env, []string{"CODEX_HOME=" + home}) {
-		t.Errorf("an isolated codex's environment is %q", p.env)
+	if !slices.Equal(p.env, []string{"CODEX_HOME=" + home}) {
+		t.Errorf("a workspace's codex's environment is %q", p.env)
 	}
-	// Shared, the host's own ~/.codex is its home.
+	if slices.ContainsFunc(p.files, func(f File) bool { return strings.Contains(f.Path, ".codex") }) {
+		t.Errorf("a workspace's codex was seeded %+v", p.files)
+	}
+	// The host's, its own ~/.codex is its home.
 	p, _ = f.run(t, "trusted", ws, "", Given{}, "codex")
 	if slices.ContainsFunc(p.env, func(v string) bool { return strings.HasPrefix(v, "CODEX_HOME=") }) {
-		t.Errorf("a shared codex was given a home: %q", p.env)
+		t.Errorf("the host's codex was given a home: %q", p.env)
+	}
+	// The session's: the placeholder, in a ~/.codex that goes with it.
+	placeholder := filepath.Join(t.TempDir(), "auth-placeholder.json")
+	os.WriteFile(placeholder, []byte(`{"placeholder":true}`), 0o600)
+	f.c.Tiers["plain"] = Tier{Codex: &Codex{Scope: "session", Placeholder: placeholder}}
+	p, _ = f.run(t, "plain", ws, "", Given{}, "codex")
+	if len(p.env) != 0 || len(p.files) != 1 || p.files[0] != (File{Path: f.home + "/.codex/auth.json", Mode: 0o600, Content: `{"placeholder":true}`}) {
+		t.Errorf("the session's codex was given %q and %+v", p.env, p.files)
+	}
+	os.Remove(placeholder)
+	if got := f.refused(t, "plain", ws, "", Given{}, "codex"); !strings.HasPrefix(got, "codex's placeholder login: ") {
+		t.Errorf("an unreadable placeholder: %q", got)
+	}
+}
+
+// STORES: each variable a store names is set to its path in the store's
+// directory, unless the container sets it, which is then left to it; a
+// grant's own value wins, as any of the tier's does; and two stores
+// naming one variable refuse the launch.
+func TestAStoresVariablesAreSetUnlessTheContainerSetsThem(t *testing.T) {
+	f := newFixture(t)
+	caches := Store{Scope: "tier", Root: "/c", Env: map[string]string{"XDG_CACHE_HOME": "cache", "GOPATH": "data/go", "CARGO_HOME": "data/cargo"}}
+	f.c.Tiers["plain"] = Tier{Stores: map[string]Store{"caches": caches}, Environment: map[string]string{"GOPATH": "/srv/go"}}
+	p, _ := f.run(t, "plain", "/w", "/c/plain/all:rw\n/x:rw", Given{Env: []Var{{"CARGO_HOME", "/w/.cargo"}}}, "shell")
+	if want := []string{"CARGO_HOME=/w/.cargo", "XDG_CACHE_HOME=/c/plain/all/cache"}; !slices.Equal(p.env, want) {
+		t.Errorf("the environment is %q, not %q", p.env, want)
+	}
+	f.c.Tiers["plain"] = Tier{Stores: map[string]Store{"caches": caches, "go": {Scope: "workspace", Root: "/g", Env: map[string]string{"GOPATH": ""}}}}
+	if got := f.refused(t, "plain", "/w", "", Given{}, "shell"); got != "plain's stores caches and go both set GOPATH" {
+		t.Errorf("two stores naming one variable: %q", got)
 	}
 }
 

@@ -52,7 +52,7 @@ The design, what was decided and what was turned down, is in [PLAN.md](PLAN.md).
     tiers.strict = {
       egress = "frisket";
       writes = "refuse"; guarded = "refuse"; unmatched = "refuse";
-      apps.claude.state = "isolated";
+      apps.claude = { enable = true; scope = "workspace"; };
       apps.git.enable = true;            # no credential: reads only
     };
     tiers.trusted = {
@@ -60,7 +60,8 @@ The design, what was decided and what was turned down, is in [PLAN.md](PLAN.md).
       egress = "direct";
       allow = [ "*" ];
       grants = true;
-      apps.claude = { state = "shared"; connectors = true; };
+      caches = "tier";                   # downloads kept for every checkout
+      apps.claude = { enable = true; scope = "host"; connectors = true; };
       apps.git = { enable = true; authenticated = true; };
       apps.github = { enable = true; authenticated = true; };
     };
@@ -185,6 +186,27 @@ mounts one.
 chase ships the ones any machine running agents would want. Adding one of
 your own takes no changes here.
 
+Every app is configured the same way. `chase.apps.<app>` is the machine's:
+the package it runs and the credential it would use. A tier turns it on with
+`chase.tiers.<tier>.apps.<app>.enable`, and may say its own package or
+credential there in place of the machine's. An app with a credential uses it
+only where the tier says `authenticated = true`; without it, the default, it
+reads and nothing more. An app that keeps something says where with `scope`:
+
+| scope | kept |
+|---|---|
+| `session` (the default) | in the session's home, which is memory, and gone with it |
+| `workspace` | on the host, one for each checkout in the tier |
+| `tier` | on the host, one for every checkout in the tier |
+| `host` | the host's own, bound in |
+
+A tier's `caches` is the same choice for what its tools download — packages,
+toolchains, build caches — pointed at by the XDG cache and data homes and
+each tool's own variable (npm, yarn, bun, Cargo, rustup, Go, Mix, Hex,
+Gradle), under `~/.cache/chase/caches`. Never their settings or state, and
+never `host`: what a tool runs from its cache is what an earlier session left
+there.
+
 **Claude Code.** frisket reads the host's own `~/.claude/.credentials.json`
 and puts its token on each request, taking the expiry from
 `claudeAiOauth.expiresAt` so a stale token answers 503 rather than 401 — which
@@ -237,7 +259,8 @@ person. The files themselves come from presigned CDN URLs and Xet's store under
 `hf.co`, which take tokens of their own, so they are allowed and never
 intercepted. Without `authenticated`, the default, and the way for a tier running other people's code: public models download, and what would
 ask is refused, Xet's write token among it, so a token the session brings of
-its own cannot upload either. See [docs/huggingface.md](docs/huggingface.md). `shared` binds the host's download cache in, so a
+its own cannot upload either. See [docs/huggingface.md](docs/huggingface.md). Its downloads are kept as the tier's
+`caches` are, or at the `scope` it says; `host` binds the host's download cache in, so a
 model is downloaded once — not in a tier that runs other people's code, since
 the host loads what is in it.
 

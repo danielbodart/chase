@@ -10,11 +10,13 @@
 //
 // The payload was a bash script the module wrote and flong ran as the
 // session's command, inside it. Everything it worked out -- which agent, with
-// which flags, the directories it may write, the placeholder logins, a
-// codex home, a Cloudflare account, a grant's environment -- is worked
+// which flags, the directories it may write, the placeholder logins, the
+// stores a tier keeps, a Cloudflare account, a grant's environment -- is worked
 // out here instead, on the host, where a test can hold it, and the session
 // runs the agent's own program with nothing between.
 package session
+
+import "path/filepath"
 
 // Config is the session section of chase's configuration.
 type Config struct {
@@ -46,6 +48,10 @@ type Tier struct {
 	// Cloudflare is the account the tier's sessions are told, when it has
 	// one.
 	Cloudflare *Cloudflare `json:"cloudflare,omitempty"`
+	// Stores are what the tier's sessions keep beyond themselves, by name:
+	// a directory on the host per workspace or per tier, bound in, that
+	// the session's tools are pointed at (see Store).
+	Stores map[string]Store `json:"stores,omitempty"`
 	// Environment is what the tier's container sets in every session's
 	// environment, as flong's module computed it from the container's
 	// options and wrote it into the declaration: what /etc/set-environment
@@ -56,12 +62,42 @@ type Tier struct {
 	Environment map[string]string `json:"environment,omitempty"`
 }
 
+// Store is a directory a tier's sessions keep, made on the host and bound
+// in read-write at its own path. Which tool keeps what in it is the
+// module's to say, in Env; chase knows nothing of any tool.
+type Store struct {
+	// Scope is "workspace", a directory for each workspace the tier
+	// opens, or "tier", one for all of them. A scope that keeps nothing
+	// past the session, or keeps the host's own, is no store.
+	Scope string `json:"scope"`
+	// Root is where the tier's directories are made: Root/<tier>/all for
+	// the tier, Root/<tier>/<Munge(workspace)> for a workspace, which
+	// always begins with '-' and so is never "all".
+	Root string `json:"root"`
+	// Env names, for each variable, the path in the directory it is set
+	// to, "" for the directory itself; set unless the container sets it.
+	Env map[string]string `json:"env,omitempty"`
+	// Files are installed in the directory afresh at every launch, each
+	// its path in the directory and the host file it is a copy of, so
+	// nothing a session left in their place is what the next reads.
+	Files map[string]string `json:"files,omitempty"`
+}
+
+// dir is s's directory for a session of workspace in tier.
+func (s Store) dir(tier, workspace string) string {
+	if s.Scope == "tier" {
+		return filepath.Join(s.Root, tier, "all")
+	}
+	return filepath.Join(s.Root, tier, Munge(workspace))
+}
+
 // Claude is Claude Code in a tier.
 type Claude struct {
-	// State is apps.claude.state: "shared", its sessions, history and
-	// plugins the host's; or "isolated", its settings alone and this
-	// workspace's transcripts.
-	State string `json:"state"`
+	// Scope is apps.claude.scope: "host", its sessions, history and
+	// plugins the host's; "workspace", its settings alone and this
+	// workspace's transcripts, kept where the host's Claude Code finds
+	// them; or "session", its settings alone and nothing kept.
+	Scope string `json:"scope"`
 	// Settings is the tier's settings file, in the store, given as
 	// --settings, which outranks the user's and the project's.
 	Settings string `json:"settings"`
@@ -70,21 +106,22 @@ type Claude struct {
 	Connectors bool `json:"connectors,omitempty"`
 }
 
-// state is c's State, or "" for no Claude Code.
-func (c *Claude) state() string {
+// scope is c's Scope, or "" for no Claude Code.
+func (c *Claude) scope() string {
 	if c == nil {
 		return ""
 	}
-	return c.State
+	return c.Scope
 }
 
-// Codex is codex in a tier: its state, and for an isolated tier where each
-// workspace's CODEX_HOME is made and what login it is given.
+// Codex is codex in a tier. Its CODEX_HOME, at a workspace's or the tier's
+// scope, is a store of the module's with the placeholder login among its
+// files; at the host's it is the host's ~/.codex, bound by the container.
 type Codex struct {
-	State string `json:"state"`
-	// StateDir is where each workspace's CODEX_HOME is made.
-	StateDir string `json:"stateDir"`
-	// Placeholder is the placeholder login each home is given afresh.
+	// Scope is apps.codex.scope: "session", "workspace", "tier" or "host".
+	Scope string `json:"scope"`
+	// Placeholder is the placeholder login, which a session's own
+	// ~/.codex is seeded with.
 	Placeholder string `json:"placeholder"`
 }
 

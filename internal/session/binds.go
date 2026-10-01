@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -42,8 +43,8 @@ func Binds(c Config, tier, workspace string, out io.Writer) error {
 	}
 
 	claudeDir := filepath.Join(c.Home, ".claude")
-	switch t.Claude.state() {
-	case "isolated":
+	switch t.Claude.scope() {
+	case "workspace":
 		// This workspace's transcripts only, written to the host so
 		// `claude --resume` finds them later, where Claude Code itself keeps
 		// them.
@@ -52,7 +53,7 @@ func Binds(c Config, tier, workspace string, out io.Writer) error {
 			return err
 		}
 		lines = append(lines, dir+":rw")
-	case "shared":
+	case "host":
 		// Bound by the container's own mounts, which flong refuses a
 		// session over if a source is missing -- and Claude Code's own
 		// cleanup deletes plans/ once it empties.
@@ -73,19 +74,22 @@ func Binds(c Config, tier, workspace string, out io.Writer) error {
 		}
 	}
 
-	if cx := t.Codex; cx != nil && cx.State == "isolated" {
-		// A home per workspace, given the placeholder login afresh, so
-		// nothing a session left behind is what the next authenticates
-		// with; replaced rather than written, so a link a session planted
-		// at auth.json is not written through.
-		home := filepath.Join(cx.StateDir, Munge(workspace))
-		if err := os.MkdirAll(home, 0o777); err != nil {
+	// Each store's directory, the user's alone, since what a tool keeps
+	// may be a private registry's, with its files installed afresh:
+	// replaced rather than written, so a link a session planted at one is
+	// not written through.
+	for _, name := range slices.Sorted(maps.Keys(t.Stores)) {
+		st := t.Stores[name]
+		dir := st.dir(tier, workspace)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return err
 		}
-		if err := install(cx.Placeholder, filepath.Join(home, "auth.json")); err != nil {
-			return err
+		for _, rel := range slices.Sorted(maps.Keys(st.Files)) {
+			if err := install(st.Files[rel], filepath.Join(dir, rel)); err != nil {
+				return err
+			}
 		}
-		lines = append(lines, home+":rw")
+		lines = append(lines, dir+":rw")
 	}
 
 	for _, l := range lines {

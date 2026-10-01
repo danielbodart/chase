@@ -129,6 +129,29 @@ let
       UV_NATIVE_TLS = "true";
     };
 
+  # WHERE A SESSION'S TOOLS KEEP WHAT THEY DOWNLOAD, in a tier that keeps
+  # it (`caches`): relative to the tier's caches directory, as caVariables
+  # is a fact about the tools a sandbox runs. The XDG cache and data homes
+  # cover most -- pip, uv, poetry, pnpm, yarn's first version, corepack,
+  # node-gyp, deno, nix, mise, zig and Go's build cache -- and each tool
+  # that keeps its downloads elsewhere in the home is named, every runtime
+  # caVariables points at frisket's bundle among them. Never
+  # XDG_CONFIG_HOME or XDG_STATE_HOME: a tool's settings, its logins and
+  # what it has been told to trust stay the session's, and go with it.
+  cacheVariables = {
+    XDG_CACHE_HOME = "cache";
+    XDG_DATA_HOME = "data";
+    npm_config_cache = "cache/npm"; # ~/.npm
+    YARN_GLOBAL_FOLDER = "data/yarn"; # yarn 2 and later: ~/.yarn/berry
+    BUN_INSTALL_CACHE_DIR = "cache/bun"; # ~/.bun/install/cache
+    CARGO_HOME = "data/cargo"; # ~/.cargo: the registry, git checkouts
+    RUSTUP_HOME = "data/rustup"; # ~/.rustup: toolchains
+    GOPATH = "data/go"; # ~/go: the module cache, toolchains
+    MIX_HOME = "data/mix"; # ~/.mix: Mix's archives
+    HEX_HOME = "data/hex"; # ~/.hex: Hex's packages
+    GRADLE_USER_HOME = "data/gradle"; # ~/.gradle
+  };
+
   tierType = types.submodule {
     # writes, guarded and unmatched: how every app in the tier answers what
     # it does not allow outright (PLAN.md, decision 18).
@@ -192,6 +215,20 @@ let
           flong's `seccomp` for this tier's sessions: its tier, and the
           loosenings a tier's own work needs. Empty is flong's default,
           `strict`. A checkout's grant can add to it, once approved.
+        '';
+      };
+      caches = mkOption {
+        type = types.enum [ "session" "workspace" "tier" ];
+        default = "session";
+        description = ''
+          Where what a session's tools download -- packages, toolchains,
+          build caches -- is kept. `session`: in the session's home, which
+          is memory, and goes with it. `workspace`: on the host, one
+          directory for each workspace in the tier; `tier`: one for all of
+          them, so a package is downloaded once. Under ~/.cache/chase/caches,
+          and only the tools' caches and data, never their settings or
+          state. What a tool runs from its cache is what an earlier session
+          left there: `tier` shares that across every workspace in the tier.
         '';
       };
       grants = mkOption {
@@ -417,9 +454,15 @@ in
     chase.internal.config.session = {
       inherit (cfg) home workspaceGroups placeholder;
       runtime = "/run/user/${toString cfg.uid}";
-      tiers = lib.mapAttrs (name: _: {
+      tiers = lib.mapAttrs (name: tier: {
         environment = lib.listToAttrs
           config.environment.etc."flong/agent-${name}.zon".source.declaration.environment;
+      } // lib.optionalAttrs (tier.caches != "session") {
+        stores.caches = {
+          scope = tier.caches;
+          root = "${cfg.home}/.cache/chase/caches";
+          env = cacheVariables;
+        };
       }) sandboxes;
     };
 

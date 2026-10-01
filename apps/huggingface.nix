@@ -83,12 +83,21 @@ in
           read that mints a token, a deletion, and anything the description
           does not name -- is answered as `writes`, `guarded` and
           `unmatched` say'';
-        shared = mkEnableOption ''
-          sharing the Hub's download cache with the host, read-write: a model
-          downloaded once is there in every session and on the host, rather
-          than downloaded again into a session's ~/.cache, which is memory.
-          Not for a tier that runs other people's code -- the host loads what
-          is in this cache, and a model file can be code'';
+        scope = mkOption {
+          type = types.enum [ "session" "workspace" "tier" "host" ];
+          default = config.caches;
+          defaultText = lib.literalExpression "the tier's `caches`";
+          description = ''
+            Where the Hub's downloads are kept, as the tier's `caches` say
+            unless said here. `session`: the session's ~/.cache, which is
+            memory. `workspace` and `tier`: on the host, under
+            ~/.cache/chase/huggingface. `host`: the host's own download
+            cache, read-write, so a model downloaded once is there in every
+            session and on the host. Not `host` for a tier that runs other
+            people's code -- the host loads what is in it, and a model file
+            can be code.
+          '';
+        };
       };
     }));
   };
@@ -96,15 +105,23 @@ in
   config = {
     assertions = apps.credentialAssertions cfg.tiers "huggingface";
 
+    chase.internal.config.session.tiers = lib.mapAttrs (_: tier: {
+      stores.huggingface = {
+        inherit (tier.apps.huggingface) scope;
+        root = "${cfg.home}/.cache/chase/huggingface";
+        env = { HF_HUB_CACHE = "hub"; HF_XET_CACHE = "xet"; };
+      };
+    }) (lib.filterAttrs (_: t: !t.bare && t.apps.huggingface.enable && lib.elem t.apps.huggingface.scope [ "workspace" "tier" ]) cfg.tiers);
+
     # On the host: a bind's source must exist, and flong makes none for it.
     # The parent too, which is where the host's token is, and so the user's
     # alone.
-    systemd.tmpfiles.rules = mkIf (lib.any (t: t.apps.huggingface.enable && t.apps.huggingface.shared) (lib.attrValues cfg.tiers))
+    systemd.tmpfiles.rules = mkIf (lib.any (t: t.apps.huggingface.enable && t.apps.huggingface.scope == "host") (lib.attrValues cfg.tiers))
       ([ "d ${cfg.home}/.cache/huggingface 0700 ${cfg.user} ${toString cfg.gid} -" ]
         ++ map (p: "d ${p} 0755 ${cfg.user} ${toString cfg.gid} -") cache);
 
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf tier.apps.huggingface.enable {
-      bindMounts = mkIf tier.apps.huggingface.shared
+      bindMounts = mkIf (tier.apps.huggingface.scope == "host")
         (lib.genAttrs cache (p: { hostPath = p; isReadOnly = false; }));
       config = mkMerge [
         {
@@ -114,6 +131,16 @@ in
           # whatever the consumer's nixpkgs pins.
           environment.variables.HF_HUB_DISABLE_UPDATE_CHECK = "1";
         }
+        # The caches by name, never through XDG_CACHE_HOME, which a tier
+        # keeping caches points elsewhere: the host's, bound in, or the
+        # session's own at the same paths. A workspace's or the tier's are
+        # a store's, which names them instead.
+        (mkIf (lib.elem tier.apps.huggingface.scope [ "session" "host" ]) {
+          environment.variables = {
+            HF_HUB_CACHE = lib.elemAt cache 0;
+            HF_XET_CACHE = lib.elemAt cache 1;
+          };
+        })
         # huggingface_hub sends it as a bearer token to ${host}, and to
         # nothing else: the CDN and Xet take tokens of their own.
         (mkIf tier.apps.huggingface.authenticated {

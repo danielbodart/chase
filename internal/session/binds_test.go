@@ -39,11 +39,12 @@ func TestAGroupsOtherMembersAreBoundReadWrite(t *testing.T) {
 	}
 }
 
-// An isolated Claude Code binds this workspace's transcripts, where Claude
-// Code keeps them, made if missing.
-func TestAnIsolatedClaudeBindsItsTranscripts(t *testing.T) {
+// A Claude Code of the workspace's scope binds this workspace's
+// transcripts, where Claude Code keeps them, made if missing; one of the
+// session's binds nothing.
+func TestAWorkspacesClaudeBindsItsTranscripts(t *testing.T) {
 	home := t.TempDir()
-	c := Config{Home: home, Tiers: map[string]Tier{"strict": {Claude: &Claude{State: "isolated"}}}}
+	c := Config{Home: home, Tiers: map[string]Tier{"strict": {Claude: &Claude{Scope: "workspace"}}, "plain": {Claude: &Claude{Scope: "session"}}}}
 	got := binds(t, c, "strict", "/home/alice/Projects/shop.v2")
 	want := filepath.Join(home, ".claude", "projects", "-home-alice-Projects-shop-v2")
 	if len(got) != 1 || got[0] != want+":rw" {
@@ -52,15 +53,18 @@ func TestAnIsolatedClaudeBindsItsTranscripts(t *testing.T) {
 	if fi, err := os.Stat(want); err != nil || !fi.IsDir() {
 		t.Errorf("not made: %v", err)
 	}
+	if got := binds(t, c, "plain", "/home/alice/Projects/shop.v2"); len(got) != 0 {
+		t.Errorf("the session's bound %q", got)
+	}
 }
 
-// A shared Claude Code's bound sources are made: flong refuses a session
-// whose bind source is missing. Nothing extra is bound: the container's own
-// mounts do that.
-func TestASharedClaudeHasItsSourcesMade(t *testing.T) {
+// The host's Claude Code has its bound sources made: flong refuses a
+// session whose bind source is missing. Nothing extra is bound: the
+// container's own mounts do that.
+func TestTheHostsClaudeHasItsSourcesMade(t *testing.T) {
 	home := t.TempDir()
 	run := t.TempDir()
-	c := Config{Home: home, Runtime: run, Tiers: map[string]Tier{"trusted": {Claude: &Claude{State: "shared"}}}}
+	c := Config{Home: home, Runtime: run, Tiers: map[string]Tier{"trusted": {Claude: &Claude{Scope: "host"}}}}
 	os.MkdirAll(filepath.Join(home, ".claude"), 0o700)
 	os.WriteFile(filepath.Join(home, ".claude", "history.jsonl"), []byte("kept\n"), 0o600)
 	if got := binds(t, c, "trusted", "/w"); len(got) != 0 {
@@ -83,17 +87,20 @@ func TestASharedClaudeHasItsSourcesMade(t *testing.T) {
 	}
 }
 
-// An isolated codex binds a home of the workspace's own, given the
-// placeholder afresh, replacing a link a session left rather than writing
+// A store is a directory for each workspace, or one for the tier, the
+// user's alone, made if missing and kept if not, with its files installed
+// afresh each launch: replacing a link a session left rather than writing
 // through it.
-func TestAnIsolatedCodexHomeGetsThePlaceholderAfresh(t *testing.T) {
+func TestAStoreIsMadeAndItsFilesInstalledAfresh(t *testing.T) {
 	root := t.TempDir()
 	placeholder := filepath.Join(root, "auth-placeholder.json")
 	os.WriteFile(placeholder, []byte(`{"placeholder":true}`), 0o600)
 	state := filepath.Join(root, "codex")
-	c := Config{Home: root, Tiers: map[string]Tier{"strict": {Codex: &Codex{State: "isolated", StateDir: state, Placeholder: placeholder}}}}
-	home := filepath.Join(state, "-w-shop")
+	codex := Store{Scope: "workspace", Root: state, Files: map[string]string{"auth.json": placeholder}}
+	c := Config{Home: root, Tiers: map[string]Tier{"strict": {Stores: map[string]Store{"codex": codex}}}}
+	home := filepath.Join(state, "strict", "-w-shop")
 	os.MkdirAll(home, 0o700)
+	os.WriteFile(filepath.Join(home, "kept"), nil, 0o600)
 	target := filepath.Join(root, "planted")
 	os.WriteFile(target, []byte("theirs"), 0o644)
 	if err := os.Symlink(target, filepath.Join(home, "auth.json")); err != nil {
@@ -113,10 +120,27 @@ func TestAnIsolatedCodexHomeGetsThePlaceholderAfresh(t *testing.T) {
 	if b, _ := os.ReadFile(target); string(b) != "theirs" {
 		t.Errorf("wrote through the link: %q", b)
 	}
-	// A shared codex binds nothing here: its container mounts do.
-	c.Tiers["trusted"] = Tier{Codex: &Codex{State: "shared"}}
-	if got := binds(t, c, "trusted", "/w/shop"); len(got) != 0 {
-		t.Errorf("shared bound %q", got)
+	if _, err := os.Stat(filepath.Join(home, "kept")); err != nil {
+		t.Errorf("what the last session left went: %v", err)
+	}
+
+	// The tier's: one directory, whatever the workspace, made the user's
+	// alone.
+	caches := filepath.Join(root, "caches")
+	c.Tiers["trusted"] = Tier{Stores: map[string]Store{"caches": {Scope: "tier", Root: caches}}}
+	all := filepath.Join(caches, "trusted", "all")
+	for _, ws := range []string{"/w/shop", "/w/other"} {
+		if got := binds(t, c, "trusted", ws); len(got) != 1 || got[0] != all+":rw" {
+			t.Errorf("%s: got %q", ws, got)
+		}
+	}
+	if fi, err := os.Stat(all); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("not made the user's alone: %v %v", fi, err)
+	}
+	// Several, by name.
+	c.Tiers["both"] = Tier{Stores: map[string]Store{"z": {Scope: "tier", Root: root + "/z"}, "a": {Scope: "tier", Root: root + "/a"}}}
+	if got := binds(t, c, "both", "/w"); strings.Join(got, "|") != root+"/a/both/all:rw|"+root+"/z/both/all:rw" {
+		t.Errorf("got %q", got)
 	}
 }
 

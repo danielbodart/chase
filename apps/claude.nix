@@ -1,7 +1,7 @@
 { config, options, lib, pkgs, ... }:
 
 let
-  inherit (lib) mkIf mkMerge mkOption types;
+  inherit (lib) mkEnableOption mkIf mkMerge mkOption types;
   cfg = config.chase;
   apps = import ../lib/apps.nix { inherit lib; };
   machine = options.chase.apps.claude;
@@ -97,13 +97,17 @@ in
   options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule {
       options.apps.claude = apps.overrides machine [ "package" ] // {
-        state = mkOption {
-          type = types.nullOr (types.enum [ "shared" "isolated" ]);
-          default = null;
+        enable = mkEnableOption "Claude Code in this tier";
+        scope = mkOption {
+          type = types.enum [ "session" "workspace" "host" ];
+          default = "session";
           description = ''
-            `shared`: sessions, history and plugins are the host's.
-            `isolated`: settings only, and this workspace's transcripts.
-            Non-null enables Claude Code in the tier.
+            What Claude Code keeps, and where. `session`: its settings, and
+            nothing kept past the session. `workspace`: its settings, and
+            this workspace's transcripts, where the host's `claude --resume`
+            finds them. `host`: sessions, history and plugins are the
+            host's. No `tier`: a tier's own Claude Code directory would hide
+            its transcripts from the host's.
           '';
         };
         connectors = mkOption {
@@ -117,8 +121,8 @@ in
 
   config = {
     chase.internal.config = {
-      # Made on the host before each launch (internal/session): an isolated
-      # tier's transcripts for the workspace, and a shared tier's bound
+      # Made on the host before each launch (internal/session): a
+      # workspace's transcripts, and the host's Claude Code's bound
       # sources, which flong refuses a session over if one is missing. And
       # the session's payload: Claude Code with the tier's settings, and its
       # placeholder login, seeded into the session's home rather than bound,
@@ -127,10 +131,10 @@ in
       # never expiring, so a session never tries to refresh it.
       session.tiers = lib.mapAttrs (name: tier: {
         claude = {
-          inherit (tier.apps.claude) state connectors;
+          inherit (tier.apps.claude) scope connectors;
           settings = "${tierSettings name tier}";
         };
-      }) (lib.filterAttrs (_: t: !t.bare && t.apps.claude.state != null) cfg.tiers);
+      }) (lib.filterAttrs (_: t: !t.bare && t.apps.claude.enable) cfg.tiers);
       wrappers.claude.hostCommand = [ "${base}/bin/claude" "--allow-dangerously-skip-permissions" ];
       claude = {
         credentials = "${claudeDir}/.credentials.json";
@@ -171,7 +175,7 @@ in
     };
 
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}"
-      (mkIf (tier.apps.claude.state != null) (mkMerge [
+      (mkIf tier.apps.claude.enable (mkMerge [
         {
           # ~/.claude is the session's own, with only the entries below bound
           # in: no login, and no shell snapshots from the host's PATH.
@@ -184,7 +188,7 @@ in
         (mkIf (!tier.apps.claude.connectors) {
           config.environment.variables.ENABLE_CLAUDEAI_MCP_SERVERS = "false";
         })
-        (mkIf (tier.apps.claude.state == "shared") {
+        (mkIf (tier.apps.claude.scope == "host") {
           bindMounts = {
             "${claudeDir}/projects" = bind "${claudeDir}/projects" false;
             "${claudeDir}/plugins" = bind "${claudeDir}/plugins" false;
@@ -202,12 +206,12 @@ in
 
     # Host plugins readable; writes are discarded with the session.
     flong = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}"
-      (mkIf (tier.apps.claude.state == "isolated") {
+      (mkIf (!tier.bare && tier.apps.claude.enable && tier.apps.claude.scope != "host") {
         overlays."${claudeDir}/plugins" = "${claudeDir}/plugins";
       })) cfg.tiers;
 
     services.frisket.policies = lib.mapAttrs (name: tier:
-      mkIf (tier.apps.claude.state != null) {
+      mkIf tier.apps.claude.enable {
         allow = lib.mkAfter allow;
         routes = {
           claude = claudeRoute "api.anthropic.com";

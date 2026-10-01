@@ -42,8 +42,9 @@
       # flong's strict filter and nothing added: no ptrace, no io_uring.
       seccomp.tier = "strict";
       apps = {
-        claude = { state = "isolated"; connectors = false; };
-        codex.state = "isolated";
+        # Their settings, and this workspace's transcripts and threads.
+        claude = { enable = true; scope = "workspace"; };
+        codex = { enable = true; scope = "workspace"; };
         # No credential: public clones, fetches and reads, and nothing that
         # writes.
         git.enable = true;
@@ -67,9 +68,11 @@
       # A dev server started in a session is reached at the same port on the
       # host, for as long as it listens.
       forwardPorts = "auto";
+      # What its tools download, kept for every checkout in the tier.
+      caches = "tier";
       apps = {
-        claude = { state = "shared"; connectors = true; };
-        codex.state = "shared";
+        claude = { enable = true; scope = "host"; connectors = true; };
+        codex = { enable = true; scope = "host"; };
         git = { enable = true; authenticated = true; };
         github = { enable = true; authenticated = true; };
       };

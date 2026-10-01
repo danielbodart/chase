@@ -1,7 +1,7 @@
 { config, options, lib, pkgs, ... }:
 
 let
-  inherit (lib) mkIf mkMerge mkOption types;
+  inherit (lib) mkEnableOption mkIf mkMerge mkOption types;
   cfg = config.chase;
   apps = import ../lib/apps.nix { inherit lib; };
   machine = options.chase.apps.codex;
@@ -72,13 +72,17 @@ in
   options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule {
       options.apps.codex = apps.overrides machine [ "package" ] // {
-        state = mkOption {
-          type = types.nullOr (types.enum [ "shared" "isolated" ]);
-          default = null;
+        enable = mkEnableOption "codex in this tier";
+        scope = mkOption {
+          type = types.enum [ "session" "workspace" "tier" "host" ];
+          default = "session";
           description = ''
-            `shared`: threads, history and memories are the host's.
-            `isolated`: a CODEX_HOME per workspace, and nothing of the host's.
-            Non-null enables codex in the tier.
+            Where codex's home, its threads, history and memories, is kept.
+            `session`: the session's own, gone with it. `workspace`: one per
+            workspace, and `tier`: one for the tier, each kept on the host
+            and given the placeholder login afresh at every launch.
+            `host`: the host's ~/.codex, with the placeholder in place of
+            its login.
           '';
         };
       };
@@ -87,19 +91,28 @@ in
 
   config = {
     chase.internal.config = {
-      # An isolated tier's home per workspace, made on the host and mounted
-      # at its own path, given the placeholder login afresh each launch, so
-      # nothing a session leaves behind is what the next authenticates with,
-      # and named to codex as CODEX_HOME (internal/session). A whole home,
-      # because everything codex keeps -- the thread index, history,
-      # memories -- is one file per directory at the top of it, with nothing
-      # per project to pick out the way ~/.claude/projects has, so a
-      # workspace gets a home of its own or it shares all of it. codex runs
-      # with its own sandbox bypassed, the session being the sandbox, and the
-      # workspace trusted by a -c override, since config.toml is the host's.
+      # A home of a workspace's or the tier's, a store made on the host and
+      # mounted at its own path, given the placeholder login afresh each
+      # launch, so nothing a session leaves behind is what the next
+      # authenticates with, and named to codex as CODEX_HOME
+      # (internal/session); or the session's own, seeded with the
+      # placeholder. A whole home, because everything codex keeps -- the
+      # thread index, history, memories -- is one file per directory at the
+      # top of it, with nothing per project to pick out the way
+      # ~/.claude/projects has, so a workspace gets a home of its own or it
+      # shares all of it. codex runs with its own sandbox bypassed, the
+      # session being the sandbox, and the workspace trusted by a -c
+      # override, since config.toml is the host's.
       session.tiers = lib.mapAttrs (_: tier: {
-        codex = { inherit (tier.apps.codex) state; inherit stateDir; placeholder = placeholderFile; };
-      }) (lib.filterAttrs (_: t: !t.bare && t.apps.codex.state != null) cfg.tiers);
+        codex = { inherit (tier.apps.codex) scope; placeholder = placeholderFile; };
+      } // lib.optionalAttrs (lib.elem tier.apps.codex.scope [ "workspace" "tier" ]) {
+        stores.codex = {
+          inherit (tier.apps.codex) scope;
+          root = stateDir;
+          env.CODEX_HOME = "";
+          files."auth.json" = placeholderFile;
+        };
+      }) (lib.filterAttrs (_: t: !t.bare && t.apps.codex.enable) cfg.tiers);
       # On the host codex keeps its own sandbox; in a container it bypasses it.
       wrappers.codex.hostCommand = [ "${base}/bin/codex" ];
       codex = {
@@ -129,9 +142,9 @@ in
     };
 
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}"
-      (mkIf (tier.apps.codex.state != null) (mkMerge [
+      (mkIf tier.apps.codex.enable (mkMerge [
         { config.environment.systemPackages = [ tier.apps.codex.package ]; }
-        (mkIf (tier.apps.codex.state == "shared") {
+        (mkIf (tier.apps.codex.scope == "host") {
           # The host's ~/.codex whole, with the login covered by the
           # placeholder. Safe where ~/.claude was not: codex rewrites
           # auth.json in place, and only a rename or an unlink -- a `codex
@@ -144,14 +157,14 @@ in
       ]))) cfg.tiers;
 
     services.frisket.policies = lib.mapAttrs (_: tier:
-      mkIf (tier.apps.codex.state != null) {
+      mkIf tier.apps.codex.enable {
         allow = lib.mkAfter allow;
         routes = {
-          # A shared tier is the host's own session by another name. An
-          # isolated one gets codex and nothing else: the same bearer reads
-          # and writes your ChatGPT conversations everywhere else on the host.
+          # The host's scope is the host's own session by another name. Any
+          # other gets codex and nothing else: the same bearer reads and
+          # writes your ChatGPT conversations everywhere else on the host.
           codex = codexRoute (
-            if tier.apps.codex.state == "shared"
+            if tier.apps.codex.scope == "host"
             then [{ methods = every; prefix = "/"; }]
             else [{ methods = every; prefix = "/backend-api/codex/"; }]
           );

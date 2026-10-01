@@ -387,6 +387,20 @@ refusal, and nothing on its route ever asks
 operation cannot be allowed by name or category, since images are global and
 one project's `ImageTag` would change what another's container runs.
 
+**19. Every app is configured the same way.** `chase.apps.<app>` is the
+machine's: what an app runs, the credential it would use, the host files it
+binds. `chase.tiers.<tier>.apps.<app>` turns it on with `enable` and may say
+any of those again, for that tier alone. An app with a credential holds it
+only where the tier says `authenticated`, and is read-only without: the
+default is the stricter one, as everywhere else. Where an app keeps something
+— an agent's history, a download — is its `scope`: `session`, `workspace`,
+`tier` or `host`, `session` by default, each app offering the ones it can
+honour. A tier's `caches` is the same choice for its tools' downloads. What
+is kept on the host at `workspace` or `tier` is a store: a directory chase
+makes and binds, and variables the module names; chase knows nothing of the
+tools that use it. No option means anything by being null: an app is off or
+on, and a credential is bound or not.
+
 ## Considered and rejected
 
 - **Per-project path matching in frisket, to scope a project to one zone.**

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -92,7 +93,8 @@ const never = 4102444800000
 //     its containers' ports are.
 //
 // Its environment is the container's, which flong computes, and what the
-// tier and the launch add: an isolated codex's CODEX_HOME, the Cloudflare
+// tier and the launch add: where its stores are, each variable unless the
+// container sets it (codex's CODEX_HOME among them), the Cloudflare
 // account, and the grant's exports, which win over the tier's of the
 // same name, a project's own account over the tier's. flong refuses an exec
 // that sets a name the container's environment already sets, or one the
@@ -104,9 +106,10 @@ const never = 4102444800000
 // `${HOME}/x`, is never the same as the one the launch would give, and so
 // refuses the launch too.
 //
-// Its files are Claude Code's placeholder login, an isolated tier's
-// ~/.claude.json, which trusts the workspace and skips onboarding, and the
-// grant's.
+// Its files are Claude Code's placeholder login, and the ~/.claude.json of
+// a tier whose Claude Code is not the host's, which trusts the workspace
+// and skips onboarding; codex's placeholder login, in a ~/.codex of the
+// session's own; and the grant's.
 func Payload(c Config, tier, workspace, binds string, args []string, given Given, stderr io.Writer) (Exec, error) {
 	if err := Agent(c, tier, args); err != nil {
 		return Exec{}, err
@@ -124,9 +127,25 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 		}
 		e.Env = append(e.Env, Var{name, value})
 	}
-	if cx := t.Codex; cx != nil && cx.State == "isolated" {
-		// The home Binds made and bound, one per workspace.
-		set("CODEX_HOME", filepath.Join(cx.StateDir, Munge(workspace)))
+	// Each store's directory, as Binds made and bound it, for what its
+	// variables name, unless the container sets one, which is then left
+	// to it rather than refusing the launch. Two stores naming one
+	// variable is the module's mistake, said rather than settled.
+	var stores []string
+	by := map[string]string{}
+	for _, name := range slices.Sorted(maps.Keys(t.Stores)) {
+		st := t.Stores[name]
+		dir := st.dir(tier, workspace)
+		stores = append(stores, dir)
+		for _, k := range slices.Sorted(maps.Keys(st.Env)) {
+			if other, ok := by[k]; ok {
+				return Exec{}, fmt.Errorf("%s's stores %s and %s both set %s", tier, other, name, k)
+			}
+			by[k] = name
+			if _, sets := t.Environment[k]; !sets {
+				set(k, filepath.Join(dir, st.Env[k]))
+			}
+		}
 	}
 	if cf := t.Cloudflare; cf != nil {
 		b, err := os.ReadFile(cf.AccountIDFile)
@@ -154,10 +173,11 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 	e.Env = env
 
 	// Only :rw binds: codex's --add-dir means writable. Not ~/.claude's,
-	// which are Claude Code's storage, not work.
+	// which are Claude Code's storage, nor a store's, which is its
+	// tools': neither is work.
 	var dirs []string
 	for _, l := range strings.Split(binds, "\n") {
-		if p, rw := strings.CutSuffix(l, ":rw"); rw && !strings.HasPrefix(l, c.Home+"/.claude/") {
+		if p, rw := strings.CutSuffix(l, ":rw"); rw && !strings.HasPrefix(l, c.Home+"/.claude/") && !slices.Contains(stores, p) {
 			dirs = append(dirs, p)
 		}
 	}
@@ -214,13 +234,22 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 			return Exec{}, err
 		}
 		e.Files = append(e.Files, File{Path: filepath.Join(c.Home, ".claude", ".credentials.json"), Mode: 0o600, Content: login})
-		if cl.State == "isolated" {
+		if cl.Scope != "host" {
 			trust, err := indented(claudeJSON{HasCompletedOnboarding: true, Projects: map[string]claudeProject{workspace: {HasTrustDialogAccepted: true}}})
 			if err != nil {
 				return Exec{}, err
 			}
 			e.Files = append(e.Files, File{Path: filepath.Join(c.Home, ".claude.json"), Mode: 0o600, Content: trust})
 		}
+	}
+	if cx := t.Codex; cx != nil && cx.Scope == "session" {
+		// A ~/.codex of the session's own, which goes with it, given the
+		// placeholder login.
+		b, err := os.ReadFile(cx.Placeholder)
+		if err != nil {
+			return Exec{}, fmt.Errorf("codex's placeholder login: %w", err)
+		}
+		e.Files = append(e.Files, File{Path: filepath.Join(c.Home, ".codex", "auth.json"), Mode: 0o600, Content: string(b)})
 	}
 	e.Files = append(e.Files, given.Files...)
 
@@ -316,8 +345,9 @@ type claudeOauth struct {
 	SubscriptionType      string   `json:"subscriptionType"`
 }
 
-// claudeJSON is an isolated tier's ~/.claude.json: onboarding done, and the
-// workspace's folder-trust dialog already answered.
+// claudeJSON is the ~/.claude.json of a tier whose Claude Code is not the
+// host's: onboarding done, and the workspace's folder-trust dialog already
+// answered.
 type claudeJSON struct {
 	HasCompletedOnboarding bool                     `json:"hasCompletedOnboarding"`
 	Projects               map[string]claudeProject `json:"projects"`

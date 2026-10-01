@@ -224,7 +224,11 @@
               [[ $settings == /nix/store/*-claude-strict-settings.json ]] || fail "strict's settings are $settings"
               want=$(printf 'arg:%s\n' claude --add-dir /p --settings "$settings" --allow-dangerously-skip-permissions -p hi)
               [ "$(grep '^arg:' fields)" = "$want" ] || fail "strict runs $(grep '^arg:' fields)"
-              grep -qx 'env:CODEX_HOME=/home/alice/.local/state/agents/codex/-w' fields || fail "strict's codex has no home: $(cat fields)"
+              grep -qx 'env:CODEX_HOME=/home/alice/.local/state/agents/codex/strict/-w' fields || fail "strict's codex has no home: $(cat fields)"
+              ! grep -q '^env:XDG_CACHE_HOME=' fields || fail "strict keeps caches: $(cat fields)"
+              # trusted keeps them, for the tier, its tools pointed there.
+              jq -e '.session.tiers.trusted.stores.caches | .scope == "tier" and .root == "/home/alice/.cache/chase/caches" and .env.XDG_CACHE_HOME == "cache"' ${file} > /dev/null \
+                || fail "trusted keeps no caches: $(jq -c .session.tiers.trusted.stores ${file})"
               grep -qx 'file:0600:/home/alice/.claude/.credentials.json' fields || fail "strict's Claude Code has no login"
               grep -qx 'file:0600:/home/alice/.claude.json' fields || fail "strict's Claude Code does not trust its workspace"
               # The container's environment is flong's computation of it, a
@@ -345,7 +349,7 @@
             assert refused "a tier missing from the order" { chase.order = lib.mkForce [ "host" "strict" ]; } "not in chase.order";
             assert refused "a rule with no predicate" { chase.tiers.strict.match = [ { } ]; } "sets no predicate";
             assert refused "a sandbox with no egress" { chase.tiers.extra.apps.git.enable = true; } "sets no `egress`";
-            assert refused "a bare tier with an app" { chase.tiers.host.apps.claude.state = "shared"; } "is bare";
+            assert refused "a bare tier with an app" { chase.tiers.host.apps.claude.enable = true; } "is bare";
             # A bare tier is no container, launcher or policy; every other is.
             assert
               (let config = configWith { }; in
@@ -449,6 +453,26 @@
               && lib.any (p: p.refuse or false && p.path or "" == "/api/models/*/*/xet-write-token/*") route.paths
               && ! lib.any (p: p.ask or false) route.paths)
               || throw "assertions: an unauthenticated huggingface did not hold together";
+            # Its downloads are kept as the tier's caches are unless it says:
+            # trusted's for the tier, in a store of its own, and strict's in
+            # the session, named so XDG_CACHE_HOME never moves them; `host`
+            # binds the host's.
+            assert
+              (let
+                config = configWith {
+                  chase.tiers.trusted.apps.huggingface.enable = true;
+                  chase.tiers.strict.apps.huggingface.enable = true;
+                };
+                hostScope = configWith { chase.tiers.trusted.apps.huggingface = { enable = true; scope = "host"; }; };
+                session = config.chase.internal.config.session.tiers;
+              in
+              session.trusted.stores.huggingface.scope == "tier"
+              && ! session.strict.stores ? huggingface
+              && config.containers.agent-strict.config.environment.variables.HF_HUB_CACHE == "/home/alice/.cache/huggingface/hub"
+              && ! config.containers.agent-trusted.config.environment.variables ? HF_HUB_CACHE
+              && hostScope.containers.agent-trusted.bindMounts ? "/home/alice/.cache/huggingface/hub"
+              && ! hostScope.chase.internal.config.session.tiers.trusted.stores ? huggingface)
+              || throw "assertions: huggingface's downloads were not kept where its scope says";
             # Google Cloud is only ever a project's (PLAN.md, decision 9): a
             # tier that takes no grant cannot enable it, an API it names
             # must exist, and a tier that has it gets gcloud and nothing in
