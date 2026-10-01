@@ -69,7 +69,7 @@
         # policy document's types, so chase builds what frisket reads with
         # frisket's own code. The frisket-pin check holds go.mod's frisket to
         # the one flake.lock pins.
-        vendorHash = "sha256-oCiHvUxuBXDiy8tO0vYXkky9LepzrC4NEKqn7GvxIPY=";
+        vendorHash = "sha256-7J/fjRh+BOX7OPCqWOkgYyafNdKEjxNt2lkXXWWbgYo=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
