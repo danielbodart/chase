@@ -272,7 +272,7 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 	if t.Forward {
 		e.Forward = given.Forward
 	}
-	e.Label = Label(given.Project, workspace, tier)
+	e.Label = Label(tier)
 
 	if err := e.check(c.Home); err != nil {
 		return Exec{}, err
@@ -450,32 +450,21 @@ func (e Exec) Write(w io.Writer) error {
 // labelMax is flong's: a label: of more bytes refuses the launch.
 const labelMax = 80
 
-// Label is what the terminal's header calls the session, `<repo> · <tier>`:
-// the project's repo, or the checkout's directory where it names none,
-// then the tier. flong refuses a control character or more than 80 bytes,
-// so a directory's control characters are dropped and a long name is cut
-// at a character, keeping the tier whole.
-func Label(project, workspace, tier string) string {
-	name := filepath.Base(workspace)
-	if _, repo, ok := strings.Cut(project, "/"); ok {
-		name = repo
-	}
-	name = strings.Map(func(r rune) rune {
+// Label is what the terminal's header calls the session: its tier. The
+// project is left out, since the header already shows the directory the
+// session is in. flong refuses a control character or more than 80 bytes,
+// so a tier's control characters are dropped and a long one is cut at a
+// character.
+func Label(tier string) string {
+	name := strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || r == utf8.RuneError {
 			return -1
 		}
 		return r
-	}, name)
-	suffix := " · " + tier
-	if len(suffix) >= labelMax {
-		return ""
-	}
-	for len(name)+len(suffix) > labelMax {
+	}, tier)
+	for len(name) > labelMax {
 		_, size := utf8.DecodeLastRuneInString(name)
 		name = name[:len(name)-size]
 	}
-	if name == "" || name == "." || name == "/" {
-		return strings.TrimPrefix(suffix, " · ")
-	}
-	return name + suffix
+	return name
 }

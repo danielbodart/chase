@@ -88,7 +88,7 @@ func TestTheExecHookAppliesTheGrantAndPrintsItsPayload(t *testing.T) {
 		t.Fatalf("the shell was refused: %s", h.err)
 	}
 	key := h.cfg.Home + "/.config/seeder/key"
-	want := []string{"env:PROBE=1", "env:SEEDER_KEY=" + key, "arg:bash", "arg:-l", "arg:-c", "arg:id", "file:0600:" + key, "for " + ws, "label:shop · trusted"}
+	want := []string{"env:PROBE=1", "env:SEEDER_KEY=" + key, "arg:bash", "arg:-l", "arg:-c", "arg:id", "file:0600:" + key, "for " + ws, "label:trusted"}
 	if got := h.fields(); !slices.Equal(got, want) {
 		t.Errorf("the payload is %q, not %q", got, want)
 	}
@@ -129,7 +129,7 @@ func TestTheExecHookBindsPublishedPortsToTheProjectsAddress(t *testing.T) {
 	if rc := h.exec(s, true, "trusted", ws, "m1", "shell"); rc != 0 {
 		t.Fatalf("the shell was refused: %s", h.err)
 	}
-	if got := h.fields(); !slices.Equal(got[len(got)-2:], []string{"forward:127.101.170.171", "label:shop · trusted"}) {
+	if got := h.fields(); !slices.Equal(got[len(got)-2:], []string{"forward:127.101.170.171", "label:trusted"}) {
 		t.Errorf("the payload is %q, with no forward to example/shop's address and its label", got)
 	}
 
@@ -154,7 +154,7 @@ func TestAnExecHookWithNoGrantAppliesNone(t *testing.T) {
 	if rc := h.exec(sessionConfig(h), false, "trusted", "/w", "m1", "shell"); rc != 0 {
 		t.Fatalf("the shell was refused: %s", h.err)
 	}
-	if got := h.fields(); !slices.Equal(got, []string{"arg:bash", "arg:-l", "label:w · trusted"}) {
+	if got := h.fields(); !slices.Equal(got, []string{"arg:bash", "arg:-l", "label:trusted"}) {
 		t.Errorf("the payload is %q", got)
 	}
 	if _, err := os.Stat(h.cfg.Runtime + "/chase/m1"); err == nil {

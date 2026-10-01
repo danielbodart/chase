@@ -463,22 +463,18 @@ func TestWriteIsFlongsProtocol(t *testing.T) {
 	}
 }
 
-// The terminal's name for a session: the project's repo, or the checkout's
-// directory, and the tier; within flong's 80 bytes, cut at a character and
-// never into the tier, and with no control character.
-func TestALabelIsTheReposAndTheTiers(t *testing.T) {
+// The terminal's name for a session is its tier alone; within flong's 80
+// bytes, cut at a character, and with no control character.
+func TestALabelIsTheTier(t *testing.T) {
 	long := strings.Repeat("é", 50)
-	for _, c := range []struct{ project, workspace, tier, want string }{
-		{"example/shop", "/home/u/Projects/shop", "trusted", "shop · trusted"},
-		{"bodar/bodar.ts", "/home/u/Projects/anything", "trusted", "bodar.ts · trusted"},
-		{"", "/home/u/Projects/scratch", "strict", "scratch · strict"},
-		{"", "/home/u/Projects/x\x1b]0;y\x07z", "strict", "x]0;yz · strict"},
-		{"", "/", "strict", "strict"},
-		{"", "/home/u/" + long, "trusted", strings.Repeat("é", 34) + " · trusted"},
+	for _, c := range []struct{ tier, want string }{
+		{"trusted", "trusted"},
+		{"x\x1b]0;y\x07z", "x]0;yz"},
+		{long, strings.Repeat("é", 40)},
 	} {
-		got := Label(c.project, c.workspace, c.tier)
+		got := Label(c.tier)
 		if got != c.want {
-			t.Errorf("%q %q %q: %q, not %q", c.project, c.workspace, c.tier, got, c.want)
+			t.Errorf("%q: %q, not %q", c.tier, got, c.want)
 		}
 		if len(got) > 80 || !utf8.ValidString(got) {
 			t.Errorf("%q is not a label flong takes", got)
