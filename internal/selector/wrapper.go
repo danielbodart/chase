@@ -20,6 +20,19 @@ type Wrapper struct {
 	HostCommand []string
 }
 
+// Bare is tier's entry, and whether it is a bare tier's: what a wrapper
+// asks of the tier it runs a session bare in, which is what it trusts.
+func (s *Selector) Bare(tier string) (Tier, bool) {
+	t, ok := s.cfg.Tiers[tier]
+	return t, ok && t.Bare
+}
+
+// For is what the wrapper execs for a session of tier with args, as Launch
+// says.
+func (s *Selector) For(tier string, w Wrapper, args []string) []string {
+	return s.launch(tier, w, args)
+}
+
 // Launch is what the wrapper execs for a session started in dir with args:
 // the host command for a bare tier, its launcher and the agent for a sandbox
 // tier, and the fallback's launcher for anything unexpected -- a tier with no

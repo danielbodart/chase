@@ -88,7 +88,6 @@ What the module runs, rather than a person:
   chase ls-files DIR               a checkout read without running its git
   chase copy-tracked WS DEST       the snapshot copier, paths on stdin
   chase claude-refresh             systemd: keep Claude Code's login fresh
-  chase claude-trust               activation: pre-trust the workspaces
   chase codex-refresh              systemd: keep Codex's login fresh
   chase codex-placeholder          activation: Codex's placeholder login
   chase gcloud-renew mint|loop RUN a session's Google Cloud token
@@ -156,8 +155,8 @@ func main() {
 		exit(snapshot.Run(args, os.Stdin, os.Stdout, os.Stderr))
 	case "docker-address":
 		err = runDockerAddress(args, os.Stdout)
-	case "claude-refresh", "claude-trust":
-		err = runClaude(ctx, cfgPath, command)
+	case "claude-refresh":
+		err = runClaude(ctx, cfgPath)
 	case "codex-refresh", "codex-placeholder":
 		err = runCodex(ctx, cfgPath, command)
 	case "gcloud-renew":
@@ -290,7 +289,26 @@ func wrap(ctx context.Context, cfgPath, agent string, args []string) int {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", agent, err)
 		return 1
 	}
-	argv := s.Launch(ctx, pwd, w, args)
+	tier := s.Tier(ctx, pwd)
+	argv := s.For(tier, w, args)
+	env := os.Environ()
+	if t, bare := s.Bare(tier); bare && t.Trust != nil {
+		// A bare tier that trusts its checkouts trusts this one -- its root,
+		// as a sandbox's workspace is -- in the apps it says, as the person
+		// would by answering each app's dialog.
+		ws := (&checkout.Finder{Git: s.Git()}).Workspace(ctx, pwd)
+		claudeJSON := ""
+		if cfg.Claude != nil {
+			claudeJSON = cfg.Claude.ClaudeJSON
+		}
+		argv, env, err = t.Trust.OnHost(agent, claudeJSON, len(w.HostCommand), ws, argv, env)
+		if err != nil {
+			s.Close()
+			fmt.Fprintf(os.Stderr, "%s: %v\n", agent, err)
+			return 1
+		}
+	}
+	s.Close()
 	prog := argv[0]
 	if filepath.Base(prog) == prog {
 		// Only `chase shell`'s $SHELL, or bash, is ever looked up.
@@ -299,7 +317,7 @@ func wrap(ctx context.Context, cfgPath, agent string, args []string) int {
 			return 127
 		}
 	}
-	err = syscall.Exec(prog, argv, os.Environ())
+	err = syscall.Exec(prog, argv, env)
 	fmt.Fprintf(os.Stderr, "%s: %s: %v\n", agent, prog, err)
 	return 126
 }
@@ -390,16 +408,13 @@ func runDocker(ctx context.Context, cfgPath string, args []string) int {
 	return grant.RunDocker(ctx, *cfg.Grant, []string{abs, tier}, os.Stdin, os.Stdout, os.Stderr)
 }
 
-func runClaude(ctx context.Context, cfgPath, command string) error {
+func runClaude(ctx context.Context, cfgPath string) error {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return err
 	}
 	if cfg.Claude == nil {
 		return errors.New("the module configures no claude")
-	}
-	if command == "claude-trust" {
-		return claude.TrustWorkspaces(*cfg.Claude, os.Stdout)
 	}
 	return claude.RunRefresh(ctx, *cfg.Claude, os.Stderr)
 }

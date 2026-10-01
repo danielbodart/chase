@@ -86,15 +86,16 @@ const never = 4102444800000
 //     --add-dir for every read-write bind;
 //   - codex: codex, its own sandbox bypassed, since the session is the
 //     sandbox, the workspace trusted by a -c override rather than in
-//     config.toml, which is the host's, and --add-dir for every read-write
-//     bind;
+//     config.toml, which is the host's, where the tier trusts it, and
+//     --add-dir for every read-write bind;
 //   - shell: `bash -l`, what `chase shell` gets, the session as an agent
 //     gets it with no agent. A session with Docker is told, on stderr, where
 //     its containers' ports are.
 //
 // Its environment is the container's, which flong computes, and what the
 // tier and the launch add: where its stores are, each variable unless the
-// container sets it (codex's CODEX_HOME among them), the Cloudflare
+// container sets it (codex's CODEX_HOME among them), the workspace in each
+// trusting app's variable (TrustEnv), the Cloudflare
 // account, and the grant's exports, which win over the tier's of the
 // same name, a project's own account over the tier's. flong refuses an exec
 // that sets a name the container's environment already sets, or one the
@@ -107,9 +108,9 @@ const never = 4102444800000
 // refuses the launch too.
 //
 // Its files are Claude Code's placeholder login, and the ~/.claude.json of
-// a tier whose Claude Code is not the host's, which trusts the workspace
-// and skips onboarding; codex's placeholder login, in a ~/.codex of the
-// session's own; and the grant's.
+// a tier whose Claude Code is not the host's, which skips onboarding and,
+// where the tier trusts it, trusts the workspace; codex's placeholder login,
+// in a ~/.codex of the session's own; and the grant's.
 func Payload(c Config, tier, workspace, binds string, args []string, given Given, stderr io.Writer) (Exec, error) {
 	if err := Agent(c, tier, args); err != nil {
 		return Exec{}, err
@@ -145,6 +146,13 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 			if _, sets := t.Environment[k]; !sets {
 				set(k, filepath.Join(dir, st.Env[k]))
 			}
+		}
+	}
+	// An app that trusts what is in the paths its variable lists trusts
+	// the workspace, unless the container sets the variable itself.
+	for _, k := range t.TrustEnv {
+		if _, sets := t.Environment[k]; !sets {
+			set(k, workspace)
 		}
 	}
 	if cf := t.Cloudflare; cf != nil {
@@ -201,11 +209,11 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 		// the session depends on it: the excludes it would otherwise apply
 		// are *KEY*, *SECRET* and *TOKEN*, which take GH_TOKEN off every
 		// command and leave gh quietly unauthenticated.
-		e.Argv = []string{"codex",
-			"--dangerously-bypass-approvals-and-sandbox",
-			"-c", `projects."` + tomlString(workspace) + `".trust_level="trusted"`,
-			"-c", "shell_environment_policy.ignore_default_excludes=true",
+		e.Argv = []string{"codex", "--dangerously-bypass-approvals-and-sandbox"}
+		if t.Codex.Trust {
+			e.Argv = append(e.Argv, CodexTrust(workspace)...)
 		}
+		e.Argv = append(e.Argv, "-c", "shell_environment_policy.ignore_default_excludes=true")
 		for _, d := range dirs {
 			e.Argv = append(e.Argv, "--add-dir", d)
 		}
@@ -235,7 +243,11 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 		}
 		e.Files = append(e.Files, File{Path: filepath.Join(c.Home, ".claude", ".credentials.json"), Mode: 0o600, Content: login})
 		if cl.Scope != "host" {
-			trust, err := indented(claudeJSON{HasCompletedOnboarding: true, Projects: map[string]claudeProject{workspace: {HasTrustDialogAccepted: true}}})
+			doc := claudeJSON{HasCompletedOnboarding: true}
+			if cl.Trust {
+				doc.Projects = map[string]claudeProject{workspace: {HasTrustDialogAccepted: true}}
+			}
+			trust, err := indented(doc)
 			if err != nil {
 				return Exec{}, err
 			}
@@ -321,6 +333,13 @@ func dockerBanner(env []Var, stderr io.Writer) {
 	}
 }
 
+// CodexTrust is the override that has codex trust workspace without asking,
+// in a session or on the host: a -c override rather than config.toml, which
+// is the host's.
+func CodexTrust(workspace string) []string {
+	return []string{"-c", `projects."` + tomlString(workspace) + `".trust_level="trusted"`}
+}
+
 // tomlString is s as it may stand between a TOML basic string's quotes:
 // each backslash, and then each quote, escaped, as the script's parameter
 // expansions escaped the workspace. A control character is left as it is,
@@ -346,11 +365,11 @@ type claudeOauth struct {
 }
 
 // claudeJSON is the ~/.claude.json of a tier whose Claude Code is not the
-// host's: onboarding done, and the workspace's folder-trust dialog already
-// answered.
+// host's: onboarding done, and, where the tier trusts it, the workspace's
+// folder-trust dialog already answered.
 type claudeJSON struct {
 	HasCompletedOnboarding bool                     `json:"hasCompletedOnboarding"`
-	Projects               map[string]claudeProject `json:"projects"`
+	Projects               map[string]claudeProject `json:"projects,omitempty"`
 }
 
 type claudeProject struct {

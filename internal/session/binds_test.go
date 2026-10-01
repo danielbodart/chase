@@ -87,6 +87,27 @@ func TestTheHostsClaudeHasItsSourcesMade(t *testing.T) {
 	}
 }
 
+// The host's Claude Code, in a tier that trusts its checkouts, has the
+// workspace trusted in the host's ~/.claude.json, which the session shares;
+// in one that does not, the file is left as it was.
+func TestTheHostsClaudeTrustsTheWorkspaceWhereTheTierSays(t *testing.T) {
+	home := t.TempDir()
+	c := Config{Home: home, Runtime: t.TempDir(), Tiers: map[string]Tier{
+		"trusted": {Claude: &Claude{Scope: "host", Trust: true}},
+		"wary":    {Claude: &Claude{Scope: "host"}},
+	}}
+	file := filepath.Join(home, ".claude.json")
+	os.WriteFile(file, []byte(`{"projects":{}}`), 0o600)
+	binds(t, c, "wary", "/w/shop")
+	if b, _ := os.ReadFile(file); string(b) != `{"projects":{}}` {
+		t.Errorf("a tier that does not trust wrote %s", b)
+	}
+	binds(t, c, "trusted", "/w/shop")
+	if b, _ := os.ReadFile(file); !strings.Contains(string(b), `"/w/shop": {`) || !strings.Contains(string(b), `"hasTrustDialogAccepted": true`) {
+		t.Errorf("the workspace was not trusted: %s", b)
+	}
+}
+
 // A store is a directory for each workspace, or one for the tier, the
 // user's alone, made if missing and kept if not, with its files installed
 // afresh each launch: replacing a link a session left rather than writing

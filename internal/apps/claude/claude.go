@@ -1,5 +1,5 @@
 // Package claude keeps the host's Claude Code login usable by the sessions
-// that never see it, and trusts the checkouts the configuration put there.
+// that never see it, and trusts the checkouts a tier says to trust.
 //
 // A session holds a placeholder login that never expires, so it never tries
 // to refresh, and frisket puts the host's real token on each request and
@@ -23,13 +23,9 @@ type Config struct {
 	// unwrapped one, since the wrapper would put the refresh in a sandbox
 	// holding only a placeholder.
 	Claude string `json:"claude"`
-	// ClaudeJSON is the file whose projects are pre-trusted, ~/.claude.json.
-	// Empty is $HOME/.claude.json, as the activation script had it.
-	ClaudeJSON string `json:"claudeJSON,omitempty"`
-	// TrustPaths are the directories marked as already trusted: the home
-	// directory, chase.apps.claude.preTrustPaths and every workspace
-	// group's members. Given twice is trusted once.
-	TrustPaths []string `json:"trustPaths"`
+	// ClaudeJSON is the host's ~/.claude.json, where a bare tier that
+	// trusts its checkouts trusts them (Trust).
+	ClaudeJSON string `json:"claudeJSON"`
 }
 
 // LoadConfig reads a Config the module wrote.

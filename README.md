@@ -200,6 +200,13 @@ reads and nothing more. An app that keeps something says where with `scope`:
 | `tier` | on the host, one for every checkout in the tier |
 | `host` | the host's own, bound in |
 
+An app that asks before it trusts a checkout — Claude Code's folder-trust
+dialog, codex's, `mise trust` — is told to trust it only where the tier says
+`trust = true`: for a tier of checkouts you vouch for, the dialog is
+answered at launch. Off, the default, the app asks as it would anywhere. A
+bare tier may say it too, and the wrapper then trusts the checkout on the
+host before the agent starts.
+
 A tier's `caches` is the same choice for what its tools download — packages,
 toolchains, build caches — pointed at by the XDG cache and data homes and
 each tool's own variable (npm, yarn, bun, Cargo, rustup, Go, Mix, Hex,

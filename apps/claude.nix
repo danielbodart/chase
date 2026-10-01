@@ -79,19 +79,6 @@ in
         not pin one for them.
       '';
     };
-    preTrustPaths = mkOption {
-      type = types.listOf types.str;
-      default = [ ];
-      example = [ "/home/alice/Projects/thing" ];
-      description = ''
-        Directories marked as already trusted in `~/.claude.json`, so Claude
-        Code does not raise its folder-trust dialog for a checkout the
-        consumer's own configuration put there.
-
-        Paths, not repository slugs: where a checkout lives is the consumer's
-        layout, and chase has no business assuming one.
-      '';
-    };
   };
 
   options.chase.tiers = mkOption {
@@ -110,6 +97,12 @@ in
             its transcripts from the host's.
           '';
         };
+        trust = mkEnableOption ''
+          trusting each checkout in this tier in Claude Code, as you would
+          by answering its folder-trust dialog, which stands between a
+          checkout's own hooks, MCP servers and settings and their running.
+          For a tier of checkouts you vouch for; a bare tier may say it too,
+          for Claude Code on the host'';
         connectors = mkOption {
           type = types.bool;
           default = false;
@@ -131,7 +124,7 @@ in
       # never expiring, so a session never tries to refresh it.
       session.tiers = lib.mapAttrs (name: tier: {
         claude = {
-          inherit (tier.apps.claude) scope connectors;
+          inherit (tier.apps.claude) scope connectors trust;
           settings = "${tierSettings name tier}";
         };
       }) (lib.filterAttrs (_: t: !t.bare && t.apps.claude.enable) cfg.tiers);
@@ -140,21 +133,14 @@ in
         credentials = "${claudeDir}/.credentials.json";
         claude = "${base}/bin/claude";
         claudeJSON = "${cfg.home}/.claude.json";
-        # Every checkout this flake clones, and every group member.
-        trustPaths = lib.unique (
-          [ cfg.home ]
-          ++ cfg.apps.claude.preTrustPaths
-          ++ lib.concatLists cfg.workspaceGroups
-        );
       };
+      # A bare tier's trust is the wrapper's, on the host, before Claude
+      # Code starts; a sandbox's is its session's (internal/session).
+      selector.tiers = lib.mapAttrs (_: _: { trust.claude = true; })
+        (lib.filterAttrs (_: t: t.bare && t.apps.claude.trust) cfg.tiers);
     };
 
     home-manager.users.${cfg.user} = { lib, ... }: {
-      # Pre-trust the configured workspaces (internal/apps/claude).
-      home.activation.claudeTrustWorkspaces = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        ${lib.getExe cfg.package} claude-trust
-      '';
-
       # Containers cannot refresh a placeholder, and frisket never refreshes,
       # so the host's login is kept fresh here (internal/apps/claude).
       systemd.user.services.claude-refresh = {

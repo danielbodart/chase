@@ -52,6 +52,11 @@ type Tier struct {
 	// a directory on the host per workspace or per tier, bound in, that
 	// the session's tools are pointed at (see Store).
 	Stores map[string]Store `json:"stores,omitempty"`
+	// TrustEnv are the variables set to the workspace, each an app's list
+	// of the paths it trusts without asking -- mise's
+	// MISE_TRUSTED_CONFIG_PATHS -- for an app whose tier trusts its
+	// checkouts.
+	TrustEnv []string `json:"trustEnv,omitempty"`
 	// Environment is what the tier's container sets in every session's
 	// environment, as flong's module computed it from the container's
 	// options and wrote it into the declaration: what /etc/set-environment
@@ -104,6 +109,9 @@ type Claude struct {
 	// Connectors is apps.claude.connectors: whether the placeholder login
 	// carries the scopes claude.ai's connectors need.
 	Connectors bool `json:"connectors,omitempty"`
+	// Trust is apps.claude.trust: whether the workspace is trusted, so its
+	// folder-trust dialog is not raised.
+	Trust bool `json:"trust,omitempty"`
 }
 
 // scope is c's Scope, or "" for no Claude Code.
@@ -123,6 +131,9 @@ type Codex struct {
 	// Placeholder is the placeholder login, which a session's own
 	// ~/.codex is seeded with.
 	Placeholder string `json:"placeholder"`
+	// Trust is apps.codex.trust: whether the workspace is trusted, so codex
+	// does not ask.
+	Trust bool `json:"trust,omitempty"`
 }
 
 // Cloudflare is the account a tier's sessions use: the user's own file

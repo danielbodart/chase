@@ -350,6 +350,22 @@
             assert refused "a rule with no predicate" { chase.tiers.strict.match = [ { } ]; } "sets no predicate";
             assert refused "a sandbox with no egress" { chase.tiers.extra.apps.git.enable = true; } "sets no `egress`";
             assert refused "a bare tier with an app" { chase.tiers.host.apps.claude.enable = true; } "is bare";
+            # TRUST IS A TIER'S TO SAY, and off unless it does: trusted's
+            # sessions trust their checkout, strict's do not, and a bare
+            # tier that says so has the wrapper trust it on the host,
+            # without becoming a sandbox.
+            assert
+              (let
+                config = configWith { chase.tiers.host.apps = { claude.trust = true; codex.trust = true; mise.trust = true; }; };
+                c = config.chase.internal.config;
+              in
+              lib.all (a: a.assertion) config.assertions
+              && c.session.tiers.trusted.claude.trust && c.session.tiers.trusted.codex.trust
+              && ! c.session.tiers.strict.claude.trust && ! c.session.tiers.strict.codex.trust
+              && c.selector.tiers.host.trust == { claude = true; codex = true; env = [ "MISE_TRUSTED_CONFIG_PATHS" ]; }
+              && ! c.selector.tiers.trusted ? trust
+              && ! c.session.tiers ? host)
+              || throw "assertions: trust was not where the tiers say";
             # A bare tier is no container, launcher or policy; every other is.
             assert
               (let config = configWith { }; in

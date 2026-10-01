@@ -1,34 +1,24 @@
 package claude
 
 import (
-	"fmt"
-	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/danielbodart/chase/internal/files"
 	"github.com/danielbodart/chase/internal/jsonfile"
 )
 
-// TrustWorkspaces marks each of cfg.TrustPaths as trusted in ~/.claude.json
-// -- projects[path].hasTrustDialogAccepted -- so Claude Code does not raise
-// its folder-trust dialog for a checkout the configuration itself put there.
+// Trust marks each of dirs as trusted in path, the host's ~/.claude.json --
+// projects[dir].hasTrustDialogAccepted -- so Claude Code does not raise its
+// folder-trust dialog for a checkout whose tier says to trust it (its
+// apps.claude.trust), run on the host or in a session that has the host's
+// file.
 //
-// It is a home-manager activation step, and one that must never stop an
-// activation over a file that is Claude Code's own: no file, or one that is
-// not JSON of the shape it expects, is left alone and is not an error. Only
-// failing to write a file it meant to change is. The file is replaced, at
-// 0600, only when a path was not already trusted, and says so on stdout.
-// Every other member, Claude Code's own, is written back as it was read.
-func TrustWorkspaces(cfg Config, stdout io.Writer) error {
-	path := cfg.ClaudeJSON
-	if path == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil
-		}
-		path = filepath.Join(home, ".claude.json")
-	}
+// The file is Claude Code's own, and a launch is never stopped over it: no
+// file, or one that is not JSON of the shape it expects, is left alone and
+// is not an error. Only failing to write a file it meant to change is. The
+// file is replaced, at 0600, only when a dir was not already trusted. Every
+// other member, Claude Code's own, is written back as it was read.
+func Trust(path string, dirs []string) error {
 	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
 		return nil
 	}
@@ -44,10 +34,9 @@ func TrustWorkspaces(cfg Config, stdout io.Writer) error {
 	if !ok {
 		return nil
 	}
-	paths := unique(cfg.TrustPaths)
 	changed := false
-	for _, p := range paths {
-		was, ok := trust(doc, p)
+	for _, d := range dirs {
+		was, ok := trust(doc, d)
 		if !ok {
 			return nil
 		}
@@ -60,11 +49,7 @@ func TrustWorkspaces(cfg Config, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := files.WriteAtomic(path, out, 0o600); err != nil {
-		return err
-	}
-	fmt.Fprintf(stdout, "claude: pre-trusted %d workspaces\n", len(paths))
-	return nil
+	return files.WriteAtomic(path, out, 0o600)
 }
 
 // trust sets projects[p].hasTrustDialogAccepted in doc, making the project
@@ -86,17 +71,4 @@ func trust(doc map[string]any, p string) (was, ok bool) {
 	projects[p] = project
 	doc["projects"] = projects
 	return was, true
-}
-
-// unique is lib.unique: the first of each, in order.
-func unique(xs []string) []string {
-	seen := map[string]bool{}
-	out := []string{}
-	for _, x := range xs {
-		if !seen[x] {
-			seen[x] = true
-			out = append(out, x)
-		}
-	}
-	return out
 }

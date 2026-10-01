@@ -173,13 +173,18 @@ func TestClaudeIsRunWithTheTiersSettingsAndItsWritableBinds(t *testing.T) {
 	}
 }
 
-// An isolated Claude Code is given inference alone, and a ~/.claude.json of
-// its own that has done onboarding and trusts the workspace, as `jq -n`
-// wrote it.
-func TestAnIsolatedClaudeTrustsItsWorkspace(t *testing.T) {
+// A Claude Code that is not the host's is given inference alone, and a
+// ~/.claude.json of its own that has done onboarding and, where the tier
+// trusts its checkouts, trusts the workspace, as `jq -n` wrote it.
+func TestAWorkspacesClaudeTrustsItsWorkspaceWhereTheTierSays(t *testing.T) {
 	f := newFixture(t)
 	ws := `/w/it's "quoted" & <odd>`
 	p, _ := f.run(t, "strict", ws, "", Given{}, "claude")
+	if len(p.files) != 2 || p.files[1] != (File{Path: f.home + "/.claude.json", Mode: 0o600, Content: "{\n  \"hasCompletedOnboarding\": true\n}\n"}) {
+		t.Errorf("a tier that does not trust was given %+v", p.files)
+	}
+	f.c.Tiers["strict"].Claude.Trust = true
+	p, _ = f.run(t, "strict", ws, "", Given{}, "claude")
 	if !slices.Equal(p.argv, []string{"claude", "--settings", f.settings, "--allow-dangerously-skip-permissions"}) {
 		t.Errorf("argv is %q", p.argv)
 	}
@@ -194,8 +199,9 @@ func TestAnIsolatedClaudeTrustsItsWorkspace(t *testing.T) {
 }
 
 // CODEX: its own sandbox bypassed, the workspace trusted by a -c override
-// whose TOML string holds it escaped as the script escaped it, the default
-// excludes off, and an --add-dir per writable bind. A workspace's
+// whose TOML string holds it escaped as the script escaped it where the
+// tier trusts it, the default excludes off, and an --add-dir per writable
+// bind. A workspace's
 // CODEX_HOME is the store Binds made for it, which is no --add-dir; the
 // host's is the host's ~/.codex, given nothing; and a session's own is
 // seeded with the placeholder login.
@@ -203,7 +209,12 @@ func TestCodexIsTrustedInItsWorkspace(t *testing.T) {
 	f := newFixture(t)
 	ws := `/w/a "b" \c`
 	home := filepath.Join(f.home, ".local/state/agents/codex", "strict", Munge(ws))
-	p, _ := f.run(t, "strict", ws, "/x:rw\n/y:ro\n"+home+":rw\n/z:rw", Given{}, "codex", "exec", "hi")
+	p, _ := f.run(t, "strict", ws, "", Given{}, "codex")
+	if slices.ContainsFunc(p.argv, func(a string) bool { return strings.Contains(a, "trust_level") }) {
+		t.Errorf("a tier that does not trust told codex to: %q", p.argv)
+	}
+	f.c.Tiers["strict"].Codex.Trust = true
+	p, _ = f.run(t, "strict", ws, "/x:rw\n/y:ro\n"+home+":rw\n/z:rw", Given{}, "codex", "exec", "hi")
 	want := []string{"codex", "--dangerously-bypass-approvals-and-sandbox",
 		"-c", `projects."/w/a \"b\" \\c".trust_level="trusted"`,
 		"-c", "shell_environment_policy.ignore_default_excludes=true",
@@ -233,6 +244,21 @@ func TestCodexIsTrustedInItsWorkspace(t *testing.T) {
 	os.Remove(placeholder)
 	if got := f.refused(t, "plain", ws, "", Given{}, "codex"); !strings.HasPrefix(got, "codex's placeholder login: ") {
 		t.Errorf("an unreadable placeholder: %q", got)
+	}
+}
+
+// TRUST: each variable an app trusts the paths in is set to the workspace,
+// unless the container sets it.
+func TestATrustingAppsVariableIsTheWorkspace(t *testing.T) {
+	f := newFixture(t)
+	f.c.Tiers["plain"] = Tier{TrustEnv: []string{"MISE_TRUSTED_CONFIG_PATHS"}}
+	p, _ := f.run(t, "plain", "/w/shop", "", Given{}, "shell")
+	if !slices.Equal(p.env, []string{"MISE_TRUSTED_CONFIG_PATHS=/w/shop"}) {
+		t.Errorf("the environment is %q", p.env)
+	}
+	f.c.Tiers["plain"] = Tier{TrustEnv: []string{"MISE_TRUSTED_CONFIG_PATHS"}, Environment: map[string]string{"MISE_TRUSTED_CONFIG_PATHS": "/x"}}
+	if p, _ = f.run(t, "plain", "/w/shop", "", Given{}, "shell"); len(p.env) != 0 {
+		t.Errorf("the container's was not left to it: %q", p.env)
 	}
 }
 

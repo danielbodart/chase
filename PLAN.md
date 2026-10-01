@@ -398,8 +398,11 @@ default is the stricter one, as everywhere else. Where an app keeps something
 honour. A tier's `caches` is the same choice for its tools' downloads. What
 is kept on the host at `workspace` or `tier` is a store: a directory chase
 makes and binds, and variables the module names; chase knows nothing of the
-tools that use it. No option means anything by being null: an app is off or
-on, and a credential is bound or not.
+tools that use it. An app that asks before it trusts a checkout trusts it
+only where the tier says `trust`, a bare tier's included, at launch: which
+checkouts are trusted follows from what sorts them into a tier, not from a
+list of paths kept beside it. No option means anything by being null: an
+app is off or on, and a credential is bound or not.
 
 ## Considered and rejected
 

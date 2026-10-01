@@ -71,8 +71,9 @@
       # What its tools download, kept for every checkout in the tier.
       caches = "tier";
       apps = {
-        claude = { enable = true; scope = "host"; connectors = true; };
-        codex = { enable = true; scope = "host"; };
+        # Your own code: no trust dialog to answer for each checkout.
+        claude = { enable = true; scope = "host"; connectors = true; trust = true; };
+        codex = { enable = true; scope = "host"; trust = true; };
         git = { enable = true; authenticated = true; };
         github = { enable = true; authenticated = true; };
       };

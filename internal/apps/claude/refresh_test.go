@@ -331,9 +331,9 @@ func TestRunRefreshEndsOnAnExpiryItCannotReckonWith(t *testing.T) {
 
 func TestLoadConfig(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "c.json")
-	os.WriteFile(p, []byte(`{"credentials":"/h/.claude/.credentials.json","claude":"/b/claude","claudeJSON":"/h/.claude.json","trustPaths":["/h","/h/p"]}`), 0o600)
+	os.WriteFile(p, []byte(`{"credentials":"/h/.claude/.credentials.json","claude":"/b/claude","claudeJSON":"/h/.claude.json"}`), 0o600)
 	c, err := LoadConfig(p)
-	want := Config{Credentials: "/h/.claude/.credentials.json", Claude: "/b/claude", ClaudeJSON: "/h/.claude.json", TrustPaths: []string{"/h", "/h/p"}}
+	want := Config{Credentials: "/h/.claude/.credentials.json", Claude: "/b/claude", ClaudeJSON: "/h/.claude.json"}
 	if err != nil || !reflect.DeepEqual(c, want) {
 		t.Errorf("%+v, %v", c, err)
 	}

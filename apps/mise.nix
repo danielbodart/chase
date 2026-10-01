@@ -65,6 +65,13 @@ in
         enable = mkEnableOption ''
           mise in this tier: the toolchains a checkout asks for, with their
           shims on PATH'';
+        trust = mkEnableOption ''
+          trusting each checkout in this tier in mise, as `mise trust`
+          would, so the env and hooks of its config files run without
+          asking: MISE_TRUSTED_CONFIG_PATHS names the checkout at launch,
+          and nothing is written to mise's own records. For a tier of
+          checkouts you vouch for; a bare tier may say it too, for mise run
+          by an agent on the host'';
         scope = mkOption {
           type = types.enum [ "session" "tier" "host" ];
           default = if config.caches == "tier" then "tier" else "session";
@@ -129,13 +136,22 @@ in
       ];
     })) cfg.tiers;
 
-    chase.internal.config.session.tiers = lib.mapAttrs (_: _: {
-      stores.mise = {
-        scope = "tier";
-        root = storeRoot;
-        env = { MISE_DATA_DIR = "data"; MISE_CACHE_DIR = "cache"; };
-      };
-    }) (lib.filterAttrs (_: t: t.apps.mise.scope == "tier") enabled);
+    # A tier's store; and trust, by naming the checkout at launch, never by
+    # writing mise's own records: in a session (internal/session), or on
+    # the host for a bare tier, by the wrapper.
+    chase.internal.config.session.tiers = lib.mapAttrs (_: tier:
+      lib.optionalAttrs (tier.apps.mise.scope == "tier") {
+        stores.mise = {
+          scope = "tier";
+          root = storeRoot;
+          env = { MISE_DATA_DIR = "data"; MISE_CACHE_DIR = "cache"; };
+        };
+      } // lib.optionalAttrs tier.apps.mise.trust {
+        trustEnv = [ "MISE_TRUSTED_CONFIG_PATHS" ];
+      }) enabled;
+    chase.internal.config.selector.tiers = lib.mapAttrs (_: _: {
+      trust.env = [ "MISE_TRUSTED_CONFIG_PATHS" ];
+    }) (lib.filterAttrs (_: t: t.bare && t.apps.mise.trust) cfg.tiers);
 
     # Overlays: the host's state in every scope, and its installs in a
     # session's, readable, and whatever a session writes there discarded

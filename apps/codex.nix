@@ -73,6 +73,11 @@ in
     type = types.attrsOf (types.submodule {
       options.apps.codex = apps.overrides machine [ "package" ] // {
         enable = mkEnableOption "codex in this tier";
+        trust = mkEnableOption ''
+          trusting each checkout in this tier in codex, as you would by
+          answering its dialog: it runs with the checkout's trust_level
+          trusted. For a tier of checkouts you vouch for; a bare tier may
+          say it too, for codex on the host'';
         scope = mkOption {
           type = types.enum [ "session" "workspace" "tier" "host" ];
           default = "session";
@@ -101,10 +106,10 @@ in
       # top of it, with nothing per project to pick out the way
       # ~/.claude/projects has, so a workspace gets a home of its own or it
       # shares all of it. codex runs with its own sandbox bypassed, the
-      # session being the sandbox, and the workspace trusted by a -c
-      # override, since config.toml is the host's.
+      # session being the sandbox, and, where the tier trusts it, the
+      # workspace trusted by a -c override, since config.toml is the host's.
       session.tiers = lib.mapAttrs (_: tier: {
-        codex = { inherit (tier.apps.codex) scope; placeholder = placeholderFile; };
+        codex = { inherit (tier.apps.codex) scope trust; placeholder = placeholderFile; };
       } // lib.optionalAttrs (lib.elem tier.apps.codex.scope [ "workspace" "tier" ]) {
         stores.codex = {
           inherit (tier.apps.codex) scope;
@@ -113,6 +118,9 @@ in
           files."auth.json" = placeholderFile;
         };
       }) (lib.filterAttrs (_: t: !t.bare && t.apps.codex.enable) cfg.tiers);
+      # A bare tier's trust is the wrapper's, an override on the host.
+      selector.tiers = lib.mapAttrs (_: _: { trust.codex = true; })
+        (lib.filterAttrs (_: t: t.bare && t.apps.codex.trust) cfg.tiers);
       # On the host codex keeps its own sandbox; in a container it bypasses it.
       wrappers.codex.hostCommand = [ "${base}/bin/codex" ];
       codex = {

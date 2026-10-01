@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf16"
 
+	"github.com/danielbodart/chase/internal/apps/claude"
 	"github.com/danielbodart/chase/internal/files"
 	"github.com/danielbodart/chase/internal/term"
 )
@@ -54,6 +55,14 @@ func Binds(c Config, tier, workspace string, out io.Writer) error {
 		}
 		lines = append(lines, dir+":rw")
 	case "host":
+		// The host's ~/.claude.json is the session's, bound: a workspace
+		// the tier trusts is trusted there, as Claude Code would have it
+		// after the dialog.
+		if t.Claude.Trust {
+			if err := claude.Trust(filepath.Join(c.Home, ".claude.json"), []string{workspace}); err != nil {
+				return err
+			}
+		}
 		// Bound by the container's own mounts, which flong refuses a
 		// session over if a source is missing -- and Claude Code's own
 		// cleanup deletes plans/ once it empties.

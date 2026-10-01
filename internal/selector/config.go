@@ -46,6 +46,24 @@ type Tier struct {
 	// config.flong."agent-<name>".launcher`, which a wrapper execs with the
 	// agent's name and its arguments. Empty for a bare tier.
 	Launcher string `json:"launcher,omitempty"`
+
+	// Trust is what a bare tier trusts its checkouts in, on the host, before
+	// the agent starts; nil for nothing, and for a sandbox tier, whose
+	// session trusts them itself (internal/session).
+	Trust *Trust `json:"trust,omitempty"`
+}
+
+// Trust is the apps a bare tier trusts its checkouts in, each its
+// apps.<app>.trust.
+type Trust struct {
+	// Claude is whether the checkout is trusted in the host's
+	// ~/.claude.json.
+	Claude bool `json:"claude,omitempty"`
+	// Codex is whether codex is told to trust it.
+	Codex bool `json:"codex,omitempty"`
+	// Env are the variables the checkout is added to, each an app's list
+	// of the paths it trusts without asking.
+	Env []string `json:"env,omitempty"`
 }
 
 // Rule is one of chase.tiers.<name>.match, as the module's ruleType has it.

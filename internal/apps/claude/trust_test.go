@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -26,7 +25,7 @@ func sameJSON(t *testing.T, a, b string) bool {
 	return reflect.DeepEqual(x, y)
 }
 
-func trustIn(t *testing.T, content string, paths ...string) (string, string, os.FileInfo) {
+func trustIn(t *testing.T, content string, paths ...string) (string, os.FileInfo) {
 	t.Helper()
 	f := filepath.Join(t.TempDir(), ".claude.json")
 	if content != "" {
@@ -34,25 +33,20 @@ func trustIn(t *testing.T, content string, paths ...string) (string, string, os.
 			t.Fatal(err)
 		}
 	}
-	var out bytes.Buffer
-	if err := TrustWorkspaces(Config{ClaudeJSON: f, TrustPaths: paths}, &out); err != nil {
+	if err := Trust(f, paths); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(f)
 	fi, _ := os.Stat(f)
-	return string(b), out.String(), fi
+	return string(b), fi
 }
 
 func TestTrustsEachPathKeepingEverythingElse(t *testing.T) {
 	in := `{"numStartups":3,"projects":{"/h/p":{"allowedTools":[],"hasTrustDialogAccepted":false},"/other":{"x":1}},"userID":"u"}`
-	got, said, fi := trustIn(t, in, "/h", "/h/p", "/h")
+	got, fi := trustIn(t, in, "/h", "/h/p", "/h")
 	want := `{"numStartups":3,"projects":{"/h/p":{"allowedTools":[],"hasTrustDialogAccepted":true},"/other":{"x":1},"/h":{"hasTrustDialogAccepted":true}},"userID":"u"}`
 	if !sameJSON(t, got, want) || !strings.HasSuffix(got, "}\n") {
 		t.Errorf("wrote\n%s", got)
-	}
-	// Counted as given once each.
-	if said != "claude: pre-trusted 2 workspaces\n" {
-		t.Errorf("said %q", said)
 	}
 	if fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v", fi.Mode())
@@ -67,15 +61,15 @@ func TestMakesWhatIsMissing(t *testing.T) {
 		`{"projects":{"/h":{"hasTrustDialogAccepted":"true"}}}`,
 		`{"projects":{"/h":{"hasTrustDialogAccepted":1}}}`,
 	} {
-		got, said, _ := trustIn(t, in, "/h")
-		if !sameJSON(t, got, want) || said != "claude: pre-trusted 1 workspaces\n" {
-			t.Errorf("%s: wrote %q, said %q", in, got, said)
+		got, _ := trustIn(t, in, "/h")
+		if !sameJSON(t, got, want) {
+			t.Errorf("%s: wrote %q", in, got)
 		}
 	}
 }
 
 // Claude Code's own file, in a shape this does not expect, is left alone,
-// and an activation is never stopped over it.
+// and a launch is never stopped over it.
 func TestLeavesAloneWhatItCannotEdit(t *testing.T) {
 	for _, in := range []string{
 		`{`, `[]`, `"s"`, `1`, `true`, `{} {}`, ` `,
@@ -84,31 +78,29 @@ func TestLeavesAloneWhatItCannotEdit(t *testing.T) {
 	} {
 		f := filepath.Join(t.TempDir(), ".claude.json")
 		os.WriteFile(f, []byte(in), 0o644)
-		var out bytes.Buffer
-		if err := TrustWorkspaces(Config{ClaudeJSON: f, TrustPaths: []string{"/other", "/h"}}, &out); err != nil {
+		if err := Trust(f, []string{"/other", "/h"}); err != nil {
 			t.Errorf("%s: %v", in, err)
 		}
 		b, _ := os.ReadFile(f)
 		fi, _ := os.Stat(f)
-		if string(b) != in || out.Len() != 0 || fi.Mode().Perm() != 0o644 {
-			t.Errorf("%s: became %q at %v, said %q", in, b, fi.Mode(), out.String())
+		if string(b) != in || fi.Mode().Perm() != 0o644 {
+			t.Errorf("%s: became %q at %v", in, b, fi.Mode())
 		}
 	}
 }
 
 func TestNoFileIsNothingToDo(t *testing.T) {
 	dir := t.TempDir()
-	var out bytes.Buffer
-	if err := TrustWorkspaces(Config{ClaudeJSON: filepath.Join(dir, ".claude.json"), TrustPaths: []string{"/h"}}, &out); err != nil || out.Len() != 0 {
-		t.Errorf("%v, said %q", err, out.String())
+	if err := Trust(filepath.Join(dir, ".claude.json"), []string{"/h"}); err != nil {
+		t.Error(err)
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Errorf("made %v", entries)
 	}
 	// Nor is a directory there.
 	os.Mkdir(filepath.Join(dir, ".claude.json"), 0o700)
-	if err := TrustWorkspaces(Config{ClaudeJSON: filepath.Join(dir, ".claude.json"), TrustPaths: []string{"/h"}}, &out); err != nil || out.Len() != 0 {
-		t.Errorf("%v, said %q", err, out.String())
+	if err := Trust(filepath.Join(dir, ".claude.json"), []string{"/h"}); err != nil {
+		t.Error(err)
 	}
 }
 
@@ -117,14 +109,13 @@ func TestAlreadyTrustedIsNotRewritten(t *testing.T) {
 	in := `{"projects":{"/h":{"hasTrustDialogAccepted":true},"/h/p":{"hasTrustDialogAccepted":true}}}`
 	os.WriteFile(f, []byte(in), 0o644)
 	before, _ := os.Stat(f)
-	var out bytes.Buffer
-	if err := TrustWorkspaces(Config{ClaudeJSON: f, TrustPaths: []string{"/h/p", "/h"}}, &out); err != nil {
+	if err := Trust(f, []string{"/h/p", "/h"}); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := os.Stat(f)
 	b, _ := os.ReadFile(f)
-	if string(b) != in || out.Len() != 0 || !os.SameFile(before, after) || after.Mode().Perm() != 0o644 {
-		t.Errorf("rewrote it: %q, said %q", b, out.String())
+	if string(b) != in || !os.SameFile(before, after) || after.Mode().Perm() != 0o644 {
+		t.Errorf("rewrote it: %q", b)
 	}
 }
 
@@ -134,7 +125,7 @@ func TestTheFileIsReplacedNotRewritten(t *testing.T) {
 	f := filepath.Join(dir, ".claude.json")
 	os.WriteFile(f, []byte(`{}`), 0o644)
 	before, _ := os.Stat(f)
-	if err := TrustWorkspaces(Config{ClaudeJSON: f, TrustPaths: []string{"/h"}}, &bytes.Buffer{}); err != nil {
+	if err := Trust(f, []string{"/h"}); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := os.Stat(f)
@@ -154,7 +145,7 @@ func TestALinkIsReplacedAndItsTargetKept(t *testing.T) {
 	os.WriteFile(target, []byte(`{}`), 0o644)
 	f := filepath.Join(dir, ".claude.json")
 	os.Symlink(target, f)
-	if err := TrustWorkspaces(Config{ClaudeJSON: f, TrustPaths: []string{"/h"}}, &bytes.Buffer{}); err != nil {
+	if err := Trust(f, []string{"/h"}); err != nil {
 		t.Fatal(err)
 	}
 	if fi, _ := os.Lstat(f); !fi.Mode().IsRegular() {
@@ -162,16 +153,6 @@ func TestALinkIsReplacedAndItsTargetKept(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(target); string(b) != `{}` {
 		t.Errorf("target became %q", b)
-	}
-}
-
-func TestDefaultsToHome(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	os.WriteFile(filepath.Join(home, ".claude.json"), []byte(`{}`), 0o600)
-	var out bytes.Buffer
-	if err := TrustWorkspaces(Config{TrustPaths: []string{home}}, &out); err != nil || out.String() != "claude: pre-trusted 1 workspaces\n" {
-		t.Errorf("%v, said %q", err, out.String())
 	}
 }
 
@@ -184,7 +165,7 @@ func TestAWriteThatFailsIsAnError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root writes anyway")
 	}
-	if err := TrustWorkspaces(Config{ClaudeJSON: f, TrustPaths: []string{"/h"}}, &bytes.Buffer{}); err == nil {
+	if err := Trust(f, []string{"/h"}); err == nil {
 		t.Error("no error")
 	}
 }
@@ -195,7 +176,7 @@ func TestAWriteThatFailsIsAnError(t *testing.T) {
 func TestKeepsWhatItDoesNotKnow(t *testing.T) {
 	in := `{"n":12345678901234567890123,"f":0.1000000000000000055511151231257827,"e":1e400,` +
 		`"deep":{"a":[1,{"b":null,"c":"<&>"}]},"projects":{"/h":{"lastCost":1.50,"hasTrustDialogAccepted":false}}}`
-	got, _, _ := trustIn(t, in, "/h")
+	got, _ := trustIn(t, in, "/h")
 	want := `{"n":12345678901234567890123,"f":0.1000000000000000055511151231257827,"e":1e400,` +
 		`"deep":{"a":[1,{"b":null,"c":"<&>"}]},"projects":{"/h":{"lastCost":1.50,"hasTrustDialogAccepted":true}}}`
 	if !sameJSON(t, got, want) {
