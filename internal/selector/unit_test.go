@@ -194,7 +194,7 @@ func TestTheGuardChecksTheTierAndReportsGroupMembers(t *testing.T) {
 	ctx := context.Background()
 	var said bytes.Buffer
 	err := s.Guard(ctx, "trusted", r+"/theirs", "", &said)
-	if err == nil || err.Error() != "agent-trusted: refusing, this checkout is 'strict'" {
+	if err == nil || err.Error() != "chase: refusing a 'trusted' session, this checkout is 'strict'" {
 		t.Errorf("the trusted guard of a strict checkout: %v", err)
 	}
 	// The fallback takes any checkout.
@@ -206,7 +206,7 @@ func TestTheGuardChecksTheTierAndReportsGroupMembers(t *testing.T) {
 	if err := s.Guard(ctx, "trusted", r+"/mine", binds, &said); err != nil {
 		t.Fatal(err)
 	}
-	want := "agent-trusted: mounting " + r + "/theirs (strict, rw)\nagent-trusted: mounting " + r + "/mine (trusted, " + r + "/mine)\n"
+	want := "chase: mounting " + r + "/theirs (strict, rw)\nchase: mounting " + r + "/mine (trusted, " + r + "/mine)\n"
 	if said.String() != want {
 		t.Errorf("the guard reported\n%q\nwant\n%q", said.String(), want)
 	}
@@ -222,7 +222,7 @@ func TestTheGuardChecksTheTierAndReportsGroupMembers(t *testing.T) {
 		t.Errorf("guard with binds unset: %d", rc)
 	}
 	errb.Reset()
-	if rc := selector.RunGuard(ctx, s, []string{"trusted"}, env(map[string]string{"workspace": r + "/theirs", "binds": ""}), &errb); rc != 1 || errb.String() != "agent-trusted: refusing, this checkout is 'strict'\n" {
+	if rc := selector.RunGuard(ctx, s, []string{"trusted"}, env(map[string]string{"workspace": r + "/theirs", "binds": ""}), &errb); rc != 1 || errb.String() != "chase: refusing a 'trusted' session, this checkout is 'strict'\n" {
 		t.Errorf("guard refusing: %d %q", rc, errb.String())
 	}
 }

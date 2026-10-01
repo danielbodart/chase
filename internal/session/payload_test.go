@@ -297,39 +297,6 @@ func TestTheShellIsALoginBash(t *testing.T) {
 	}
 }
 
-// A shell whose launch has Docker is told, on stderr alone, where its
-// containers' ports are: by its first name, and relayed to localhost too.
-func TestAShellWithDockerIsToldWhereItsPortsAre(t *testing.T) {
-	f := newFixture(t)
-	docker := func(ports string) Given {
-		return Given{Env: []Var{
-			{"DOCKER_HOST", "tcp://docker.frisket.internal:2376"},
-			{"CHASE_DOCKER_ADDRESS", "127.101.170.171"},
-			{"CHASE_DOCKER_NAMES", "shop.internal shop.example.internal"},
-			{"CHASE_DOCKER_PORTS", ports},
-		}}
-	}
-	p, said := f.run(t, "plain", "/w", "", docker("64320 64321"), "shell")
-	if said != "docker: shop.internal → 127.101.170.171, ports 64320 64321; localhost works too\n" {
-		t.Errorf("said %q", said)
-	}
-	if !slices.Contains(p.env, "CHASE_DOCKER_PORTS=64320 64321") {
-		t.Errorf("the environment is %q", p.env)
-	}
-	if _, said = f.run(t, "plain", "/w", "", docker(""), "shell"); said != "docker: shop.internal → 127.101.170.171, no ports\n" {
-		t.Errorf("said %q", said)
-	}
-	given := docker("1")
-	given.Env[2].Value = ""
-	if _, said = f.run(t, "plain", "/w", "", given, "shell"); said != "docker: 127.101.170.171, ports 1; localhost works too\n" {
-		t.Errorf("with no names, said %q", said)
-	}
-	// Only the shell is told.
-	if _, said = f.run(t, "trusted", "/w", "", docker("1"), "claude"); said != "" {
-		t.Errorf("claude said %q", said)
-	}
-}
-
 // A CLOSED LIST: an agent the tier does not run, an agent that is not one,
 // and no agent at all are refused, so no launcher's argument runs anything
 // else on the container's PATH. So is a tier that is not a sandbox's.

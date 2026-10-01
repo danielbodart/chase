@@ -191,7 +191,7 @@ func Approve(ctx context.Context, c Config, ws, machine, tier string, stderr io.
 			return Result{}, err
 		}
 		result.set("dockerProject", jstr(slug))
-		if err := dockerLine(c, ws, slug, who, result, stderr); err != nil {
+		if err := dockerLine(c, ws, slug, who, stderr); err != nil {
 			return Result{}, err
 		}
 	}

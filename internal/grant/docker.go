@@ -349,34 +349,19 @@ func hostNames(c Config, ws, slug string, who dockerproject.Project) ([]string, 
 }
 
 // dockerLine says, beside the approval, where the project's Docker is: its
-// project, address, names and ports, and which of the names the host has.
-// The workspace is a path, which a session can name: said as a refusal is.
-func dockerLine(c Config, ws, slug string, who dockerproject.Project, result *value, stderr io.Writer) error {
+// project, address and names, and which of the names the host has. Its
+// ports are the grant's, which the approval shows, and its checkout the
+// one launched from, which goes without saying.
+func dockerLine(c Config, ws, slug string, who dockerproject.Project, stderr io.Writer) error {
 	names := "no names"
 	if len(who.Names) > 0 {
 		names = strings.Join(who.Names, ", ")
-	}
-	pv, err := result.path("apps", "docker", "ports")
-	if err != nil {
-		return err
-	}
-	ports := "no ports"
-	if p := pv.or(&value{kind: '['}); !(p.kind == '[' && len(p.items) == 0) {
-		items, err := p.iterate()
-		if err != nil {
-			return err
-		}
-		said := make([]string, len(items))
-		for i, x := range items {
-			said[i] = x.tostring()
-		}
-		ports = "ports " + strings.Join(said, " ")
 	}
 	host, err := hostNames(c, ws, slug, who)
 	if err != nil {
 		return err
 	}
-	line := fmt.Sprintf("%s: Docker as %s at %s (%s), %s", ws, slug, who.Address, names, ports)
+	line := fmt.Sprintf("Docker as %s at %s (%s)", slug, who.Address, names)
 	if len(host) == 0 {
 		line += fmt.Sprintf("; on this host, %s only", who.Address)
 	} else if !slices.Equal(host, who.Names) {

@@ -146,11 +146,11 @@ func TestAPinIsHeldBothWays(t *testing.T) {
 
 const dockerGrant = `{"apps": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}`
 
-const shopLine = "Docker as example/shop at 127.101.170.171 (shop.internal, shop.example.internal), ports 64320 64321"
+const shopLine = "Docker as example/shop at 127.101.170.171 (shop.internal, shop.example.internal)"
 
-func (h *harness) dockerSaid(ws string) string {
+func (h *harness) dockerSaid() string {
 	for _, l := range strings.Split(h.err, "\n") {
-		if strings.HasPrefix(l, "chase: "+ws+": "+shopLine) {
+		if strings.HasPrefix(l, "chase: "+shopLine) {
 			return l
 		}
 	}
@@ -190,7 +190,7 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	// No hosts file: the names are the session's, and the host has only the
 	// address.
 	h.approved(ws, "m1", "trusted", dockerGrant)
-	if got := h.dockerSaid(ws); got != "chase: "+ws+": "+shopLine+"; on this host, 127.101.170.171 only" {
+	if got := h.dockerSaid(); got != "chase: "+shopLine+"; on this host, 127.101.170.171 only" {
 		t.Errorf("the approval did not say where Docker is: %s", h.err)
 	}
 	if got := h.stagedProject("m1"); got != "example/shop" {
@@ -212,7 +212,7 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	// about, and is held once.
 	write(t, h.cfg.Hosts, `{"example/shop": {"address": "127.101.170.171", "names": ["shop.internal", "shop.example.internal"]}}`)
 	h.approved(ws, "m2", "trusted", dockerGrant)
-	if got := h.dockerSaid(ws); got != "chase: "+ws+": "+shopLine {
+	if got := h.dockerSaid(); got != "chase: "+shopLine {
 		t.Errorf("the host's names were not recognised: %s", h.err)
 	}
 	if n := len(h.approvals()); n != 1 {
@@ -226,12 +226,12 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	}
 	write(t, h.cfg.Hosts, `{"example/shop": {"address": "127.9.9.9", "names": ["shop.internal", "shop.example.internal"]}}`)
 	h.approved(ws, "m3", "trusted", dockerGrant)
-	if got := h.dockerSaid(ws); got != "chase: "+ws+": "+shopLine+"; on this host, 127.101.170.171 only" {
+	if got := h.dockerSaid(); got != "chase: "+shopLine+"; on this host, 127.101.170.171 only" {
 		t.Errorf("names at another address were taken as the host's: %s", h.err)
 	}
 	write(t, h.cfg.Hosts, `{"example/shop": {"address": "127.101.170.171", "names": ["shop.example.internal"]}}`)
 	h.approved(ws, "m4", "trusted", dockerGrant)
-	if got := h.dockerSaid(ws); got != "chase: "+ws+": "+shopLine+"; on this host, 127.101.170.171 and shop.example.internal only" {
+	if got := h.dockerSaid(); got != "chase: "+shopLine+"; on this host, 127.101.170.171 and shop.example.internal only" {
 		t.Errorf("a name the host lacks was taken as the host's: %s", h.err)
 	}
 	os.Remove(h.cfg.Hosts)
@@ -243,7 +243,7 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	if n := len(h.approvals()); n != 2 {
 		t.Error("acme/app was not asked about")
 	}
-	h.mustSay("chase: " + app + ": Docker as acme/app at ")
+	h.mustSay("chase: Docker as acme/app at ")
 	h.fx.Run("-C", app, "remote", "set-url", "origin", "git@github.com:acme/app2.git")
 	h.approved(app, "m6", "trusted", dockerGrant)
 	envs := h.approvals()
@@ -258,11 +258,11 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	}
 
 	// The workspace is a path a session can name: the line beside the
-	// approval says it with its control bytes made plain.
+	// approval does not say it, and nothing of it reaches the terminal.
 	esc := ws + "/x\x1b]0;PWNED\x07\x1b[8m"
 	os.MkdirAll(esc, 0o755)
 	h.approved(esc, "m13", "trusted", dockerGrant)
-	h.mustSay("chase: " + ws + "/x?]0;PWNED??[8m: Docker as example/shop at 127.101.170.171")
+	h.mustSay("chase: Docker as example/shop at 127.101.170.171")
 	if strings.ContainsAny(h.err, "\x1b\x07") {
 		t.Errorf("a control byte reached the terminal: %q", h.err)
 	}

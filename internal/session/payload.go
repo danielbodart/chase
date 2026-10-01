@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"github.com/danielbodart/chase/internal/term"
 )
 
 // Var is one variable added to the payload's environment.
@@ -218,7 +216,6 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 			e.Argv = append(e.Argv, "--add-dir", d)
 		}
 	case agent == "shell":
-		dockerBanner(e.Env, stderr)
 		e.Argv = []string{"bash", "-l"}
 	default:
 		return Exec{}, fmt.Errorf("unknown agent '%s': %s runs %s", agent, tier, strings.Join(agents(t), ", "))
@@ -303,34 +300,6 @@ func agents(t Tier) []string {
 		out = append(out, "codex")
 	}
 	return append(out, "shell")
-}
-
-// dockerBanner tells a person at `chase shell` where a project's Docker
-// containers' ports are, from what its launch exported: the names are the
-// session's own, which frisket answers, and a port is relayed to 127.0.0.1
-// too.
-func dockerBanner(env []Var, stderr io.Writer) {
-	get := func(name string) string {
-		for _, v := range env {
-			if v.Name == name {
-				return v.Value
-			}
-		}
-		return ""
-	}
-	address := get("CHASE_DOCKER_ADDRESS")
-	if address == "" {
-		return
-	}
-	name, _, _ := strings.Cut(get("CHASE_DOCKER_NAMES"), " ")
-	if name != "" {
-		name += " → "
-	}
-	if ports := get("CHASE_DOCKER_PORTS"); ports != "" {
-		fmt.Fprintln(stderr, term.Clean("docker: "+name+address+", ports "+ports+"; localhost works too"))
-	} else {
-		fmt.Fprintln(stderr, term.Clean("docker: "+name+address+", no ports"))
-	}
 }
 
 // CodexTrust is the override that has codex trust workspace without asking,

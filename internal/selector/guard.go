@@ -11,7 +11,7 @@ import (
 )
 
 // Refused is a guard's refusal: the session does not start, and Message says
-// why, as agent-<tier>: refusing, ....
+// why, as chase: refusing a '<tier>' session, ....
 type Refused struct{ Message string }
 
 func (r *Refused) Error() string { return r.Message }
@@ -30,13 +30,12 @@ func (r *Refused) Error() string { return r.Message }
 // fallback's: it is where anything the selector could not place goes, so it
 // takes any checkout. The one refusal after it is everyone's.
 func (s *Selector) Guard(ctx context.Context, tier, workspace, binds string, stderr io.Writer) error {
-	name := "agent-" + tier
 	if tier != s.cfg.Fallback {
 		// `$(agent-tier "$workspace") || tier=unknown`: agent-tier has no
 		// failure of its own left to fall back from.
 		now := s.Tier(ctx, workspace)
 		if now != tier {
-			return &Refused{fmt.Sprintf("%s: refusing, this checkout is '%s'", name, now)}
+			return &Refused{fmt.Sprintf("chase: refusing a '%s' session, this checkout is '%s'", tier, now)}
 		}
 	}
 
@@ -53,8 +52,8 @@ func (s *Selector) Guard(ctx context.Context, tier, workspace, binds string, std
 		now := s.Tier(ctx, workspace)
 		gone := s.IfGone(ctx, workspace)
 		if gone != now && gone != s.cfg.Fallback {
-			return &Refused{fmt.Sprintf("%s: refusing, %s is nested in a '%s' checkout, and would be '%s' without its .git, not '%s'; clone it elsewhere, or make it a submodule",
-				name, workspace, gone, gone, now)}
+			return &Refused{fmt.Sprintf("chase: refusing a '%s' session, %s is nested in a '%s' checkout, and would be '%s' without its .git, not '%s'; clone it elsewhere, or make it a submodule",
+				tier, workspace, gone, gone, now)}
 		}
 	}
 
@@ -72,7 +71,7 @@ func (s *Selector) Guard(ctx context.Context, tier, workspace, binds string, std
 		if !gitsafe.ExistsFollowing(extra + "/.git") {
 			continue
 		}
-		fmt.Fprintln(stderr, term.Clean(fmt.Sprintf("%s: mounting %s (%s, %s)", name, extra, s.Tier(ctx, extra), mode)))
+		fmt.Fprintln(stderr, term.Clean(fmt.Sprintf("chase: mounting %s (%s, %s)", extra, s.Tier(ctx, extra), mode)))
 	}
 	return nil
 }

@@ -68,7 +68,7 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 		"apis": {"add": ["pubsub"], "remove": ["storage"]},
 		"allow": ["category:bigquery"], "ask": ["pubsub.projects.topics.delete"]}}}`)
 	run := h.dir + "/run/chase/m1"
-	if !h.said("chase: " + ws + ": gcloud from secrets.json:gcloud-key") {
+	if !h.said("chase: gcloud from secrets.json:gcloud-key") {
 		t.Errorf("where gcloud came from was not said: %s", h.err)
 	}
 	if !slices.Equal(minted, []string{sa + " mint " + run}) {

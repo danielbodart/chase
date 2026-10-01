@@ -171,8 +171,8 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 		code, isCode := registry[app]
 		conf := c.Apps[app]
 		// An app with a credential is bound only with the project's own,
-		// decrypted; one with none is made by its code from the binding
-		// alone.
+		// decrypted, and says which; one with none is made by its code from
+		// the binding alone, and says nothing.
 		var from string
 		if conf.hasCredential() {
 			cred, err := binding.index("credential")
@@ -194,7 +194,6 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 			if !isCode {
 				return given, refuse("%s: %s has no credential and no prepare", ws, app)
 			}
-			from = "no credential"
 		}
 		// The app's routes, in place of any of the same names the tier had:
 		// what its code made of the binding, or its own with the project's
@@ -221,7 +220,9 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 		}
 		given.Env = append(given.Env, vars...)
 		given.Files = append(given.Files, patch.Files...)
-		term.Say(stderr, "%s: %s from %s", ws, app, from)
+		if from != "" {
+			term.Say(stderr, "%s from %s", app, from)
+		}
 	}
 	if file != "" {
 		os.RemoveAll(filepath.Dir(file))

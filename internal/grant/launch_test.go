@@ -101,8 +101,8 @@ func TestAnAppWithNoCredentialIsMadeFromItsBinding(t *testing.T) {
 	if env := h.env(); !slices.Equal(env, []string{"PROBE=1"}) {
 		t.Errorf("probe's env, and nothing else, was not given the session: %q", env)
 	}
-	if !h.said("chase: " + ws + ": cloudflare from no credential") {
-		t.Errorf("where probe came from was not said: %s", h.err)
+	if strings.Contains(h.err, "cloudflare from") {
+		t.Errorf("an app with no credential said where it came from: %s", h.err)
 	}
 	if strings.Contains(h.err, "gcloud from") {
 		t.Errorf("gcloud was bound with no secret: %s", h.err)
@@ -400,8 +400,8 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 	shop := `{"apps": {"docker": {"images": ["postgres:18", "bitnami/redis:7", "ghcr.io/o/x:1"], "ports": [64320, 64321]}}}`
 
 	launched("trusted", "m1", shop)
-	if !h.said("chase: " + ws + ": docker from no credential") {
-		t.Errorf("where docker came from was not said: %s", h.err)
+	if strings.Contains(h.err, "docker from") {
+		t.Errorf("docker, with no credential, said where it came from: %s", h.err)
 	}
 	d := h.policyDoc("m1")
 	var routes []policy.Route
@@ -573,7 +573,7 @@ func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 	h.fx.Run("-C", ws, "add", "secrets.json")
 	env := `{"secrets": "secrets.json", "apps": {"cloudflare": {"credential": {"secret": "cloudflare-token"}, "accountId": "023e105f4ecef8ad9ca31a8372d0c353"}}}`
 	h.launched(ws, "m1", "trusted", env)
-	if !h.said("chase: " + ws + ": cloudflare from secrets.json:cloudflare-token") {
+	if !h.said("chase: cloudflare from secrets.json:cloudflare-token") {
 		t.Errorf("where cloudflare came from was not said: %s", h.err)
 	}
 	if got := read(t, h.dir+"/run/chase/m1/secrets/cloudflare"); got != "the token" {
