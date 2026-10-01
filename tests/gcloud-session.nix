@@ -273,7 +273,7 @@ let
     cat > chase.jsonc <<'EOF'
     {
       "secrets": "secrets.yaml",
-      "bindings": {
+      "apps": {
         "gcloud": {
           "credential": { "secret": "gcloud-key" },
           "serviceAccount": "${sa}",

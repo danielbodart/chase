@@ -178,7 +178,7 @@ func Approve(ctx context.Context, c Config, ws, machine, tier string, stderr io.
 	// without Docker gains nothing, so one approved before there was Docker
 	// still is.
 	slug, addr := "", ""
-	if d, err := result.path("bindings", "docker"); err == nil && d.kind != 'n' {
+	if d, err := result.path("apps", "docker"); err == nil && d.kind != 'n' {
 		if slug, err = project(ctx, g, c, ws, tier, stderr); err != nil {
 			return Result{}, err
 		}
@@ -310,7 +310,7 @@ func approveGrant(ctx context.Context, c Config, ws string, result *value, dir s
 // JSON>"` lines: each list once over, then every name more than one list
 // gives, in jq's order.
 func namedTwice(result *value) (string, error) {
-	bindings, err := result.index("bindings")
+	bindings, err := result.index("apps")
 	if err != nil {
 		return "", err
 	}

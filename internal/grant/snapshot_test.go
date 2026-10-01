@@ -57,7 +57,7 @@ func (s *snapshotCase) refused(ws, machine, prefix string) {
 // refusedSaying is refused, of a PREFIX said as SAID.
 func (s *snapshotCase) refusedSaying(ws, machine, prefix, said string) {
 	s.t.Helper()
-	if s.approve(ws, machine, "trusted", `{"secrets": `+jqString(prefix+"/secrets.yaml")+`, "bindings": {}}`) == 0 {
+	if s.approve(ws, machine, "trusted", `{"secrets": `+jqString(prefix+"/secrets.yaml")+`, "apps": {}}`) == 0 {
 		s.t.Errorf("%s was approved with %s a link", ws, prefix)
 	}
 	s.mustSay("chase: " + ws + ": " + said + " is a link, so what is tracked under it would be copied from wherever it points")
@@ -82,7 +82,7 @@ func (s *snapshotCase) stagedText(machine string) any {
 func TestWhatIsTrackedIsCopiedAndStaged(t *testing.T) {
 	s := newSnapshotCase(t)
 	s.checkout(s.r+"/plain", "link/secrets.yaml")
-	s.approved(s.r+"/plain", "m0", "trusted", `{"secrets": "link/secrets.yaml", "bindings": {}}`)
+	s.approved(s.r+"/plain", "m0", "trusted", `{"secrets": "link/secrets.yaml", "apps": {}}`)
 	if got := s.stagedText("m0"); got != "the project's own\n" {
 		t.Errorf("the project's sops file was not staged: %v", got)
 	}
@@ -113,7 +113,7 @@ func TestWhatIsNotAsTrackedIsRefused(t *testing.T) {
 	s.checkout(s.r+"/file", "d/secrets.yaml")
 	os.RemoveAll(s.r + "/file/d")
 	write(t, s.r+"/file/d", "x\n")
-	s.approved(s.r+"/file", "m2", "trusted", `{"bindings": {}}`)
+	s.approved(s.r+"/file", "m2", "trusted", `{"apps": {}}`)
 	if s.approve(s.r+"/file", "m3", "trusted", `{"secrets": "d/secrets.yaml"}`) == 0 {
 		t.Error("a tracked directory made a file was approved")
 	}
@@ -136,7 +136,7 @@ func TestATrackedLinkToAHostFileIsOutsideTheCheckout(t *testing.T) {
 	os.Symlink(s.host+"/secrets.yaml", s.r+"/c/secrets.yaml")
 	os.Chmod(s.r+"/c/tool", 0o755)
 	s.fx.Run("-C", s.r+"/c", "add", "-A")
-	if s.approve(s.r+"/c", "m5", "trusted", `{"secrets": "secrets.yaml", "bindings": {}}`) == 0 {
+	if s.approve(s.r+"/c", "m5", "trusted", `{"secrets": "secrets.yaml", "apps": {}}`) == 0 {
 		t.Error("a sops file linked to the host's was approved")
 	}
 	s.mustSay("chase: " + s.r + "/c: secrets.yaml is outside the checkout")
@@ -218,7 +218,7 @@ func TestTheCheckoutsGitConfigIsNeverRun(t *testing.T) {
 	os.Remove(pwned)
 	later := mustTime(t, "2021-01-01T00:00:00Z")
 	os.Chtimes(f+"/tracked", later, later)
-	s.approved(f, "m9", "trusted", `{"secrets": "tracked", "bindings": {}}`)
+	s.approved(f, "m9", "trusted", `{"secrets": "tracked", "apps": {}}`)
 	if _, err := os.Stat(pwned); err == nil {
 		t.Error("approve ran the checkout's core.fsmonitor or core.hooksPath")
 	}
@@ -244,7 +244,7 @@ func TestTheCheckoutsGitConfigIsNeverRun(t *testing.T) {
 	write(t, f+"/sub/tracked", "the sub's own\n")
 	s.fx.Run("-C", f, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "add", "sub")
 	os.Remove(pwned)
-	s.approved(f+"/sub", "m11", "trusted", `{"secrets": "tracked", "bindings": {}}`)
+	s.approved(f+"/sub", "m11", "trusted", `{"secrets": "tracked", "apps": {}}`)
 	if _, err := os.Stat(pwned); err == nil {
 		t.Error("approve ran core.fsmonitor for a workspace below its root")
 	}
@@ -273,7 +273,7 @@ func TestAnIndexThatIsNotWholeIsNotRead(t *testing.T) {
 	if m, _ := filepath.Glob(s.r + "/split/.git/sharedindex.*"); len(m) == 0 {
 		t.Fatal("the split index has no shared part, so it proves nothing")
 	}
-	if s.approve(s.r+"/split", "m13", "trusted", `{"bindings": {}}`) == 0 {
+	if s.approve(s.r+"/split", "m13", "trusted", `{"apps": {}}`) == 0 {
 		t.Error("a split index was approved")
 	}
 	s.mustSay("chase: " + s.r + "/split: a grant needs a git checkout, so what it says is what git tracks: the index of " + s.r + "/split cannot be read on its own")
@@ -281,7 +281,7 @@ func TestAnIndexThatIsNotWholeIsNotRead(t *testing.T) {
 	s.checkout(s.r+"/sparse", "keep/f", "away/f")
 	s.fx.Run("-C", s.r+"/sparse", "-c", "user.name=x", "-c", "user.email=x@example.com", "commit", "-qm", "x")
 	s.fx.Run("-C", s.r+"/sparse", "sparse-checkout", "set", "--cone", "--sparse-index", "keep")
-	if s.approve(s.r+"/sparse", "m14", "trusted", `{"bindings": {}}`) == 0 {
+	if s.approve(s.r+"/sparse", "m14", "trusted", `{"apps": {}}`) == 0 {
 		t.Error("a sparse index was approved")
 	}
 	s.mustSay("chase: " + s.r + "/sparse: a grant needs a git checkout, so what it says is what git tracks: the index of " + s.r + "/sparse is sparse, or cannot be read on its own")

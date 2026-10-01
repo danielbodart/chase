@@ -51,7 +51,7 @@ func TestWhereAProjectsDockerIsIsSaid(t *testing.T) {
 
 	// Approved, its ports are the project's, from anywhere in the checkout,
 	// which is keyed by its root as the launch keys it.
-	h.approved(ws, "m1", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}`)
+	h.approved(ws, "m1", "trusted", `{"apps": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}`)
 	h.shown(ws, "trusted", block(only, ports))
 	h.shown(ws+"/sub", "trusted", block(only, ports))
 
@@ -77,7 +77,7 @@ func TestWhereAProjectsDockerIsIsSaid(t *testing.T) {
 	// one's ports.
 	app := r + "/w/app"
 	h.repo(app, "git@github.com:acme/app.git")
-	h.approved(app, "m2", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"], "ports": [5432]}}}`)
+	h.approved(app, "m2", "trusted", `{"apps": {"docker": {"images": ["postgres:18"], "ports": [5432]}}}`)
 	if h.run("docker", app, "trusted") != 0 || !h.hasLine("  ports    5432   (approved)") {
 		t.Errorf("acme/app's ports were not shown: %s %s", h.out, h.err)
 	}

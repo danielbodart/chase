@@ -18,7 +18,7 @@ func TestStdoutIsTheSyscallLinesAlone(t *testing.T) {
 	h := newHarness(t)
 	ws := h.root() + "/w"
 	h.checkout(ws)
-	h.approved(ws, "m1", "trusted", `{"seccomp": {"allow": ["io_uring_setup", "io_uring_enter"], "deny": ["ptrace"]}, "bindings": {}}`)
+	h.approved(ws, "m1", "trusted", `{"seccomp": {"allow": ["io_uring_setup", "io_uring_enter"], "deny": ["ptrace"]}, "apps": {}}`)
 	if h.out != "allow io_uring_setup io_uring_enter\ndeny ptrace\n" {
 		t.Errorf("seccompPolicy printed %q", h.out)
 	}
@@ -26,11 +26,11 @@ func TestStdoutIsTheSyscallLinesAlone(t *testing.T) {
 		t.Errorf("the approver's output did not go to stderr: %q", h.err)
 	}
 	// A seccomp section that loosens nothing is none, and prints nothing.
-	h.approved(ws, "m2", "trusted", `{"seccomp": {"allow": [], "deny": []}, "bindings": {}}`)
+	h.approved(ws, "m2", "trusted", `{"seccomp": {"allow": [], "deny": []}, "apps": {}}`)
 	if h.out != "" {
 		t.Errorf("an empty seccomp printed %q", h.out)
 	}
-	h.approved(ws, "m3", "trusted", `{"seccomp": {"deny": ["ptrace"]}, "bindings": {}}`)
+	h.approved(ws, "m3", "trusted", `{"seccomp": {"deny": ["ptrace"]}, "apps": {}}`)
 	if h.out != "deny ptrace\n" {
 		t.Errorf("a deny alone printed %q", h.out)
 	}
@@ -50,7 +50,7 @@ func TestTheApproverIsShownWhatChanged(t *testing.T) {
 	if len(asked) != 1 {
 		t.Fatalf("the approver was asked %+v", asked)
 	}
-	if want := "--- approved\n+++ proposed\n@@ -1 +1,3 @@\n-null\n+{\n+  \"bindings\": {}\n+}"; asked[0].Diff != want {
+	if want := "--- approved\n+++ proposed\n@@ -1 +1,3 @@\n-null\n+{\n+  \"apps\": {}\n+}"; asked[0].Diff != want {
 		t.Errorf("the grant's diff is %q, not %q", asked[0].Diff, want)
 	}
 	stdin := read(t, h.dir+"/logs/approver.stdin")
@@ -58,20 +58,20 @@ func TestTheApproverIsShownWhatChanged(t *testing.T) {
 	if stdin != want {
 		t.Errorf("the approver was given %q, not %q", stdin, want)
 	}
-	if got := read(t, h.dir+"/state/approved/"+key(ws)+"/grant.json"); got != "{\n  \"bindings\": {}\n}\n" {
+	if got := read(t, h.dir+"/state/approved/"+key(ws)+"/grant.json"); got != "{\n  \"apps\": {}\n}\n" {
 		t.Errorf("grant.json is %q", got)
 	}
 
 	// Unchanged, nothing is asked; nor with only a comment, a trailing
 	// comma, or the order changed.
-	h.approved(ws, "m2", "trusted", "// the project's own words\n{\"bindings\": {},}\n")
-	h.approved(ws, "m3", "trusted", `{"seccomp": {"allow": ["ptrace"]}, "bindings": {"github": {"allow": ["x"]}}}`)
-	h.approved(ws, "m4", "trusted", `{"bindings": {"github": {"allow": ["x"] /* often */}}, "seccomp": {"allow": ["ptrace"], "deny": []}}`)
+	h.approved(ws, "m2", "trusted", "// the project's own words\n{\"apps\": {},}\n")
+	h.approved(ws, "m3", "trusted", `{"seccomp": {"allow": ["ptrace"]}, "apps": {"github": {"allow": ["x"]}}}`)
+	h.approved(ws, "m4", "trusted", `{"apps": {"github": {"allow": ["x"] /* often */}}, "seccomp": {"allow": ["ptrace"], "deny": []}}`)
 	asked = h.approvals()
 	if len(asked) != 2 {
 		t.Fatalf("the approver was asked %+v", asked)
 	}
-	want = "--- approved\n+++ proposed\n@@ -1,3 +1,14 @@\n {\n-  \"bindings\": {}\n+  \"bindings\": {\n+    \"github\": {\n+      \"allow\": [\n+        \"x\"\n+      ]\n+    }\n+  },\n+  \"seccomp\": {\n+    \"allow\": [\n+      \"ptrace\"\n+    ]\n+  }\n }"
+	want = "--- approved\n+++ proposed\n@@ -1,3 +1,14 @@\n {\n-  \"apps\": {}\n+  \"apps\": {\n+    \"github\": {\n+      \"allow\": [\n+        \"x\"\n+      ]\n+    }\n+  },\n+  \"seccomp\": {\n+    \"allow\": [\n+      \"ptrace\"\n+    ]\n+  }\n }"
 	if asked[1].Diff != want {
 		t.Errorf("the grant's diff is %q, not %q", asked[1].Diff, want)
 	}
@@ -93,7 +93,7 @@ func TestTheSecretsDigestIsApproved(t *testing.T) {
 	h.checkout(ws, "secrets.yaml")
 	h.approved(ws, "m1", "trusted", `{"secrets": "secrets.yaml"}`)
 	got := read(t, h.dir+"/state/approved/"+key(ws)+"/grant.json")
-	want := "{\n  \"secrets\": \"secrets.yaml\",\n  \"bindings\": {},\n  \"secretsSHA256\": \"" + sha256Hex("the project's own\n") + "\"\n}\n"
+	want := "{\n  \"secrets\": \"secrets.yaml\",\n  \"apps\": {},\n  \"secretsSHA256\": \"" + sha256Hex("the project's own\n") + "\"\n}\n"
 	if got != want {
 		t.Errorf("grant.json is %q, not %q", got, want)
 	}
@@ -171,29 +171,30 @@ func TestWhatAGrantMayNotSayIsRefused(t *testing.T) {
 	ws := h.root() + "/w"
 	h.checkout(ws)
 	for _, c := range []struct{ grant, said string }{
-		{`{"bindings": {}, "secret": "x"}`, `json: unknown field "secret"`},
-		{`{"bindings": {"github": {"allow": ["x"], "alow": []}}}`, `json: unknown field "alow"`},
-		{`{"bindings": {"slack": {}}}`, `json: unknown field "slack"`},
-		{`{"bindings": {}, "bindings": {"github": {}}}`, `bindings is given twice`},
-		{`{"bindings": {"github": {"allow": ["x"], "allow": ["y"]}}}`, `bindings.github.allow is given twice`},
-		{`{"bindings": {}} {}`, `hujson: line 1, column 18: invalid character '{' after top-level value`},
+		{`{"apps": {}, "secret": "x"}`, `json: unknown field "secret"`},
+		{`{"apps": {"github": {"allow": ["x"], "alow": []}}}`, `json: unknown field "alow"`},
+		{`{"apps": {"slack": {}}}`, `json: unknown field "slack"`},
+		{`{"bindings": {"github": {}}}`, `bindings is now apps`},
+		{`{"apps": {}, "apps": {"github": {}}}`, `apps is given twice`},
+		{`{"apps": {"github": {"allow": ["x"], "allow": ["y"]}}}`, `apps.github.allow is given twice`},
+		{`{"apps": {}} {}`, `hujson: line 1, column 14: invalid character '{' after top-level value`},
 		{`[]`, `json: cannot unmarshal array into Go value of type grant.File`},
 		{`{"secrets": "/etc/secrets.yaml"}`, `secrets: "/etc/secrets.yaml" is not relative to the checkout`},
 		{`{"seccomp": {"allow": ["IO URING"]}}`, `seccomp.allow: "IO URING" is not a syscall's name or an @group's`},
-		{`{"bindings": {"cloudflare": {"accountId": "nope"}}}`, `bindings.cloudflare.accountId: "nope" is not 32 lower-case hex digits`},
-		{`{"bindings": {"cloudflare": {"credential": {"secret": "a/b"}}}}`, `bindings.cloudflare.credential.secret: "a/b" is not a key in the sops file`},
-		{`{"bindings": {"github": {"ask": ["has space"]}}}`, `bindings.github.ask: "has space" is not an operation id or a category:<name>`},
-		{`{"bindings": {"git": {"allow": [{"methods": [], "path": "/x"}]}}}`, `bindings.git.allow: /x names no methods`},
-		{`{"bindings": {"git": {"allow": [{"methods": ["TRACE"], "path": "/x"}]}}}`, `bindings.git.allow: "TRACE" is not one of GET, HEAD, POST, PUT, PATCH, DELETE`},
-		{`{"bindings": {"git": {"allow": [{"methods": ["GET"], "path": "x"}]}}}`, `bindings.git.allow: "x" is not a path`},
-		{`{"bindings": {"git": {"allow": [{"methods": ["GET"], "path": "/x", "host": "y"}]}}}`, `json: unknown field "host"`},
-		{`{"bindings": {"gcloud": {"serviceAccount": "nobody"}}}`, `bindings.gcloud.serviceAccount: "nobody" is not an account's email`},
-		{`{"bindings": {"gcloud": {"apis": {"add": ["a.b"]}}}}`, `bindings.gcloud.apis.add: "a.b" is not a Discovery name`},
-		{`{"bindings": {"docker": {"ports": [80]}}}`, `bindings.docker.ports: 80 is not a port from 1024 to 65535`},
-		{`{"bindings": {"docker": {"ports": [5432, 5432]}}}`, `bindings.docker.ports: 5432 is named twice`},
-		{`{"bindings": {"docker": {"ports": [15001]}}}`, `bindings.docker.ports: 15001 is frisket's own steering listener`},
-		{`{"bindings": {"docker": {"ports": [5432.5]}}}`, `json: cannot unmarshal number 5432.5 into Go struct field Docker.bindings.docker.ports of type int`},
-		{`{"bindings": {"docker": {"images": ["postgres"]}}}`, `bindings.docker.images: postgres is not a familiar name with a :tag or @sha256:<64 hex>`},
+		{`{"apps": {"cloudflare": {"accountId": "nope"}}}`, `apps.cloudflare.accountId: "nope" is not 32 lower-case hex digits`},
+		{`{"apps": {"cloudflare": {"credential": {"secret": "a/b"}}}}`, `apps.cloudflare.credential.secret: "a/b" is not a key in the sops file`},
+		{`{"apps": {"github": {"ask": ["has space"]}}}`, `apps.github.ask: "has space" is not an operation id or a category:<name>`},
+		{`{"apps": {"git": {"allow": [{"methods": [], "path": "/x"}]}}}`, `apps.git.allow: /x names no methods`},
+		{`{"apps": {"git": {"allow": [{"methods": ["TRACE"], "path": "/x"}]}}}`, `apps.git.allow: "TRACE" is not one of GET, HEAD, POST, PUT, PATCH, DELETE`},
+		{`{"apps": {"git": {"allow": [{"methods": ["GET"], "path": "x"}]}}}`, `apps.git.allow: "x" is not a path`},
+		{`{"apps": {"git": {"allow": [{"methods": ["GET"], "path": "/x", "host": "y"}]}}}`, `json: unknown field "host"`},
+		{`{"apps": {"gcloud": {"serviceAccount": "nobody"}}}`, `apps.gcloud.serviceAccount: "nobody" is not an account's email`},
+		{`{"apps": {"gcloud": {"apis": {"add": ["a.b"]}}}}`, `apps.gcloud.apis.add: "a.b" is not a Discovery name`},
+		{`{"apps": {"docker": {"ports": [80]}}}`, `apps.docker.ports: 80 is not a port from 1024 to 65535`},
+		{`{"apps": {"docker": {"ports": [5432, 5432]}}}`, `apps.docker.ports: 5432 is named twice`},
+		{`{"apps": {"docker": {"ports": [15001]}}}`, `apps.docker.ports: 15001 is frisket's own steering listener`},
+		{`{"apps": {"docker": {"ports": [5432.5]}}}`, `json: cannot unmarshal number 5432.5 into Go struct field Docker.apps.docker.ports of type int`},
+		{`{"apps": {"docker": {"images": ["postgres"]}}}`, `apps.docker.images: postgres is not a familiar name with a :tag or @sha256:<64 hex>`},
 	} {
 		if h.approve(ws, "m1", "trusted", c.grant) == 0 {
 			t.Errorf("%s was approved", c.grant)
@@ -218,7 +219,7 @@ func TestANameInTwoListsIsRefused(t *testing.T) {
 	h := newHarness(t)
 	ws := h.root() + "/w"
 	h.checkout(ws)
-	env := `{"bindings": {
+	env := `{"apps": {
 		"github": {"allow": ["y", "x", "x"], "ask": ["x"], "refuse": ["y", "z"]},
 		"cloudflare": {"allow": [{"methods": ["GET"], "path": "/a"}], "ask": [{"path": "/a", "methods": ["GET"]}]}
 	}}`
@@ -242,7 +243,7 @@ func TestWhatIsApprovedIsTheUsersAlone(t *testing.T) {
 	h.checkout(ws)
 	old := unix.Umask(0o022)
 	defer unix.Umask(old)
-	h.approved(ws, "m1", "trusted", `{"bindings": {}}`)
+	h.approved(ws, "m1", "trusted", `{"apps": {}}`)
 	for p, mode := range map[string]os.FileMode{
 		"/run/chase/.grant":                          0o700,
 		"/run/chase/.grant/m1.json":                  0o600,

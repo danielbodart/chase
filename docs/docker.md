@@ -306,7 +306,7 @@ name (decision 14). A `HostIp` that is empty, absent, `0.0.0.0` or
 `127.0.0.1` is rewritten to it. The address itself is accepted. Anything
 else refuses, IPv6 included: the daemon would bind `::` beside `0.0.0.0`,
 and a v6 address is not the project's. The `HostPort` must be one the
-grant names in `bindings.docker.ports` (1024 to 65535, at most 64,
+grant names in `apps.docker.ports` (1024 to 65535, at most 64,
 never frisket's own 15001), never a range or a random one. Two projects that
 both use 64320 now publish it at two addresses, and neither reaches the
 other's.
@@ -481,7 +481,7 @@ since dropped a port refuses connections to it.
    `chase docker-address`, and `lib.docker` in Nix.
 6. **chase: `apps/docker.nix`** — `chase.tiers.<tier>.apps.docker.enable`,
    only on a direct-egress tier that takes grants;
-   `bindings.docker.images` and `.ports` in the grant; the route,
+   `apps.docker.images` and `.ports` in the grant; the route,
    prepared per launch with the project, its address, names, images and
    ports, by an app with no credential; the Docker CLI and Compose in the
    container, and `DOCKER_HOST`, `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH`

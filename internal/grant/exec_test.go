@@ -62,12 +62,12 @@ func TestTheExecHookAppliesTheGrantAndPrintsItsPayload(t *testing.T) {
 	s := sessionConfig(h)
 	h.cfg.Apps["gcloud"] = grant.App{Credential: no()}
 	h.registry["gcloud"] = seeder{}
-	bindings := `{"bindings": {"cloudflare": {"accountId": "11111111111111111111111111111111"}, "gcloud": {"serviceAccount": "s@p.iam.gserviceaccount.com"}}}`
+	given := `{"apps": {"cloudflare": {"accountId": "11111111111111111111111111111111"}, "gcloud": {"serviceAccount": "s@p.iam.gserviceaccount.com"}}}`
 
 	// An agent the tier does not run, or none, is refused before the
 	// stage is consumed: nothing is prepared, no directory made, no policy
 	// written.
-	h.approved(ws, "m1", "trusted", bindings)
+	h.approved(ws, "m1", "trusted", given)
 	for args, said := range map[string]string{"claude": "unknown agent 'claude': trusted runs shell", "sh -c id": "unknown agent 'sh'", "": "no agent named"} {
 		args := strings.Fields(args)
 		if rc := h.exec(s, true, "trusted", ws, "m1", args...); rc != 1 || h.out != "" {
@@ -111,7 +111,7 @@ func TestTheExecHookAppliesTheGrantAndPrintsItsPayload(t *testing.T) {
 	// And so is a payload refused after the grant was applied: an
 	// export the container sets otherwise.
 	h.cfg.Apps["docker"] = grant.App{Credential: no(), Env: map[string]string{"SSL_CERT_FILE": "/elsewhere"}}
-	h.approved(ws, "m3", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
+	h.approved(ws, "m3", "trusted", `{"apps": {"docker": {"images": ["postgres:18"]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
 	if rc := h.exec(s, true, "trusted", ws, "m3", "shell"); rc != 1 || h.out != "" {
 		t.Errorf("a refused payload: status %d, printed %q", rc, h.out)
 	}

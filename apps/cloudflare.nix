@@ -134,7 +134,7 @@ in
       routes = lib.mapAttrs (_: route) (lib.filterAttrs (_: t: !t.bare) cfg.tiers);
       allow = [ host ];
       env.CLOUDFLARE_API_TOKEN = cfg.placeholder;
-      envFromBinding.CLOUDFLARE_ACCOUNT_ID = "accountId";
+      envFromGrant.CLOUDFLARE_ACCOUNT_ID = "accountId";
     };
   };
 }

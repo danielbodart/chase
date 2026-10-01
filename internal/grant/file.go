@@ -28,7 +28,7 @@ const FileName = "chase.jsonc"
 //
 //	{
 //	  "secrets": "secrets.yaml",
-//	  "bindings": {
+//	  "apps": {
 //	    "cloudflare": {
 //	      "credential": { "secret": "cloudflare-token" },
 //	      "accountId": "023e105f4ecef8ad9ca31a8372d0c353",
@@ -37,7 +37,7 @@ const FileName = "chase.jsonc"
 //	  "seccomp": { "allow": ["io_uring_setup", "io_uring_enter", "io_uring_register"] },
 //	}
 //
-// Fields are in the order they are written: bindings by name, as a person
+// Fields are in the order they are written: apps by name, as a person
 // finds them.
 type File struct {
 	// Secrets is the project's sops file, relative to the checkout: one
@@ -46,8 +46,8 @@ type File struct {
 	// not whatever it happens to hold -- the ciphertext is the project's to
 	// rotate, and its digest is approved beside the grant.
 	Secrets string `json:"secrets,omitempty"`
-	// Bindings is what each app is given for this project.
-	Bindings Bindings `json:"bindings"`
+	// Apps is what each app is given for this project.
+	Apps Apps `json:"apps"`
 	// Seccomp is syscalls, or systemd @groups, this project's sessions need
 	// beyond the tier's filter (Allow), or do without (Deny, after Allow,
 	// which it overrides). Each one allowed is kernel surface the session
@@ -61,8 +61,8 @@ type Seccomp struct {
 	Deny  []string `json:"deny,omitempty"`
 }
 
-// Bindings is each app a project can bind.
-type Bindings struct {
+// Apps is each app a project can configure.
+type Apps struct {
 	Cloudflare  *Cloudflare `json:"cloudflare,omitempty"`
 	Docker      *Docker     `json:"docker,omitempty"`
 	Gcloud      *Gcloud     `json:"gcloud,omitempty"`
@@ -197,6 +197,14 @@ func ParseFile(b []byte) ([]byte, error) {
 	if err := unique(v.Value, ""); err != nil {
 		return nil, err
 	}
+	if o, ok := v.Value.(*hujson.Object); ok {
+		for _, m := range o.Members {
+			// What a grant called its apps until it called them that.
+			if m.Name.Value.(hujson.Literal).String() == "bindings" {
+				return nil, errors.New("bindings is now apps")
+			}
+		}
+	}
 	v.Standardize()
 	var f File
 	if err := strict(v.Pack(), &f); err != nil {
@@ -278,22 +286,22 @@ func (f File) check() error {
 			}
 		}
 	}
-	b := f.Bindings
+	b := f.Apps
 	if c := b.Cloudflare; c != nil {
-		if err := checkLists("bindings.cloudflare", Lists{c.Allow, c.Ask, c.Refuse}); err != nil {
+		if err := checkLists("apps.cloudflare", Lists{c.Allow, c.Ask, c.Refuse}); err != nil {
 			return err
 		}
-		if err := checkCredential("bindings.cloudflare", c.Credential); err != nil {
+		if err := checkCredential("apps.cloudflare", c.Credential); err != nil {
 			return err
 		}
 		if c.AccountID != "" && !accountID.MatchString(c.AccountID) {
-			return fmt.Errorf("bindings.cloudflare.accountId: %q is not 32 lower-case hex digits", c.AccountID)
+			return fmt.Errorf("apps.cloudflare.accountId: %q is not 32 lower-case hex digits", c.AccountID)
 		}
 	}
 	if d := b.Docker; d != nil {
 		for _, image := range d.Images {
 			if why := imageProblem(image); why != "" {
-				return fmt.Errorf("bindings.docker.images: %s %s", image, why)
+				return fmt.Errorf("apps.docker.images: %s %s", image, why)
 			}
 		}
 		if err := checkPorts(d.Ports); err != nil {
@@ -301,14 +309,14 @@ func (f File) check() error {
 		}
 	}
 	if g := b.Gcloud; g != nil {
-		if err := checkLists("bindings.gcloud", Lists{g.Allow, g.Ask, g.Refuse}); err != nil {
+		if err := checkLists("apps.gcloud", Lists{g.Allow, g.Ask, g.Refuse}); err != nil {
 			return err
 		}
-		if err := checkCredential("bindings.gcloud", g.Credential); err != nil {
+		if err := checkCredential("apps.gcloud", g.Credential); err != nil {
 			return err
 		}
 		if g.ServiceAccount != "" && !serviceAccount.MatchString(g.ServiceAccount) {
-			return fmt.Errorf("bindings.gcloud.serviceAccount: %q is not an account's email", g.ServiceAccount)
+			return fmt.Errorf("apps.gcloud.serviceAccount: %q is not an account's email", g.ServiceAccount)
 		}
 		if a := g.APIs; a != nil {
 			for _, l := range []struct {
@@ -318,7 +326,7 @@ func (f File) check() error {
 				field := l.field
 				for _, n := range l.names {
 					if !apiName.MatchString(n) {
-						return fmt.Errorf("bindings.gcloud.apis.%s: %q is not a Discovery name", field, n)
+						return fmt.Errorf("apps.gcloud.apis.%s: %q is not a Discovery name", field, n)
 					}
 				}
 			}
@@ -329,7 +337,7 @@ func (f File) check() error {
 		l   *Lists
 	}{{"git", b.Git}, {"github", b.Github}, {"huggingface", b.Huggingface}} {
 		if a.l != nil {
-			if err := checkLists("bindings."+a.app, *a.l); err != nil {
+			if err := checkLists("apps."+a.app, *a.l); err != nil {
 				return err
 			}
 		}
@@ -381,17 +389,17 @@ const steering = 15001
 // first, when the grant is read.
 func checkPorts(ports []int) error {
 	if len(ports) > 64 {
-		return fmt.Errorf("bindings.docker.ports: at most 64 ports, not %d", len(ports))
+		return fmt.Errorf("apps.docker.ports: at most 64 ports, not %d", len(ports))
 	}
 	seen := map[int]bool{}
 	for _, p := range ports {
 		switch {
 		case p < 1024 || p > 65535:
-			return fmt.Errorf("bindings.docker.ports: %d is not a port from 1024 to 65535", p)
+			return fmt.Errorf("apps.docker.ports: %d is not a port from 1024 to 65535", p)
 		case p == steering:
-			return fmt.Errorf("bindings.docker.ports: %d is frisket's own steering listener", p)
+			return fmt.Errorf("apps.docker.ports: %d is frisket's own steering listener", p)
 		case seen[p]:
-			return fmt.Errorf("bindings.docker.ports: %d is named twice", p)
+			return fmt.Errorf("apps.docker.ports: %d is named twice", p)
 		}
 		seen[p] = true
 	}

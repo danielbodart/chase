@@ -13,7 +13,7 @@ import (
 // The grant is one JSON value, and what comes back is it as jq -c wrote
 // it, without the newline: its keys where they were, and its numbers as
 // written. A seccomp section of exactly {allow: [], deny: []} goes, and each
-// object under bindings loses every member that is null, [] or {} once its
+// object under apps loses every member that is null, [] or {} once its
 // own have been pruned, so an app whose fields are all empty goes too.
 // Arrays are kept as they are. A grant that is null is null; one that is
 // not an object is an error, as indexing it was jq's.
@@ -27,7 +27,7 @@ func Normal(grant []byte) ([]byte, error) {
 		if s := v.get("seccomp"); s != nil && unloosened(s) {
 			v.del("seccomp")
 		}
-		if b := v.get("bindings"); b != nil && b.kind != 'n' && b.kind != 'f' {
+		if b := v.get("apps"); b != nil && b.kind != 'n' && b.kind != 'f' {
 			pruned(b)
 		}
 	case 'n':

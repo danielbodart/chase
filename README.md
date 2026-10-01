@@ -103,7 +103,7 @@ behind each choice, and is what chase's own checks evaluate against.
 
 A tier is the machine's: which sandbox a checkout gets, and what it may do
 there. A **grant** is the project's: what this one repository asks for on top
-of its tier — a secret for an app, a binding such as the Docker images it
+of its tier — a secret for an app, settings such as the Docker images it
 runs, operations it wants let through or refused, a syscall its tests need.
 It lives in the checkout as `chase.jsonc`: JSON, with comments and trailing
 commas allowed, and nothing in it is ever run.
@@ -111,7 +111,7 @@ commas allowed, and nothing in it is ever run.
 ```jsonc
 {
   "secrets": "secrets.yaml",  // sops, encrypted to admin keys
-  "bindings": {
+  "apps": {
     "cloudflare": {
       "credential": { "secret": "cloudflare-token" },
       "accountId": "023e105f4ecef8ad9ca31a8372d0c353",
@@ -256,7 +256,7 @@ whatever the host does. The project names what it runs, in its grant:
 
 ```jsonc
 {
-  "bindings": {
+  "apps": {
     "docker": {
       "images": ["postgres:18"],  // exactly as `docker pull` shortens it, with a tag or digest
       "ports": [64320],           // the host ports its containers publish
@@ -332,7 +332,7 @@ does:
 
 ```jsonc
 {
-  "bindings": {
+  "apps": {
     "github": { "allow": ["category:pulls"], "refuse": ["repos/delete"] },
     "git": { "allow": ["git-receive-pack"] },  // its pushes
   },

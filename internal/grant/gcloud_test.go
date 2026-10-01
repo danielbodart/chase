@@ -63,7 +63,7 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 	h.checkout(ws)
 	write(t, ws+"/secrets.json", string(secrets))
 	h.fx.Run("-C", ws, "add", "secrets.json")
-	h.launched(ws, "m1", "trusted", `{"secrets": "secrets.json", "bindings": {"gcloud": {
+	h.launched(ws, "m1", "trusted", `{"secrets": "secrets.json", "apps": {"gcloud": {
 		"serviceAccount": "`+sa+`", "credential": {"secret": "gcloud-key"},
 		"apis": {"add": ["pubsub"], "remove": ["storage"]},
 		"allow": ["category:bigquery"], "ask": ["pubsub.projects.topics.delete"]}}}`)
@@ -149,7 +149,7 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 	// LISTS THAT DO NOT APPLY end the launch: a category of an API this
 	// session does not carry -- storage, removed -- is the script's `||
 	// die`, said after why, and nothing of the session is written or given.
-	h.approved(ws, "m2", "trusted", `{"secrets": "secrets.json", "bindings": {"gcloud": {
+	h.approved(ws, "m2", "trusted", `{"secrets": "secrets.json", "apps": {"gcloud": {
 		"serviceAccount": "`+sa+`", "credential": {"secret": "gcloud-key"},
 		"apis": {"remove": ["storage"]}, "allow": ["category:storage"]}}}`)
 	if rc := h.launch("trusted", ws, "m2"); rc != 1 {

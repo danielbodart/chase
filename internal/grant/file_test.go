@@ -22,7 +22,7 @@ func TestWhatAGrantMayNameForDocker(t *testing.T) {
 		return strings.Join(p, ",")
 	}
 	images := func(s ...string) string {
-		return `{"bindings": {"docker": {"images": ["` + strings.Join(s, `", "`) + `"]}}}`
+		return `{"apps": {"docker": {"images": ["` + strings.Join(s, `", "`) + `"]}}}`
 	}
 	refused := []string{
 		images("docker.io/postgres:18"),
@@ -47,16 +47,16 @@ func TestWhatAGrantMayNameForDocker(t *testing.T) {
 		images(digest + ":1"),
 		images("o/" + digest + ":1"),
 		images("o/sha256:1"),
-		`{"bindings": {"docker": {"ports": [80]}}}`,
-		`{"bindings": {"docker": {"ports": [0, 99999]}}}`,
-		`{"bindings": {"docker": {"ports": [15001]}}}`,
-		`{"bindings": {"docker": {"ports": [5432, 5432]}}}`,
-		`{"bindings": {"docker": {"ports": [` + ports(2000, 2064) + `]}}}`,
+		`{"apps": {"docker": {"ports": [80]}}}`,
+		`{"apps": {"docker": {"ports": [0, 99999]}}}`,
+		`{"apps": {"docker": {"ports": [15001]}}}`,
+		`{"apps": {"docker": {"ports": [5432, 5432]}}}`,
+		`{"apps": {"docker": {"ports": [` + ports(2000, 2064) + `]}}}`,
 	}
 	accepted := []string{
-		`{"bindings": {"docker": {"images": ["postgres:18", "bitnami/postgresql:16", "ghcr.io/o/x:1", "postgres@sha256:` + digest + `", "eu.gcr.io/p/x:1", "europe-west2-docker.pkg.dev/p/r/x:1"], "ports": [5432]}}}`,
-		`{"bindings": {"docker": {"ports": [` + ports(2000, 2063) + `]}}}`,
-		`{"bindings": {"docker": {}}}`,
+		`{"apps": {"docker": {"images": ["postgres:18", "bitnami/postgresql:16", "ghcr.io/o/x:1", "postgres@sha256:` + digest + `", "eu.gcr.io/p/x:1", "europe-west2-docker.pkg.dev/p/r/x:1"], "ports": [5432]}}}`,
+		`{"apps": {"docker": {"ports": [` + ports(2000, 2063) + `]}}}`,
+		`{"apps": {"docker": {}}}`,
 	}
 	for _, g := range refused {
 		if _, err := grant.ParseFile([]byte(g)); err == nil {
@@ -77,7 +77,7 @@ func TestAGrantIsApprovedAsChaseReadsIt(t *testing.T) {
 	got, err := grant.ParseFile([]byte(`// talebrary's
 {
   "seccomp": { "allow": ["io_uring_setup"], "deny": [] },
-  "bindings": {
+  "apps": {
     /* often */
     "github": { "allow": ["b", { "path": "/x", "methods": ["GET"] }], },
     "cloudflare": { "credential": { "secret": "t" }, "accountId": "` + strings.Repeat("0", 32) + `" },
@@ -87,7 +87,7 @@ func TestAGrantIsApprovedAsChaseReadsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"secrets":"secrets.yaml","bindings":{"cloudflare":{"accountId":"` + strings.Repeat("0", 32) + `","credential":{"secret":"t"}},"github":{"allow":["b",{"methods":["GET"],"path":"/x"}]}},"seccomp":{"allow":["io_uring_setup"]}}`
+	want := `{"secrets":"secrets.yaml","apps":{"cloudflare":{"accountId":"` + strings.Repeat("0", 32) + `","credential":{"secret":"t"}},"github":{"allow":["b",{"methods":["GET"],"path":"/x"}]}},"seccomp":{"allow":["io_uring_setup"]}}`
 	if string(got) != want {
 		t.Errorf("read as %s, not %s", got, want)
 	}

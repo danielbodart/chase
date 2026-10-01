@@ -111,9 +111,9 @@ func jq(t *testing.T, input string, args ...string) string {
 var grants = []string{
 	`null`,
 	`{}`,
-	`{"bindings": {}}`,
+	`{"apps": {}}`,
 	`{"z": 1, "a": [], "m": {"y": [1, 2.50, 1e2, -0.0, 1E-7], "b": "\u0001\u007f\u001f\"\\/<>& é"}}`,
-	`{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}, "dockerProject": "example/shop", "seccomp": {"allow": ["a"], "deny": []}}`,
+	`{"apps": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}, "dockerProject": "example/shop", "seccomp": {"allow": ["a"], "deny": []}}`,
 	`{"a": {"b": {"c": [[], {}, [{}], [[1]]]}}, "B": true, "_": false, "": null}`,
 }
 

@@ -77,7 +77,7 @@ it:
   session sees, and seeds a copy of it into the session's home at
   `~/.config/chase/`, the user's alone (flong's `exec`): an
   RSA-2048 key of its own, a random `private_key_id`, and `client_email` and
-  `project_id` from the real key, which must name the binding's
+  `project_id` from the real key, which must name the grant's
   `serviceAccount`. Its public half goes in the session's policy, inline, with
   the service account as issuer. One file per account and project, so a
   launch with another leaves a running session's key alone. The keys an
@@ -249,7 +249,7 @@ and in the project's `chase.jsonc`:
 
 ```jsonc
 {
-  "bindings": {
+  "apps": {
     "gcloud": {
       "credential": { "secret": "gcloud-key" },
       "serviceAccount": "agent@my-project.iam.gserviceaccount.com",

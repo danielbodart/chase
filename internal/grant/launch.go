@@ -149,7 +149,7 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 	if err != nil {
 		return given, err
 	}
-	bindings, err := result.index("bindings")
+	bindings, err := result.index("apps")
 	if err != nil {
 		return given, err
 	}
@@ -237,7 +237,7 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 // session cannot: the runtime directory is bound into no container.
 func decrypt(ctx context.Context, c Config, ws, file, secret, out string, stderr io.Writer) error {
 	if file == "" {
-		return refuse("%s: a binding names secret '%s', and the grant names no secrets file", ws, secret)
+		return refuse("%s: an app names secret '%s', and the grant names no secrets file", ws, secret)
 	}
 	f, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o666)
 	if err != nil {
@@ -299,8 +299,8 @@ func exportsOf(a App, patch apps.Patch, binding *value) ([]session.Var, error) {
 	for _, k := range slices.Sorted(maps.Keys(patch.Env)) {
 		merged.set(k, jstr(patch.Env[k]))
 	}
-	for _, k := range slices.Sorted(maps.Keys(a.EnvFromBinding)) {
-		v, err := binding.index(a.EnvFromBinding[k])
+	for _, k := range slices.Sorted(maps.Keys(a.EnvFromGrant)) {
+		v, err := binding.index(a.EnvFromGrant[k])
 		if err != nil {
 			return nil, err
 		}
@@ -310,7 +310,7 @@ func exportsOf(a App, patch apps.Patch, binding *value) ([]session.Var, error) {
 			// One variable is one value: a list has no one way to be a
 			// string, and the shell that once exported these made the rest
 			// of one names of variables of their own.
-			return nil, refuse("%s: %s is not one value, so %s cannot be it", k, a.EnvFromBinding[k], k)
+			return nil, refuse("%s: %s is not one value, so %s cannot be it", k, a.EnvFromGrant[k], k)
 		default:
 			merged.set(k, v)
 		}
@@ -328,7 +328,7 @@ func exportsOf(a App, patch apps.Patch, binding *value) ([]session.Var, error) {
 // credential, and no one to ask for someone else's code -- which is said
 // rather than refused (PLAN.md, decision 8).
 func applyLists(pd *policy.Document, bindings *value, ws, tier string, stderr io.Writer) error {
-	// `.bindings // {} | to_entries[]`.
+	// `.apps // {} | to_entries[]`.
 	keys, vals, err := bindings.or(jobject()).entries()
 	if err != nil {
 		return err

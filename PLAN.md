@@ -70,7 +70,7 @@ built can do no more than the caller running bwrap directly.
 
 What stops a checkout from widening its own sandbox is therefore not who runs
 the launcher but what the launcher applies. A project's grant is read
-at launch, and nothing it says — a binding, a secret,
+at launch, and nothing it says — an app's settings, a secret,
 a syscall it wants back — takes effect until `chase.approver` has shown a
 person the change and they have said yes (decision 17). `guard` stays, as a
 consistency check between the wrapper and the launcher rather than a gate:
@@ -326,7 +326,7 @@ exception:
 
 A request is answered by the most specific of these that says anything:
 
-1. **The project, by name**: `bindings.<app>.allow`, `.ask` and
+1. **The project, by name**: `apps.<app>.allow`, `.ask` and
    `.refuse`, each a list of operation ids, or methods and an exact path for
    an endpoint the description does not name. Any operation can be named,
    guarded ones too; the name is exact, and the list is part of what is

@@ -80,7 +80,7 @@ func newProjectLaunch(t *testing.T) (*harness, *probe, string) {
 // has. An app with a credential is still bound only with one.
 func TestAnAppWithNoCredentialIsMadeFromItsBinding(t *testing.T) {
 	h, p, ws := newProjectLaunch(t)
-	h.launched(ws, "m1", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}, "gcloud": {"serviceAccount": "a@p.iam.gserviceaccount.com"}}}`)
+	h.launched(ws, "m1", "trusted", `{"apps": {"docker": {"images": ["postgres:18"], "ports": [64320]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}, "gcloud": {"serviceAccount": "a@p.iam.gserviceaccount.com"}}}`)
 	if len(p.requests) != 1 {
 		t.Fatalf("probe was prepared %d times", len(p.requests))
 	}
@@ -118,7 +118,7 @@ func TestAnAppWithNoCredentialIsMadeFromItsBinding(t *testing.T) {
 	}
 
 	// Without probe, it is never prepared.
-	h.launched(ws, "m2", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320]}}}`)
+	h.launched(ws, "m2", "trusted", `{"apps": {"docker": {"images": ["postgres:18"], "ports": [64320]}}}`)
 	if len(p.requests) != 1 {
 		t.Error("probe was prepared with no binding")
 	}
@@ -130,7 +130,7 @@ func TestAnAppWithNoCredentialIsMadeFromItsBinding(t *testing.T) {
 	}
 
 	// Without Docker, there is no project to give, and it is empty.
-	h.launched(ws, "m3", "trusted", `{"bindings": {"cloudflare": {"accountId": "22222222222222222222222222222222"}}}`)
+	h.launched(ws, "m3", "trusted", `{"apps": {"cloudflare": {"accountId": "22222222222222222222222222222222"}}}`)
 	if r := p.requests[len(p.requests)-1]; r.Project != "" || string(r.Binding) != `{"accountId":"22222222222222222222222222222222"}` {
 		t.Errorf("prepare was given a project with no Docker, or not the binding: %+v", r)
 	}
@@ -146,7 +146,7 @@ func TestAnAppWithNoCredentialAndNoCodeIsRefused(t *testing.T) {
 	c := h.cfg
 	c.Apps = map[string]grant.App{"bad": {Credential: no()}, "fine": {}}
 	err := grant.Validate(c, nil)
-	if err == nil || err.Error() != "chase.internal.projectApps.bad has no credential and no prepare, so nothing could be made of its binding" {
+	if err == nil || err.Error() != "chase.internal.projectApps.bad has no credential and no prepare, so nothing could be made of what a grant says for it" {
 		t.Errorf("an app with no credential and no prepare was built: %v", err)
 	}
 	if err := grant.Validate(c, map[string]apps.App{"bad": &probe{}}); err != nil {
@@ -154,7 +154,7 @@ func TestAnAppWithNoCredentialAndNoCodeIsRefused(t *testing.T) {
 	}
 
 	h.cfg.Apps["huggingface"] = grant.App{Credential: no()}
-	h.approved(ws, "m1", "trusted", `{"bindings": {"huggingface": {"ask": ["x"]}}}`)
+	h.approved(ws, "m1", "trusted", `{"apps": {"huggingface": {"ask": ["x"]}}}`)
 	if h.launch("trusted", ws, "m1") == 0 {
 		t.Error("an app with no credential and no prepare was launched")
 	}
@@ -397,7 +397,7 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 			t.Fatalf("%s was not launched: %s", machine, h.err)
 		}
 	}
-	shop := `{"bindings": {"docker": {"images": ["postgres:18", "bitnami/redis:7", "ghcr.io/o/x:1"], "ports": [64320, 64321]}}}`
+	shop := `{"apps": {"docker": {"images": ["postgres:18", "bitnami/redis:7", "ghcr.io/o/x:1"], "ports": [64320, 64321]}}}`
 
 	launched("trusted", "m1", shop)
 	if !h.said("chase: " + ws + ": docker from no credential") {
@@ -445,7 +445,7 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 	}
 
 	// Images alone, with no ports, still route.
-	launched("trusted", "m2", `{"bindings": {"docker": {"images": ["postgres:18"]}}}`)
+	launched("trusted", "m2", `{"apps": {"docker": {"images": ["postgres:18"]}}}`)
 	for _, rt := range h.policyDoc("m2").Routes {
 		if rt.Name == "docker" && len(rt.Docker.Ports) != 0 {
 			t.Errorf("no ports did not route with none: %v", rt.Docker.Ports)
@@ -458,7 +458,7 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 
 	// Ports alone name nothing a container could run, so the launch ends
 	// there rather than frisket refusing the document.
-	h.approved(ws, "m3", "trusted", `{"bindings": {"docker": {"ports": [64320]}}}`)
+	h.approved(ws, "m3", "trusted", `{"apps": {"docker": {"ports": [64320]}}}`)
 	if h.launch("trusted", ws, "m3") == 0 {
 		t.Error("Docker with no images was launched")
 	}
@@ -466,7 +466,7 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 	h.mustSay("chase: " + ws + ": docker could not be prepared")
 
 	// NO BINDING, NO ROUTE, and nothing of Docker's in the session.
-	h.approved(ws, "m4", "trusted", `{"bindings": {"gcloud": {"serviceAccount": "a@p.iam.gserviceaccount.com"}}}`)
+	h.approved(ws, "m4", "trusted", `{"apps": {"gcloud": {"serviceAccount": "a@p.iam.gserviceaccount.com"}}}`)
 	if h.launch("trusted", ws, "m4") != 0 {
 		t.Fatalf("m4 was not launched: %s", h.err)
 	}
@@ -500,7 +500,7 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 // its own.
 func TestALaunchAppliesOneApprovalOnce(t *testing.T) {
 	h, _, ws := newProjectLaunch(t)
-	h.launched(ws, "m1", "trusted", `{"bindings": {"cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
+	h.launched(ws, "m1", "trusted", `{"apps": {"cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
 	if _, err := os.Stat(h.dir + "/run/chase/.grant/m1.json"); err == nil {
 		t.Error("the stage outlived its launch")
 	}
@@ -564,14 +564,14 @@ func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 		Routes: map[string]json.RawMessage{"trusted": json.RawMessage(`{"name": "cloudflare", "host": "api.cloudflare.com", "upstream": "https://api.cloudflare.com"}`)},
 		Allow:  []string{"api.cloudflare.com"},
 		Env:    map[string]string{"CLOUDFLARE_API_TOKEN": "proxy-injected"},
-		EnvFromBinding: map[string]string{
+		EnvFromGrant: map[string]string{
 			"CLOUDFLARE_ACCOUNT_ID": "accountId",
 			"CLOUDFLARE_ZONE":       "zone",
 		},
 	}
 	write(t, ws+"/secrets.json", `{"cloudflare-token": "the token"}`)
 	h.fx.Run("-C", ws, "add", "secrets.json")
-	env := `{"secrets": "secrets.json", "bindings": {"cloudflare": {"credential": {"secret": "cloudflare-token"}, "accountId": "023e105f4ecef8ad9ca31a8372d0c353"}}}`
+	env := `{"secrets": "secrets.json", "apps": {"cloudflare": {"credential": {"secret": "cloudflare-token"}, "accountId": "023e105f4ecef8ad9ca31a8372d0c353"}}}`
 	h.launched(ws, "m1", "trusted", env)
 	if !h.said("chase: " + ws + ": cloudflare from secrets.json:cloudflare-token") {
 		t.Errorf("where cloudflare came from was not said: %s", h.err)
@@ -626,8 +626,8 @@ func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 	}
 
 	// A binding naming a secret, and no sops file.
-	h.approved(ws, "m5", "trusted", `{"bindings": {"cloudflare": {"credential": {"secret": "cloudflare-token"}}}}`)
-	if h.launch("trusted", ws, "m5") == 0 || !h.said("chase: "+ws+": a binding names secret 'cloudflare-token', and the grant names no secrets file") {
+	h.approved(ws, "m5", "trusted", `{"apps": {"cloudflare": {"credential": {"secret": "cloudflare-token"}}}}`)
+	if h.launch("trusted", ws, "m5") == 0 || !h.said("chase: "+ws+": an app names secret 'cloudflare-token', and the grant names no secrets file") {
 		t.Errorf("a secret with no sops file: %s", h.err)
 	}
 }
@@ -638,7 +638,7 @@ func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 func TestListsOfAnAppTheTierLacksOrHasAnonymouslyAreIgnored(t *testing.T) {
 	h, _, ws := newProjectLaunch(t)
 	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["github.com"], "routes": [{"name": "github", "host": "api.github.com", "upstream": "https://api.github.com"}]}`)
-	h.launched(ws, "m1", "trusted", `{"bindings": {"github": {"allow": ["repos/delete"]}, "huggingface": {"ask": ["x"]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
+	h.launched(ws, "m1", "trusted", `{"apps": {"github": {"allow": ["repos/delete"]}, "huggingface": {"ask": ["x"]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
 	if !h.said("chase: " + ws + ": github's lists ignored: github is anonymous in trusted") {
 		t.Errorf("an anonymous app's lists were not said to be ignored: %s", h.err)
 	}
@@ -650,7 +650,7 @@ func TestListsOfAnAppTheTierLacksOrHasAnonymouslyAreIgnored(t *testing.T) {
 	// so it is anonymous in what frisket loads (a change from jq, whose
 	// `.credentialFile` was true of "").
 	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["github.com"], "routes": [{"name": "github", "host": "api.github.com", "upstream": "https://api.github.com", "credentialFile": ""}]}`)
-	h.launched(ws, "m2", "trusted", `{"bindings": {"github": {"allow": ["repos/delete"]}}}`)
+	h.launched(ws, "m2", "trusted", `{"apps": {"github": {"allow": ["repos/delete"]}}}`)
 	if !h.said("chase: " + ws + ": github's lists ignored: github is anonymous in trusted") {
 		t.Errorf("an empty credentialFile's lists were not said to be ignored: %s", h.err)
 	}
@@ -676,7 +676,7 @@ func TestTheSessionIsGivenEachAppsVariablesAndFiles(t *testing.T) {
 	h.cfg.Apps["docker"] = grant.App{Credential: no(), Env: map[string]string{"A": "1"}}
 	h.cfg.Apps["gcloud"] = grant.App{Credential: no()}
 	h.registry["gcloud"] = seeder{}
-	h.launched(ws, "m1", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}, "gcloud": {"serviceAccount": "s@p.iam.gserviceaccount.com"}}}`)
+	h.launched(ws, "m1", "trusted", `{"apps": {"docker": {"images": ["postgres:18"]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}, "gcloud": {"serviceAccount": "s@p.iam.gserviceaccount.com"}}}`)
 	if got := h.env(); !slices.Equal(got, []string{"PROBE=1", "A=1", "SEEDER_KEY=" + h.dir + "/home/.config/seeder/key"}) {
 		t.Errorf("the session's environment is %q", got)
 	}
@@ -684,7 +684,7 @@ func TestTheSessionIsGivenEachAppsVariablesAndFiles(t *testing.T) {
 		t.Errorf("the session's files are %+v", got)
 	}
 	h.cfg.Apps["docker"] = grant.App{Credential: no()}
-	h.launched(ws, "m2", "trusted", `{"bindings": {"docker": {"images": ["postgres:18"]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
+	h.launched(ws, "m2", "trusted", `{"apps": {"docker": {"images": ["postgres:18"]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
 	if got := h.env(); !slices.Equal(got, []string{"PROBE=1"}) {
 		t.Errorf("the session's environment is %q", got)
 	}
@@ -700,7 +700,7 @@ func TestTheSessionIsGivenEachAppsVariablesAndFiles(t *testing.T) {
 	if err == nil {
 		t.Errorf("an unapproved launch gave %v", given)
 	}
-	h.approved(ws, "m3", "trusted", `{"bindings": {"cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
+	h.approved(ws, "m3", "trusted", `{"apps": {"cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
 	given, err = grant.Launch(context.Background(), h.cfg, h.registry, "trusted", ws, "m3", &strings.Builder{})
 	if err != nil || len(given.Env) != 1 || given.Env[0] != (session.Var{Name: "PROBE", Value: "1"}) {
 		t.Errorf("the launch's environment is %v: %v", given, err)
@@ -711,8 +711,8 @@ func TestTheSessionIsGivenEachAppsVariablesAndFiles(t *testing.T) {
 // and then the directory and anything staged for it, gone.
 func TestTheSessionsEndStopsEachAppFirst(t *testing.T) {
 	h, p, ws := newProjectLaunch(t)
-	h.launched(ws, "m1", "trusted", `{"bindings": {"cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
-	h.approved(ws, "m1", "trusted", `{"bindings": {"cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
+	h.launched(ws, "m1", "trusted", `{"apps": {"cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
+	h.approved(ws, "m1", "trusted", `{"apps": {"cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
 	if rc := grant.RunPostStop(context.Background(), h.cfg, h.registry, []string{"m1"}, nil, &strings.Builder{}, &strings.Builder{}); rc != 0 {
 		t.Errorf("postStop failed: %d", rc)
 	}

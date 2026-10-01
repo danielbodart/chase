@@ -356,7 +356,7 @@ func dockerLine(c Config, ws, slug string, who dockerproject.Project, result *va
 	if len(who.Names) > 0 {
 		names = strings.Join(who.Names, ", ")
 	}
-	pv, err := result.path("bindings", "docker", "ports")
+	pv, err := result.path("apps", "docker", "ports")
 	if err != nil {
 		return err
 	}
@@ -461,7 +461,7 @@ func approvedPorts(result *value, slug string) (string, error) {
 	var ports []string
 	if result.kind == '{' {
 		if dp := result.members["dockerProject"]; dp != nil && dp.kind == '"' && dp.text == slug {
-			pv, err := result.path("bindings", "docker", "ports")
+			pv, err := result.path("apps", "docker", "ports")
 			if err != nil {
 				return "", err
 			}

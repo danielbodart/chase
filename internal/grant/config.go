@@ -110,7 +110,7 @@ type Config struct {
 
 // App is one of chase.internal.projectApps whose routes the module writes:
 // its frisket routes by tier, the names it adds to allow, the session's env,
-// and envFromBinding, variables taken from the binding's other fields.
+// and envFromGrant, variables taken from the binding's other fields.
 type App struct {
 	// Routes is by tier: a route, or a list of them, as a policy document
 	// holds one but for credentialFile, which is the project's decrypted
@@ -118,9 +118,9 @@ type App struct {
 	Routes map[string]json.RawMessage `json:"routes,omitempty"`
 	Allow  []string                   `json:"allow,omitempty"`
 	Env    map[string]string          `json:"env,omitempty"`
-	// EnvFromBinding names, for each variable, the binding's field it is
+	// EnvFromGrant names, for each variable, the binding's field it is
 	// taken from.
-	EnvFromBinding map[string]string `json:"envFromBinding,omitempty"`
+	EnvFromGrant map[string]string `json:"envFromGrant,omitempty"`
 	// Credential, true when absent, says the app is bound only with the
 	// project's secret, named by the binding's credential.secret, and not
 	// at all without one. False: the app has no credential, and is made by
@@ -180,7 +180,7 @@ func Validate(c Config, registry map[string]apps.App) error {
 	}
 	for _, name := range slices.Sorted(maps.Keys(c.Apps)) {
 		if _, code := registry[name]; !c.Apps[name].hasCredential() && !code {
-			return fmt.Errorf("chase.internal.projectApps.%s has no credential and no prepare, so nothing could be made of its binding", name)
+			return fmt.Errorf("chase.internal.projectApps.%s has no credential and no prepare, so nothing could be made of what a grant says for it", name)
 		}
 	}
 	return nil

@@ -144,7 +144,7 @@ func TestAPinIsHeldBothWays(t *testing.T) {
 	h.refusedAs(r+"/p/shop/nested", "is a checkout of "+r+"/p/shop/nested, not of "+r+"/p/shop")
 }
 
-const dockerGrant = `{"bindings": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}`
+const dockerGrant = `{"apps": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}`
 
 const shopLine = "Docker as example/shop at 127.101.170.171 (shop.internal, shop.example.internal), ports 64320 64321"
 
@@ -352,7 +352,7 @@ func TestOnlyDockerNeedsAProject(t *testing.T) {
 		t.Error("a checkout with no origin was staged")
 	}
 
-	h.approved(none, "m10", "trusted", `{"bindings": {"github": {"allow": ["x"]}}}`)
+	h.approved(none, "m10", "trusted", `{"apps": {"github": {"allow": ["x"]}}}`)
 	if _, has := h.stagedDoc("m10")["result"].(map[string]any)["dockerProject"]; has {
 		t.Error("a grant without Docker gained a project")
 	}
@@ -362,7 +362,7 @@ func TestOnlyDockerNeedsAProject(t *testing.T) {
 
 	// What chase derives is never the grant's to say.
 	for _, own := range []string{`"dockerProject": "example/shop"`, `"secretsSHA256": "0"`} {
-		if h.approve(none, "m11", "trusted", `{`+own+`, "bindings": {"github": {"allow": ["x"]}}}`) == 0 {
+		if h.approve(none, "m11", "trusted", `{`+own+`, "apps": {"github": {"allow": ["x"]}}}`) == 0 {
 			t.Errorf("a grant saying %s was approved", own)
 		}
 		if h.isStaged("m11") {

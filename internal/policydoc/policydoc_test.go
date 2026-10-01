@@ -297,25 +297,25 @@ func sorted(t *testing.T, s string) string {
 // A grant approved before its apps' empty fields were left out reads
 // as the same grant now.
 func TestAnGrantApprovedBeforeReadsAsTheSame(t *testing.T) {
-	old := `{"secrets": "s.yaml", "seccomp": {"allow": [], "deny": []}, "bindings": {"github": {"allow": ["x"], "ask": [], "refuse": []}, "cloudflare": {"allow": [], "credential": {"secret": null}, "accountId": null}}}`
-	now := `{"secrets": "s.yaml", "bindings": {"github": {"allow": ["x"]}}}`
+	old := `{"secrets": "s.yaml", "seccomp": {"allow": [], "deny": []}, "apps": {"github": {"allow": ["x"], "ask": [], "refuse": []}, "cloudflare": {"allow": [], "credential": {"secret": null}, "accountId": null}}}`
+	now := `{"secrets": "s.yaml", "apps": {"github": {"allow": ["x"]}}}`
 	if a, b := sorted(t, normal(t, old)), sorted(t, normal(t, now)); a != b {
 		t.Errorf("a grant approved before reads as another: %s", a)
 	}
 	if got := normal(t, `{"secrets": "s.yaml"}`); got != `{"secrets":"s.yaml"}` {
-		t.Errorf("a grant without bindings was changed: %s", got)
+		t.Errorf("a grant without apps was changed: %s", got)
 	}
 	// Docker's binding is new: a grant that names no image and no port
 	// reads as one approved before there was a binding to name.
-	old = `{"secrets": "s.yaml", "bindings": {"github": {"allow": ["x"]}}}`
-	now = `{"secrets": "s.yaml", "bindings": {"github": {"allow": ["x"]}, "docker": {"images": [], "ports": []}}}`
+	old = `{"secrets": "s.yaml", "apps": {"github": {"allow": ["x"]}}}`
+	now = `{"secrets": "s.yaml", "apps": {"github": {"allow": ["x"]}, "docker": {"images": [], "ports": []}}}`
 	if a, b := sorted(t, normal(t, old)), sorted(t, normal(t, now)); a != b {
 		t.Errorf("a grant without Docker reads as another: %s", b)
 	}
-	if got := normal(t, `{"bindings": {"docker": {"images": ["postgres:18"], "ports": []}}}`); got != `{"bindings":{"docker":{"images":["postgres:18"]}}}` {
+	if got := normal(t, `{"apps": {"docker": {"images": ["postgres:18"], "ports": []}}}`); got != `{"apps":{"docker":{"images":["postgres:18"]}}}` {
 		t.Errorf("a grant's Docker images were not kept: %s", got)
 	}
-	if got := normal(t, `{"bindings": {"docker": {"images": [], "ports": [5432]}}}`); got != `{"bindings":{"docker":{"ports":[5432]}}}` {
+	if got := normal(t, `{"apps": {"docker": {"images": [], "ports": [5432]}}}`); got != `{"apps":{"docker":{"ports":[5432]}}}` {
 		t.Errorf("a grant's Docker ports were not kept: %s", got)
 	}
 }
@@ -326,16 +326,16 @@ func TestAnGrantApprovedBeforeReadsAsTheSame(t *testing.T) {
 func TestAnGrantIsWrittenAsJqWroteIt(t *testing.T) {
 	for in, want := range map[string]string{
 		`null`: `null`,
-		`{"bindings":{"x":{"a":[{}],"b":false,"c":0,"d":"","e":{"f":[]}}},"seccomp":{"deny":[],"allow":[]}}`: `{"bindings":{"x":{"a":[{}],"b":false,"c":0,"d":""}}}`,
-		`{"bindings":false}`:                       `{"bindings":false}`,
-		`{"bindings":[{}]}`:                        `{"bindings":[{}]}`,
-		`{"bindings":"x"}`:                         `{"bindings":"x"}`,
-		`{"bindings":null}`:                        `{"bindings":null}`,
+		`{"apps":{"x":{"a":[{}],"b":false,"c":0,"d":"","e":{"f":[]}}},"seccomp":{"deny":[],"allow":[]}}`: `{"apps":{"x":{"a":[{}],"b":false,"c":0,"d":""}}}`,
+		`{"apps":false}`: `{"apps":false}`,
+		`{"apps":[{}]}`:  `{"apps":[{}]}`,
+		`{"apps":"x"}`:   `{"apps":"x"}`,
+		`{"apps":null}`:  `{"apps":null}`,
 		`{"seccomp":{"allow":[],"deny":[],"x":1}}`: `{"seccomp":{"allow":[],"deny":[],"x":1}}`,
 		`{"seccomp":{"allow":[],"deny":["a"]}}`:    `{"seccomp":{"allow":[],"deny":["a"]}}`,
 		`{"a":1,"a":2}`:                            `{"a":2}`,
 		`{"z":1,"a":{"y":2,"b":3}}`:                `{"z":1,"a":{"y":2,"b":3}}`,
-		`{"bindings":{"x":{"p":[1e2,0.10],"q":1.50e1,"r":{"s":null,"t":0.0000001,"u":-0.0,"v":0e5,"w":123e-2}}},"seccomp":{"allow":["a"],"deny":[]},"z":0.000001}`:                              `{"bindings":{"x":{"p":[1E+2,0.10],"q":15.0,"r":{"t":1E-7,"u":-0.0,"v":0E+5,"w":1.23}}},"seccomp":{"allow":["a"],"deny":[]},"z":0.000001}`,
+		`{"apps":{"x":{"p":[1e2,0.10],"q":1.50e1,"r":{"s":null,"t":0.0000001,"u":-0.0,"v":0e5,"w":123e-2}}},"seccomp":{"allow":["a"],"deny":[]},"z":0.000001}`:                                  `{"apps":{"x":{"p":[1E+2,0.10],"q":15.0,"r":{"t":1E-7,"u":-0.0,"v":0E+5,"w":1.23}}},"seccomp":{"allow":["a"],"deny":[]},"z":0.000001}`,
 		`{"a":[1.0,1e2,-0,1.50,1E+2,0.1,100000000000000000000001,1.7976931348623157e309,-1e-400,12345678901234567890,1.25e-7,"\u001b\u007f\u0080/<>&é\u2028\ud83d\ude00\t\"\\\b\f\r\n\u0001"]}`: "{\"a\":[1.0,1E+2,-0,1.50,1E+2,0.1,100000000000000000000001,1.7976931348623157E+309,-1E-400,12345678901234567890,1.25E-7,\"\\u001b\\u007f\u0080/<>&é\u2028😀\\t\\\"\\\\\\b\\f\\r\\n\\u0001\"]}",
 		`{"a":1e1000000000000}`:  `{"a":1.7976931348623157e+308}`,
 		`{"a":-1e1000000000000}`: `{"a":-1.7976931348623157e+308}`,

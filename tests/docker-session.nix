@@ -77,7 +77,7 @@ let
     cat > chase.jsonc <<'EOF'
     {
       // shop's database, as its Compose file runs it.
-      "bindings": {
+      "apps": {
         "docker": { "images": ["postgres:18"], "ports": [64320] },
       },
     }

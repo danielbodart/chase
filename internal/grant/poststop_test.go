@@ -41,8 +41,8 @@ func TestPostStopRemovesOnlyASessionsOwnDirectory(t *testing.T) {
 
 // A binding's field that is a list or an object cannot be one variable's
 // value: it has no one way to be a string.
-func TestAnEnvFromBindingThatIsNotOneValueIsRefused(t *testing.T) {
-	a := App{EnvFromBinding: map[string]string{"ACCOUNT": "accountId"}}
+func TestAnEnvFromGrantThatIsNotOneValueIsRefused(t *testing.T) {
+	a := App{EnvFromGrant: map[string]string{"ACCOUNT": "accountId"}}
 	for _, b := range []string{`{"accountId": ["a", "b"]}`, `{"accountId": {"x": 1}}`} {
 		v, err := parseJSON([]byte(b))
 		if err != nil {
