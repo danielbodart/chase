@@ -142,7 +142,7 @@ in
       approver = "${pkgs.writeShellScript "approver" ''
         ${pkgs.coreutils}/bin/cat | ${pkgs.util-linux}/bin/logger -t chase-test-approver
       ''}";
-      bindings = {
+      apps = {
         claude.package = pkgs.hello;
         codex.package = pkgs.hello;
       };
@@ -172,7 +172,7 @@ in
   testScript = { nodes, ... }:
     let
       launcher = lib.getExe nodes.machine.flong.agent-trusted.launcher;
-      compose = nodes.machine.chase.bindings.docker.package;
+      compose = nodes.machine.chase.apps.docker.package;
     in
     ''
       import json
@@ -270,7 +270,7 @@ in
           assert env["DOCKER_HOST"] == "tcp://docker.frisket.internal:2376" and env["DOCKER_TLS_VERIFY"] == "1", env
           assert env["CHASE_DOCKER_ADDRESS"] == "${address}" and env["CHASE_DOCKER_PORTS"] == "64320", env
 
-      with subtest("the session's Docker is the binding's package, with Compose ${pkgs.docker-compose.version}"):
+      with subtest("the session's Docker is the configured package, with Compose ${pkgs.docker-compose.version}"):
           out = session_ok("readlink -f \"$(command -v docker)\"; docker compose version --short")
           assert out.splitlines()[0].startswith("${compose}/"), out
           assert out.splitlines()[1].lstrip("v") == "${pkgs.docker-compose.version}", out

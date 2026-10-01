@@ -157,7 +157,7 @@
                     user = "alice";
                     uid = 1000;
                     gid = 100;
-                    bindings = {
+                    apps = {
                       claude.package = pkgs.hello;
                       codex.package = pkgs.hello;
                       github.credentialFile = "/run/secrets/gh_token";
@@ -314,7 +314,7 @@
                         user = "alice";
                         uid = 1000;
                         gid = 100;
-                        bindings = {
+                        apps = {
                           claude.package = nixpkgs.legacyPackages.${system}.hello;
                           codex.package = nixpkgs.legacyPackages.${system}.hello;
                           github.credentialFile = "/run/secrets/gh_token";
@@ -356,24 +356,32 @@
               || throw "assertions: a bare tier was given a sandbox, or a sandbox was not";
             # The old selector options say where their replacement is.
             assert refused "a removed selector option" { chase.trustedOrgs = [ "alice" ]; } "chase.tiers.<name>.match";
-            # DECLARED BUT UNBOUND REFUSES (PLAN.md, decision 4). trusted
-            # enables github without `anonymous`, so a null credential file is
-            # a route frisket would serve with no credential at all.
+            # DECLARED BUT UNBOUND REFUSES (PLAN.md, decision 4). trusted's
+            # github is authenticated, so a null credential file is a route
+            # frisket would serve with no credential at all.
             assert refused "an unbound github credential"
-              { chase.bindings.github.credentialFile = lib.mkForce null; }
-              "credentialFile is null";
-            # ... and is fine when no tier asks for a credentialled github or
-            # git.
+              { chase.apps.github.credentialFile = lib.mkForce null; }
+              "chase.tiers.trusted.apps.github is authenticated, but has no credentialFile";
+            # ... and is fine when no tier is authenticated for github or git.
             assert chaseFailures {
-              chase.bindings.github.credentialFile = lib.mkForce null;
-              chase.tiers.trusted.apps = { github.anonymous = true; git.anonymous = true; };
+              chase.apps.github.credentialFile = lib.mkForce null;
+              chase.tiers.trusted.apps = { github.authenticated = lib.mkForce false; git.authenticated = lib.mkForce false; };
             } == [ ]
-              || throw "assertions: an anonymous-only github still demanded a credential";
-            # git is github's credential too: one that pushes without it is
-            # refused just the same.
+              || throw "assertions: an unauthenticated github still demanded a credential";
+            # git's credential is github's unless it has its own: one that
+            # pushes without it is refused just the same ...
             assert refused "an unbound credential for git alone"
-              { chase.bindings.github.credentialFile = lib.mkForce null; chase.tiers.trusted.apps.github.anonymous = true; }
-              "credentialFile is null";
+              { chase.apps.github.credentialFile = lib.mkForce null; chase.tiers.trusted.apps.github.authenticated = lib.mkForce false; }
+              "chase.tiers.trusted.apps.git is authenticated, but has no credentialFile";
+            # ... and a tier's own is its own: strict, given one, holds it,
+            # and trusted still holds the machine's.
+            assert
+              (let p = (configWith {
+                chase.tiers.strict.apps.github = { authenticated = true; credentialFile = "/run/secrets/strict_gh"; };
+              }).services.frisket.policies; in
+              p.strict.routes.github.credentialFile == "/run/secrets/strict_gh"
+              && p.trusted.routes.github.credentialFile == "/run/secrets/gh_token")
+              || throw "assertions: a tier's own credential was not its own";
             # A PUSH IS A WRITE (decision 18), answered as git's writes say:
             # asked about in trusted by default, allowed where git says so
             # whatever gh's writes are, and refused in strict. gh's GraphQL
@@ -400,43 +408,47 @@
               && ! lib.any (r: r.path or null == "/graphql") byDefault.trusted.routes.github.paths
               || throw "assertions: git's push or gh's GraphQL was not answered as their writes say");
             # Cloudflare needs no token of the tier's own -- a project brings
-            # one -- and without one the tier has no Cloudflare route.
+            # one -- and unless it is authenticated the tier has no
+            # Cloudflare route, whatever the machine binds.
             assert
-              (let config = configWith { chase.tiers.trusted.apps.cloudflare.enable = true; }; in
+              (let config = configWith {
+                chase.tiers.trusted.apps.cloudflare.enable = true;
+                chase.apps.cloudflare.credentialFile = "/run/secrets/cloudflare-token";
+              }; in
               lib.all (a: a.assertion) config.assertions
               && ! (config.services.frisket.policies.trusted.routes ? cloudflare))
               || throw "assertions: cloudflare without a token of the tier's own did not hold together";
-            # Bound, it holds together: no assertion fails, chase's or
+            # Authenticated, it holds together: no assertion fails, chase's or
             # frisket's, and frisket's configuration -- every generated
             # operation, through frisket's own option types -- is written.
             # Forcing ExecStart forces the file it names.
             assert
               (let
                 config = configWith {
-                  chase.tiers.trusted.apps.cloudflare.enable = true;
-                  chase.bindings.cloudflare.credentialFile = "/run/secrets/cloudflare-token";
+                  chase.tiers.trusted.apps.cloudflare = { enable = true; authenticated = true; };
+                  chase.apps.cloudflare.credentialFile = "/run/secrets/cloudflare-token";
                 };
                 failed = map (a: a.message) (lib.filter (a: ! a.assertion) config.assertions);
               in
               failed == [ ] && lib.hasInfix ''"-config" "/nix/store/'' config.systemd.services.frisket.serviceConfig.ExecStart
                 || throw "assertions: a bound cloudflare did not hold together: ${builtins.toJSON failed}");
-            # Hugging Face as github is: a tier with a credential it was not
-            # given is refused ...
+            # Hugging Face as github is: a tier authenticated with a
+            # credential it was not given is refused ...
             assert refused "an unbound huggingface credential"
-              { chase.tiers.trusted.apps.huggingface.enable = true; }
-              "huggingface.credentialFile is null";
-            # ... and an anonymous one needs none, holds none, and refuses
+              { chase.tiers.trusted.apps.huggingface = { enable = true; authenticated = true; }; }
+              "chase.tiers.trusted.apps.huggingface is authenticated, but has no credentialFile";
+            # ... and one that is not needs none, holds none, and refuses
             # the token Xet would write with.
             assert
               (let
-                config = configWith { chase.tiers.strict.apps.huggingface = { enable = true; anonymous = true; }; };
+                config = configWith { chase.tiers.strict.apps.huggingface.enable = true; };
                 route = config.services.frisket.policies.strict.routes.huggingface;
               in
               lib.all (a: a.assertion) config.assertions
               && route.credentialFile == null
               && lib.any (p: p.refuse or false && p.path or "" == "/api/models/*/*/xet-write-token/*") route.paths
               && ! lib.any (p: p.ask or false) route.paths)
-              || throw "assertions: an anonymous huggingface did not hold together";
+              || throw "assertions: an unauthenticated huggingface did not hold together";
             # Google Cloud is only ever a project's (PLAN.md, decision 9): a
             # tier that takes no grant cannot enable it, an API it names
             # must exist, and a tier that has it gets gcloud and nothing in
@@ -497,8 +509,8 @@
                   let
                     config = configWith {
                       imports = [ extra ];
-                      chase.tiers.trusted.apps.cloudflare.enable = true;
-                      chase.bindings.cloudflare.credentialFile = "/run/secrets/cloudflare-token";
+                      chase.tiers.trusted.apps.cloudflare = { enable = true; authenticated = true; };
+                      chase.apps.cloudflare.credentialFile = "/run/secrets/cloudflare-token";
                     };
                     route = config.services.frisket.policies.trusted.routes.cloudflare;
                     of = class: lib.unique (map (p: if p.refuse or false then "refuse" else if p.ask or false then "ask" else "allow")

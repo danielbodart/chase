@@ -1,10 +1,11 @@
-{ config, lib, pkgs, ... }:
+{ config, options, lib, pkgs, ... }:
 
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
   cfg = config.chase;
   ops = import ../lib/operations.nix { inherit lib; };
-  bindings = cfg.bindings.cloudflare;
+  apps = import ../lib/apps.nix { inherit lib; };
+  machine = options.chase.apps.cloudflare;
   host = "api.cloudflare.com";
 
   # EVERY OPERATION IN CLOUDFLARE'S OWN API DESCRIPTION, one rule each: a
@@ -17,8 +18,10 @@ let
   operations = builtins.fromJSON (builtins.readFile ./cloudflare/operations.json);
 
   # The route in a tier, as a policy document holds it: shared by a tier that
-  # binds a token from the machine and by a project that binds its own.
-  route = tier: let s = ops.settings tier.apps.cloudflare; in {
+  # is authenticated with the machine's token and by a project that brings
+  # its own, so it answers as the tier and the app say whether or not the
+  # tier has a token.
+  route = tier: let s = ops.answers tier.apps.cloudflare; in {
     name = "cloudflare";
     inherit host;
     upstream = "https://${host}";
@@ -47,8 +50,8 @@ let
   };
 in
 {
-  options.chase.bindings.cloudflare = {
-    wranglerPackage = mkOption {
+  options.chase.apps.cloudflare = {
+    package = mkOption {
       type = types.package;
       default = pkgs.wrangler;
       defaultText = lib.literalExpression "pkgs.wrangler";
@@ -63,11 +66,11 @@ in
       example = "/run/secrets/cloudflare-token";
       description = ''
         A file holding a Cloudflare API token, alone, for every session of a
-        tier that enables Cloudflare. frisket reads it on the host and adds it
-        to the session's requests to ${host}; nothing inside a container
-        ever sees it. Null, the usual case: a tier has no Cloudflare token of
-        its own, and a project brings one in its grant (decision 9 --
-        there is never a system-level cloud account).
+        tier that is `authenticated` for Cloudflare. frisket reads it on the
+        host and adds it to the session's requests to ${host}; nothing inside
+        a container ever sees it. Null, the usual case: a tier has no
+        Cloudflare token of its own, and a project brings one in its grant
+        (decision 9 -- there is never a system-level cloud account).
 
         Mint it narrowly: the token is the floor, and the allowlist only
         decides which of the things it can do need a person. Workers, KV, D1
@@ -92,20 +95,26 @@ in
 
   options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule ({ config, ... }: {
-      options.apps.cloudflare = ops.appOptions config // {
+      options.apps.cloudflare = ops.appOptions config // apps.overrides machine [ "package" "credentialFile" "accountIdFile" ] // {
         enable = mkEnableOption ''
-          Cloudflare's API in this tier, through wrangler: what its API
-          description calls a read goes straight through, and the rest --
-          writes, deletions, and anything the description does not name -- is
-          answered as `writes`, `guarded` and `unmatched` say'';
+          Cloudflare's API in this tier, through wrangler, with the token a
+          project brings in its grant: what its API description calls a read
+          goes straight through, and the rest -- writes, deletions, and
+          anything the description does not name -- is answered as `writes`,
+          `guarded` and `unmatched` say'';
+        authenticated = mkEnableOption ''
+          the tier's own Cloudflare token, `credentialFile`, on every session
+          whose project brings none'';
       };
     }));
   };
 
   config = {
+    assertions = apps.credentialAssertions cfg.tiers "cloudflare";
+
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf tier.apps.cloudflare.enable {
       config = {
-        environment.systemPackages = [ bindings.wranglerPackage ];
+        environment.systemPackages = [ tier.apps.cloudflare.package ];
         environment.variables.CLOUDFLARE_API_TOKEN = cfg.placeholder;
       };
     })) cfg.tiers;
@@ -114,18 +123,18 @@ in
     # session as CLOUDFLARE_ACCOUNT_ID (internal/session). Not a credential
     # -- it names the account, it does not open it -- but it is kept beside
     # the token, so the file itself is never bound in.
-    chase.internal.config.session.tiers = lib.mapAttrs (_: _: {
-      cloudflare.accountIdFile = bindings.accountIdFile;
-    }) (lib.filterAttrs (_: t: !t.bare && t.apps.cloudflare.enable && bindings.accountIdFile != null) cfg.tiers);
+    chase.internal.config.session.tiers = lib.mapAttrs (_: tier: {
+      cloudflare.accountIdFile = tier.apps.cloudflare.accountIdFile;
+    }) (lib.filterAttrs (_: t: !t.bare && t.apps.cloudflare.enable && t.apps.cloudflare.accountIdFile != null) cfg.tiers);
 
     # A route of the tier's own only with a token of the tier's own: without
     # one, api.cloudflare.com is intercepted only in a session whose project
     # brought one, and is otherwise an ordinary allowed name.
-    services.frisket.policies = lib.mapAttrs (name: tier: mkIf (tier.apps.cloudflare.enable && bindings.credentialFile != null) {
+    services.frisket.policies = lib.mapAttrs (name: tier: mkIf (tier.apps.cloudflare.enable && tier.apps.cloudflare.authenticated) {
       # For a tier with an allowlist of names; one allowing `*` has it already.
       allow = lib.mkAfter [ host ];
       routes.cloudflare = removeAttrs (route tier) [ "name" ] // {
-        credentialFile = bindings.credentialFile;
+        credentialFile = tier.apps.cloudflare.credentialFile;
       };
     }) cfg.tiers;
 

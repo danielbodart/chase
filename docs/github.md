@@ -14,7 +14,8 @@ GitHub is spoken to in two protocols, and they are two apps:
 - **`git`** is git's smart HTTP at `github.com`, and what github.com serves
   beside it: release downloads, archives, Git LFS.
 
-Both put `chase.bindings.github.credentialFile` on the wire, and each has its
+Both put `chase.apps.github.credentialFile` on the wire where they are
+`authenticated`, and each has its
 own `writes`, `guarded` and `unmatched`. So a tier can let git push while gh's
 writes ask:
 

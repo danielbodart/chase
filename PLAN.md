@@ -361,7 +361,8 @@ No app keeps a switch of its own for what these three already say.
 for other people's code is `writes`, `guarded` and `unmatched` all `refuse`,
 written out in the tier, not a conversion hidden in each app. frisket's asker is the machine's, not a
 tier's, so there is nothing for a tier to be checked against: saying so is
-what makes it so. An anonymous app refuses all three whatever its tier says.
+what makes it so. An app without `authenticated` refuses all three whatever
+its tier says.
 A project's lists are ignored for both, and that is reported (decision 8):
 such a tier takes no grant anyway (decision 13), and a project that needs
 more goes into another tier, which is the machine's decision (decision 5), not

@@ -1,9 +1,11 @@
-{ config, lib, pkgs, ... }:
+{ config, options, lib, pkgs, ... }:
 
 let
   inherit (lib) mkIf mkMerge mkOption types;
   cfg = config.chase;
-  base = cfg.bindings.codex.package;
+  apps = import ../lib/apps.nix { inherit lib; };
+  machine = options.chase.apps.codex;
+  base = cfg.apps.codex.package;
   allow = [ "chatgpt.com" "*.chatgpt.com" "openai.com" "*.openai.com" ];
   every = [ "GET" "HEAD" "POST" "PUT" "PATCH" "DELETE" ];
 
@@ -59,24 +61,26 @@ let
   bind = path: readOnly: { hostPath = path; isReadOnly = readOnly; };
 in
 {
-  options.chase.bindings.codex.package = mkOption {
+  options.chase.apps.codex.package = mkOption {
     type = types.package;
     description = ''
       The codex CLI. Declared rather than pinned by chase, for the reason
-      `chase.bindings.claude.package` is.
+      `chase.apps.claude.package` is.
     '';
   };
 
   options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule {
-      options.apps.codex.state = mkOption {
-        type = types.nullOr (types.enum [ "shared" "isolated" ]);
-        default = null;
-        description = ''
-          `shared`: threads, history and memories are the host's.
-          `isolated`: a CODEX_HOME per workspace, and nothing of the host's.
-          Non-null enables codex in the tier.
-        '';
+      options.apps.codex = apps.overrides machine [ "package" ] // {
+        state = mkOption {
+          type = types.nullOr (types.enum [ "shared" "isolated" ]);
+          default = null;
+          description = ''
+            `shared`: threads, history and memories are the host's.
+            `isolated`: a CODEX_HOME per workspace, and nothing of the host's.
+            Non-null enables codex in the tier.
+          '';
+        };
       };
     });
   };
@@ -126,7 +130,7 @@ in
 
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}"
       (mkIf (tier.apps.codex.state != null) (mkMerge [
-        { config.environment.systemPackages = [ base ]; }
+        { config.environment.systemPackages = [ tier.apps.codex.package ]; }
         (mkIf (tier.apps.codex.state == "shared") {
           # The host's ~/.codex whole, with the login covered by the
           # placeholder. Safe where ~/.claude was not: codex rewrites

@@ -53,7 +53,7 @@ The design, what was decided and what was turned down, is in [PLAN.md](PLAN.md).
       egress = "frisket";
       writes = "refuse"; guarded = "refuse"; unmatched = "refuse";
       apps.claude.state = "isolated";
-      apps.git = { enable = true; anonymous = true; };
+      apps.git.enable = true;            # no credential: reads only
     };
     tiers.trusted = {
       match = [ { owners = [ "alice" ]; rootAuthorDomains = [ "example.com" ]; } ];
@@ -61,15 +61,15 @@ The design, what was decided and what was turned down, is in [PLAN.md](PLAN.md).
       allow = [ "*" ];
       grants = true;
       apps.claude = { state = "shared"; connectors = true; };
-      apps.git.enable = true;
-      apps.github.enable = true;
+      apps.git = { enable = true; authenticated = true; };
+      apps.github = { enable = true; authenticated = true; };
     };
 
-    # What chase declares and you bind. An app names the package it runs and
-    # the credential it needs; it never reaches for one, so the same app
-    # serves a machine keeping secrets in sops and a project decrypting its
-    # own.
-    bindings = {
+    # What each app runs and the credential it uses, for every tier that
+    # does not say its own. chase names what an app needs and never reaches
+    # for it, so the same app serves a machine keeping secrets in sops and a
+    # project decrypting its own.
+    apps = {
       claude.package = inputs.claude-code.packages.${system}.default;
       codex.package = inputs.codex-cli.packages.${system}.default;
       github.credentialFile = config.sops.secrets.gh_token.path;
@@ -207,7 +207,8 @@ on the host, because a refresh token is single-use and a session racing the
 host would burn it.
 
 **GitHub**, as two apps sharing one credential, bound from outside as
-`chase.bindings.github.credentialFile` — `gh auth token`'s, read by frisket.
+`chase.apps.github.credentialFile` — `gh auth token`'s, read by frisket, in a
+tier where the app is `authenticated`.
 `github` is the API and gh: its allowlist is generated from GitHub's own REST
 description, and GraphQL's, where gh does most of its work, from GitHub's
 schema: a query is a read, and each mutation an operation by its field. `git`
@@ -215,8 +216,8 @@ is git over HTTPS: remotes are rewritten from `git@github.com:` to HTTPS, so
 git goes through frisket and no key is needed in the session, and the token
 arrives as Basic auth's password under `x-access-token`. A fetch is a read and
 a push a write, so a tier can let git push while gh's writes still ask; a push
-asked about is asked about once, showing the refs it would update. A tier can
-have both anonymous instead: clone, fetch and GET work with no credential in existence,
+asked about is asked about once, showing the refs it would update. Without
+`authenticated`, the default, clone, fetch and GET work with no credential in existence,
 and a push stops at git's ref advertisement — refused on the request line
 rather than by inspecting what `git` was asked to do, which is not something a
 session can route around. See [docs/github.md](docs/github.md).
@@ -227,13 +228,14 @@ for a person. A tier holds no token of its own by default — a project brings o
 scoped to what it owns. See [docs/cloudflare.md](docs/cloudflare.md).
 
 **Hugging Face.** `hf` and huggingface_hub, with a token bound as
-`chase.bindings.huggingface.credentialFile` and put on requests to
+`chase.apps.huggingface.credentialFile` and, where the app is
+`authenticated`, put on requests to
 `huggingface.co` alone. Its allowlist is generated from the Hub's own API
 description, as Cloudflare's is: reads go straight through, and writes, the
 reads that mint a token, and anything the description does not name wait for a
 person. The files themselves come from presigned CDN URLs and Xet's store under
 `hf.co`, which take tokens of their own, so they are allowed and never
-intercepted. `anonymous` is for a tier running other people's code: public models download, and what would
+intercepted. Without `authenticated`, the default, and the way for a tier running other people's code: public models download, and what would
 ask is refused, Xet's write token among it, so a token the session brings of
 its own cannot upload either. See [docs/huggingface.md](docs/huggingface.md). `shared` binds the host's download cache in, so a
 model is downloaded once — not in a tier that runs other people's code, since
@@ -323,7 +325,7 @@ chase.tiers.trusted = {
 ```
 
 A tier with no one to ask on its behalf says `refuse` for all three, and an
-anonymous app refuses all three whatever the tier says.
+app that is not `authenticated` refuses all three whatever the tier says.
 
 A project names what it wants otherwise in its grant, per app — by
 operation id, by the API's own category, or by method and path for an
@@ -341,7 +343,7 @@ does:
 
 It is part of what is approved, a name in two lists is refused before anyone
 is asked, and a name the app does not have fails the launch. Not in a tier
-that takes no grant, nor for an app a tier has anonymously.
+that takes no grant, nor for an app a tier has without `authenticated`.
 
 The line is only where the list starts. `exceptions.json` beside each app says,
 operation by operation and with a reason each, where it is wrong: the reads

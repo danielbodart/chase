@@ -27,7 +27,7 @@ type Config struct {
 	// Empty is $HOME/.claude.json, as the activation script had it.
 	ClaudeJSON string `json:"claudeJSON,omitempty"`
 	// TrustPaths are the directories marked as already trusted: the home
-	// directory, chase.bindings.claude.preTrustPaths and every workspace
+	// directory, chase.apps.claude.preTrustPaths and every workspace
 	// group's members. Given twice is trusted once.
 	TrustPaths []string `json:"trustPaths"`
 }

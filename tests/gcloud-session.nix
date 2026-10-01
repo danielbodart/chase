@@ -377,7 +377,7 @@ in
       approver = "${pkgs.writeShellScript "approver" ''
         ${pkgs.coreutils}/bin/cat | ${pkgs.util-linux}/bin/logger -t chase-test-approver
       ''}";
-      bindings = {
+      apps = {
         claude.package = pkgs.hello;
         codex.package = pkgs.hello;
       };

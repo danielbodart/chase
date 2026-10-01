@@ -1,16 +1,17 @@
-{ config, lib, pkgs, ... }:
+{ config, options, lib, pkgs, ... }:
 
 # Docker through frisket (docs/docker.md): a project's containers, on the
 # rootless daemon of the tier's user, reached by the session only through a
 # route frisket judges request by request, and published only on the
 # project's own loopback address. What the project is was approved with its
 # grant, from its checkout's origin; the route is made at launch, from
-# that and the binding's images and ports.
+# that and the images and ports its grant names.
 
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
   cfg = config.chase;
-  bindings = cfg.bindings.docker;
+  apps = import ../lib/apps.nix { inherit lib; };
+  machine = options.chase.apps.docker;
   read = f: builtins.fromJSON (builtins.readFile f);
 
   # Generated from the pinned Engine API spec by chase-generate operations
@@ -55,7 +56,7 @@ let
   };
 in
 {
-  options.chase.bindings.docker.package = mkOption {
+  options.chase.apps.docker.package = mkOption {
     type = types.package;
     default = pkgs.docker-client;
     defaultText = lib.literalExpression "pkgs.docker-client";
@@ -67,16 +68,18 @@ in
 
   options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule {
-      options.apps.docker.enable = mkEnableOption ''
-        Docker in this tier, for a project whose grant binds it: its
-        containers run on `chase.user`'s rootless daemon, reached through
-        frisket, which admits only what is the project's own, and publish
-        their ports on the project's own loopback address. Only for a tier
-        that takes grants, with direct egress, since a container reaches
-        whatever the host does. chase runs no daemon: the machine runs
-        rootless Docker for `chase.user`, its socket at
-        /run/user/<uid>/docker.sock, as NixOS's
-        `virtualisation.docker.rootless` does'';
+      options.apps.docker = apps.overrides machine [ "package" ] // {
+        enable = mkEnableOption ''
+          Docker in this tier, for a project whose grant names it: its
+          containers run on `chase.user`'s rootless daemon, reached through
+          frisket, which admits only what is the project's own, and publish
+          their ports on the project's own loopback address. Only for a tier
+          that takes grants, with direct egress, since a container reaches
+          whatever the host does. chase runs no daemon: the machine runs
+          rootless Docker for `chase.user`, its socket at
+          /run/user/<uid>/docker.sock, as NixOS's
+          `virtualisation.docker.rootless` does'';
+      };
     });
   };
 
@@ -94,7 +97,7 @@ in
 
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf tier.apps.docker.enable {
       config.environment = {
-        systemPackages = [ bindings.package ];
+        systemPackages = [ tier.apps.docker.package ];
         # The session's CA, which frisket mounts in its namespace, is what
         # docker.frisket.internal's certificate is signed by. No cert.pem or
         # key.pem: the CLI goes without them, and frisket asks for none.

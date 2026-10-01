@@ -2,12 +2,14 @@
 # it. git itself is ./git.nix, an app of its own that shares this one's
 # credential, so a tier can answer gh's writes and git's pushes differently
 # (PLAN.md, decision 18).
-{ config, lib, pkgs, ... }:
+{ config, options, lib, pkgs, ... }:
 
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
   cfg = config.chase;
   ops = import ../lib/operations.nix { inherit lib; };
+  apps = import ../lib/apps.nix { inherit lib; };
+  machine = options.chase.apps.github;
   host = "api.github.com";
 
   # EVERY OPERATION IN GITHUB'S OWN REST API DESCRIPTION, one rule each, as
@@ -26,62 +28,55 @@ let
     contentType = "application/json";
     body = builtins.toJSON { message = "{{message}}"; };
   };
-
-  # Whether a tier needs GitHub's credential: either app, not anonymously.
-  credentialled = t: (t.apps.github.enable && !t.apps.github.anonymous)
-    || (t.apps.git.enable && !t.apps.git.anonymous);
 in
 {
-  options.chase.bindings.github.credentialFile = mkOption {
-    type = types.nullOr types.path;
-    default = null;
-    example = "/run/secrets/gh_token";
-    description = ''
-      A file holding a GitHub token, alone — `gh auth token`'s. frisket reads
-      it on the host and adds it to the session's requests, gh's and git's;
-      nothing inside a container ever sees it.
+  options.chase.apps.github = {
+    package = mkOption {
+      type = types.package;
+      default = pkgs.gh;
+      defaultText = lib.literalExpression "pkgs.gh";
+      description = "The gh an authenticated session gets.";
+    };
+    credentialFile = mkOption {
+      type = types.nullOr types.path;
+      default = null;
+      example = "/run/secrets/gh_token";
+      description = ''
+        A file holding a GitHub token, alone — `gh auth token`'s. frisket reads
+        it on the host and adds it to an authenticated session's requests,
+        gh's, and git's unless git is given its own; nothing inside a
+        container ever sees it.
 
-      Declared, never reached for: chase does not know whether the consumer
-      keeps its secrets in sops, in systemd credentials, or decrypts them per
-      project, and an app that hardcoded one of those could not be used with
-      the others.
-
-      Null with a tier that enables github or git non-anonymously is
-      refused, not quietly downgraded — an unbound credential would otherwise
-      become a route with no credential, which fails later and further away.
-    '';
+        Declared, never reached for: chase does not know whether the consumer
+        keeps its secrets in sops, in systemd credentials, or decrypts them per
+        project, and an app that hardcoded one of those could not be used with
+        the others.
+      '';
+    };
   };
 
   options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule ({ config, ... }: {
-      options.apps.github = ops.appOptions config // {
+      options.apps.github = ops.appOptions config // apps.overrides machine [ "package" "credentialFile" ] // {
         enable = mkEnableOption ''
-          GitHub's API in this tier, and gh: what the API's description calls
-          a read goes straight through -- a GraphQL query among them -- and
-          the rest, each GraphQL mutation by its field, is answered as
-          `writes`, `guarded` and `unmatched` say'';
-        anonymous = mkEnableOption ''
-          read-only GitHub API with no credential of yours: REST reads, and
-          nothing that writes. No gh, which needs a login'';
+          GitHub's API in this tier: what its description calls a read goes
+          straight through, with no credential and no gh, unless it is
+          `authenticated`'';
+        authenticated = mkEnableOption ''
+          GitHub's API with the credential, and gh: what the API's
+          description calls a read goes straight through -- a GraphQL query
+          among them -- and the rest, each GraphQL mutation by its field, is
+          answered as `writes`, `guarded` and `unmatched` say'';
       };
     }));
   };
 
   config = {
-    # DECLARED BUT UNBOUND IS A REFUSAL. frisket treats an empty
-    # credentialFile as a legitimate route with no credential, so leaving this
-    # null would not fail -- it would silently produce a route that holds
-    # requests to its scope and adds nothing, and the first sign of it would
-    # be a 401 from GitHub inside a session.
-    assertions = [{
-      assertion = cfg.bindings.github.credentialFile != null
-        || !(lib.any credentialled (lib.attrValues cfg.tiers));
-      message = "chase.bindings.github.credentialFile is null, but a tier enables github or git without `anonymous`. Bind a token file, or set `anonymous = true` for read-only GitHub with no credential.";
-    }];
+    assertions = apps.credentialAssertions cfg.tiers "github";
 
-    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf (tier.apps.github.enable && !tier.apps.github.anonymous) {
+    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf (tier.apps.github.enable && tier.apps.github.authenticated) {
       config = {
-        environment.systemPackages = [ pkgs.gh ];
+        environment.systemPackages = [ tier.apps.github.package ];
         # gh makes no request until it thinks it is logged in.
         environment.variables = {
           GH_TOKEN = cfg.placeholder;
@@ -98,13 +93,14 @@ in
         routes.github = {
           inherit host refusal;
           upstream = "https://${host}";
-          # Anonymous, intercepted with no credential, so the scope holds: a
-          # token the session brings still reaches GitHub, but only to read.
+          # Not authenticated, intercepted with no credential, so the scope
+          # holds: a token the session brings still reaches GitHub, but only
+          # to read.
           paths = ops.paths s operations;
           graphql = ops.graphql s operations;
           unmatched = ops.unmatched s;
-        } // lib.optionalAttrs (!tier.apps.github.anonymous) {
-          credentialFile = cfg.bindings.github.credentialFile;
+        } // lib.optionalAttrs tier.apps.github.authenticated {
+          credentialFile = tier.apps.github.credentialFile;
           placeholder = cfg.placeholder;
         };
       })) cfg.tiers;

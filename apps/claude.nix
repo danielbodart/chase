@@ -1,9 +1,11 @@
-{ config, lib, pkgs, ... }:
+{ config, options, lib, pkgs, ... }:
 
 let
   inherit (lib) mkIf mkMerge mkOption types;
   cfg = config.chase;
-  base = cfg.bindings.claude.package;
+  apps = import ../lib/apps.nix { inherit lib; };
+  machine = options.chase.apps.claude;
+  base = cfg.apps.claude.package;
   every = [ "GET" "HEAD" "POST" "PUT" "PATCH" "DELETE" ];
   allow = [
     "anthropic.com" "*.anthropic.com"
@@ -43,7 +45,7 @@ let
   tierSettings = tier: tierCfg:
     let
       disabled = [ "graphical-sudo" ]
-        ++ lib.optional (!tierCfg.apps.audio.enable) "notification-sound";
+        ++ lib.optional (!(tierCfg.apps.audio.enable or false)) "notification-sound";
     in
     pkgs.writeText "claude-${tier}-settings.json" (builtins.toJSON {
       sandbox.enabled = false;
@@ -68,7 +70,7 @@ let
   claudeDir = "${cfg.home}/.claude";
 in
 {
-  options.chase.bindings.claude = {
+  options.chase.apps.claude = {
     package = mkOption {
       type = types.package;
       description = ''
@@ -94,7 +96,7 @@ in
 
   options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule {
-      options.apps.claude = {
+      options.apps.claude = apps.overrides machine [ "package" ] // {
         state = mkOption {
           type = types.nullOr (types.enum [ "shared" "isolated" ]);
           default = null;
@@ -137,7 +139,7 @@ in
         # Every checkout this flake clones, and every group member.
         trustPaths = lib.unique (
           [ cfg.home ]
-          ++ cfg.bindings.claude.preTrustPaths
+          ++ cfg.apps.claude.preTrustPaths
           ++ lib.concatLists cfg.workspaceGroups
         );
       };
@@ -173,7 +175,7 @@ in
         {
           # ~/.claude is the session's own, with only the entries below bound
           # in: no login, and no shell snapshots from the host's PATH.
-          config.environment.systemPackages = [ base ];
+          config.environment.systemPackages = [ tier.apps.claude.package ];
           bindMounts = {
             "${claudeDir}/settings.json" = bind "${claudeDir}/settings.json" true;
             "${claudeDir}/statusline.sh" = bind "${claudeDir}/statusline.sh" true;

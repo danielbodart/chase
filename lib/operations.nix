@@ -9,9 +9,9 @@
 #   write    the app's `writes`, which is the tier's unless the app says
 #   guarded  the app's `guarded`, likewise
 #
-# and what no operation matches, the app's `unmatched`. An anonymous app has
-# no credential and no one to ask on its behalf: all three are refused,
-# whatever the tier says.
+# and what no operation matches, the app's `unmatched`. An app a tier has
+# without `authenticated` has no credential and no one to ask on its behalf:
+# all three are refused, whatever the tier says.
 { lib }:
 
 let
@@ -63,11 +63,19 @@ rec {
     description = "This app's `${n}`, in place of the tier's.";
   });
 
-  # What an app in a tier answers with.
+  # What an app in a tier answers with. One that is not `authenticated` has
+  # no credential and no one to ask on its behalf: all three are refused,
+  # whatever the tier says. An app with no `authenticated` -- one whose
+  # credential is only ever a project's -- answers as the tier and the app
+  # say.
   settings = app:
-    if app.anonymous or false
+    if !(app.authenticated or true)
     then lib.genAttrs names (_: "refuse")
-    else lib.getAttrs names app;
+    else answers app;
+
+  # The app's three as it says them, for a route a project's own credential
+  # may stand behind whether or not the tier has one.
+  answers = app: lib.getAttrs names app;
 
   outcome = a: { allow = { }; ask = { ask = true; }; refuse = { refuse = true; }; }.${a};
 

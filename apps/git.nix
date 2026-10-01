@@ -1,18 +1,21 @@
 # git over HTTPS: clone, fetch and push, and what github.com serves beside
 # them -- release downloads, archives, Git LFS. An app apart from github, which
 # is GitHub's API and gh, so the two can be answered differently: a tier can
-# let git push while gh's writes still ask (PLAN.md, decision 18). They share
-# GitHub's credential, `chase.bindings.github.credentialFile`.
+# let git push while gh's writes still ask (PLAN.md, decision 18). git's
+# credential is GitHub's, `chase.apps.github.credentialFile`, unless it is
+# given one of its own.
 #
 # Its operations are the protocol's, not GitHub's: a fetch is a read, a push
 # is a write, and frisket's git rule tells them apart by the request line. A
 # push asked about is asked about once, showing the refs it would update.
-{ config, lib, pkgs, ... }:
+{ config, options, lib, pkgs, ... }:
 
 let
   inherit (lib) mkEnableOption mkIf mkMerge mkOption types;
   cfg = config.chase;
   ops = import ../lib/operations.nix { inherit lib; };
+  apps = import ../lib/apps.nix { inherit lib; };
+  machine = options.chase.apps.git;
   host = "github.com";
 
   # A checkout's remotes stay git@github.com: git rewrites them to HTTPS, so
@@ -65,51 +68,65 @@ let
   hosts = [ host "codeload.github.com" "*.githubusercontent.com" ];
 in
 {
-  imports = [
-    (lib.mkRenamedOptionModule [ "chase" "bindings" "github" "gitConfig" ] [ "chase" "bindings" "git" "config" ])
-  ];
-
-  options.chase.bindings.git.config = mkOption {
-    type = types.listOf (types.strMatching "/.*");
-    default = [ "${cfg.home}/.gitconfig" "${cfg.home}/.config/git" ];
-    defaultText = lib.literalExpression ''[ "''${config.chase.home}/.gitconfig" "''${config.chase.home}/.config/git" ]'';
-    description = ''
-      The user's own git configuration -- files or directories, each of which
-      must exist on the host -- bound read-only at the same paths into a tier
-      whose git is not anonymous, so git in a session is the git the user
-      set up: who commits, aliases, filters, defaults. Not into an anonymous
-      one: a git config can carry a credential in a URL, and those tiers run
-      other people's code. Empty: none.
-    '';
+  options.chase.apps.git = {
+    package = mkOption {
+      type = types.package;
+      default = pkgs.git;
+      defaultText = lib.literalExpression "pkgs.git";
+      description = "The git a session gets.";
+    };
+    config = mkOption {
+      type = types.listOf (types.strMatching "/.*");
+      default = [ "${cfg.home}/.gitconfig" "${cfg.home}/.config/git" ];
+      defaultText = lib.literalExpression ''[ "''${config.chase.home}/.gitconfig" "''${config.chase.home}/.config/git" ]'';
+      description = ''
+        The user's own git configuration -- files or directories, each of
+        which must exist on the host -- bound read-only at the same paths
+        into a tier whose git is `authenticated`, so git in a session is the
+        git the user set up: who commits, aliases, filters, defaults. Not
+        into any other: a git config can carry a credential in a URL, and
+        those tiers run other people's code. Empty: none.
+      '';
+    };
+    credentialFile = mkOption {
+      type = types.nullOr types.path;
+      default = cfg.apps.github.credentialFile;
+      defaultText = lib.literalExpression "config.chase.apps.github.credentialFile";
+      description = ''
+        A file holding the token git's requests to ${host} carry, as
+        Basic auth's password. GitHub's own, unless git is given another.
+      '';
+    };
   };
 
   options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule ({ config, ... }: {
-      options.apps.git = ops.appOptions config // {
+      options.apps.git = ops.appOptions config // apps.overrides machine [ "package" "config" "credentialFile" ] // {
         enable = mkEnableOption ''
-          git over HTTPS to github.com in this tier, with GitHub's credential:
-          a clone or fetch goes straight through, and a push -- a write -- is
-          answered as `writes` says'';
-        anonymous = mkEnableOption ''
-          read-only git with no credential of yours: public clones and fetches,
-          and no push'';
+          git over HTTPS to github.com in this tier: public clones and
+          fetches, and no push, unless it is `authenticated`'';
+        authenticated = mkEnableOption ''
+          git with the credential: a clone or fetch goes straight through,
+          and a push -- a write -- is answered as `writes` says'';
       };
     }));
   };
 
   config = {
+    assertions = apps.credentialAssertions cfg.tiers "git";
+
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf tier.apps.git.enable {
       # Read-only: a session uses the user's configuration and cannot change
       # it.
-      bindMounts = mkIf (!tier.apps.git.anonymous) (lib.listToAttrs (map
+      bindMounts = mkIf tier.apps.git.authenticated (lib.listToAttrs (map
         (p: lib.nameValuePair p { hostPath = p; isReadOnly = true; })
-        cfg.bindings.git.config));
+        tier.apps.git.config));
       config = mkMerge [
         # git-lfs on the PATH: a repository's LFS hooks look for it there.
-        { programs.git = { enable = true; config = https; }; environment.systemPackages = [ pkgs.git-lfs ]; }
+        { programs.git = { enable = true; inherit (tier.apps.git) package; config = https; }; environment.systemPackages = [ pkgs.git-lfs ]; }
         # git hands the placeholder over as Basic auth's password, which is
         # where frisket puts the token.
-        (mkIf (!tier.apps.git.anonymous) {
+        (mkIf tier.apps.git.authenticated {
           programs.git.config.credential."https://${host}".helper =
             "!f() { if [ \"$1\" = get ]; then printf 'username=x-access-token\\npassword=%s\\n' ${lib.escapeShellArg cfg.placeholder}; fi; }; f";
         })
@@ -129,12 +146,12 @@ in
           git = { repos = [ "*" ]; push = s.writes; };
           paths = ops.paths s operations;
           unmatched = ops.unmatched s;
-        } // lib.optionalAttrs (!tier.apps.git.anonymous) {
-          # Anonymous, intercepted with no credential, so the scope holds: a
-          # token the session brings still reaches GitHub, but only to read.
-          # Otherwise GitHub's own token, which git takes only as Basic
+        } // lib.optionalAttrs tier.apps.git.authenticated {
+          # Not authenticated, intercepted with no credential, so the scope
+          # holds: a token the session brings still reaches GitHub, but only
+          # to read. Otherwise the credential, which git takes only as Basic
           # auth's password.
-          credentialFile = cfg.bindings.github.credentialFile;
+          credentialFile = tier.apps.git.credentialFile;
           placeholder = cfg.placeholder;
           basicUser = "x-access-token";
         };

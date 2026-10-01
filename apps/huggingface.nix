@@ -1,10 +1,11 @@
-{ config, lib, pkgs, ... }:
+{ config, options, lib, pkgs, ... }:
 
 let
   inherit (lib) mkEnableOption mkIf mkMerge mkOption types;
   cfg = config.chase;
   ops = import ../lib/operations.nix { inherit lib; };
-  bindings = cfg.bindings.huggingface;
+  apps = import ../lib/apps.nix { inherit lib; };
+  machine = options.chase.apps.huggingface;
   host = "huggingface.co";
 
   # EVERY OPERATION IN THE HUB'S OWN API DESCRIPTION, one rule each, as
@@ -40,7 +41,7 @@ let
   ];
 in
 {
-  options.chase.bindings.huggingface = {
+  options.chase.apps.huggingface = {
     package = mkOption {
       type = types.package;
       default = pkgs.python3Packages.huggingface-hub;
@@ -58,34 +59,30 @@ in
       description = ''
         A file holding a Hugging Face access token, alone -- what `hf auth
         login` keeps in ~/.cache/huggingface/token. frisket reads it on the
-        host and adds it to the session's requests to ${host}; nothing inside
-        a container ever sees it. A personal account, like GitHub's, and not a
-        cloud account, so a tier may hold one (PLAN.md, decision 9, is about
-        the second).
-
-        Null with a tier that enables huggingface non-anonymously is refused,
-        not quietly downgraded: an unbound credential would otherwise become a
-        route with no credential, whose first sign is a 401 on a gated model.
+        host and adds it to an authenticated session's requests to ${host};
+        nothing inside a container ever sees it. A personal account, like
+        GitHub's, and not a cloud account, so a tier may hold one (PLAN.md,
+        decision 9, is about the second).
       '';
     };
   };
 
   options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule ({ config, ... }: {
-      options.apps.huggingface = ops.appOptions config // {
+      options.apps.huggingface = ops.appOptions config // apps.overrides machine [ "package" "credentialFile" ] // {
         enable = mkEnableOption ''
-          the Hugging Face Hub in this tier, through `hf` and huggingface_hub:
-          what the Hub's API description calls a read goes straight through
-          with your token, and the rest -- an upload, a new repository, a
+          the Hugging Face Hub in this tier, through `hf` and huggingface_hub,
+          read-only and with no credential of yours unless it is
+          `authenticated`: public models and datasets download, and what
+          would ask is refused -- every write, and every read that mints a
+          token, Xet's write token among them -- so a token the session
+          brings of its own cannot upload either'';
+        authenticated = mkEnableOption ''
+          the Hub with your token: what its API description calls a read goes
+          straight through, and the rest -- an upload, a new repository, a
           read that mints a token, a deletion, and anything the description
           does not name -- is answered as `writes`, `guarded` and
           `unmatched` say'';
-        anonymous = mkEnableOption ''
-          read-only Hugging Face with no credential of yours: public models
-          and datasets download, and what would ask is refused -- every
-          write, and every read that mints a token, Xet's write token among
-          them -- so a token the session brings of its own cannot upload
-          either'';
         shared = mkEnableOption ''
           sharing the Hub's download cache with the host, read-write: a model
           downloaded once is there in every session and on the host, rather
@@ -97,13 +94,7 @@ in
   };
 
   config = {
-    # DECLARED BUT UNBOUND IS A REFUSAL, as with github: frisket would serve
-    # a null credentialFile as a route with no credential.
-    assertions = [{
-      assertion = bindings.credentialFile != null
-        || !(lib.any (t: t.apps.huggingface.enable && !t.apps.huggingface.anonymous) (lib.attrValues cfg.tiers));
-      message = "chase.bindings.huggingface.credentialFile is null, but a tier enables huggingface without `anonymous`. Bind a token file, or set `anonymous = true` for read-only Hugging Face with no credential.";
-    }];
+    assertions = apps.credentialAssertions cfg.tiers "huggingface";
 
     # On the host: a bind's source must exist, and flong makes none for it.
     # The parent too, which is where the host's token is, and so the user's
@@ -117,7 +108,7 @@ in
         (lib.genAttrs cache (p: { hostPath = p; isReadOnly = false; }));
       config = mkMerge [
         {
-          environment.systemPackages = [ bindings.package ];
+          environment.systemPackages = [ tier.apps.huggingface.package ];
           # Otherwise every command opens by saying a newer huggingface_hub
           # exists, which the session can do nothing about: the version is
           # whatever the consumer's nixpkgs pins.
@@ -125,7 +116,7 @@ in
         }
         # huggingface_hub sends it as a bearer token to ${host}, and to
         # nothing else: the CDN and Xet take tokens of their own.
-        (mkIf (!tier.apps.huggingface.anonymous) {
+        (mkIf tier.apps.huggingface.authenticated {
           environment.variables.HF_TOKEN = cfg.placeholder;
         })
       ];
@@ -139,15 +130,15 @@ in
         {
           inherit host refusal;
           upstream = "https://${host}";
-          # Anonymous, intercepted with no credential, so the scope holds: a
-          # token the session brings still reaches the Hub, but only for the
-          # reads. Everything else is refused -- the reads that mint a token
-          # among them, Xet's write token, with which a session could put
-          # bytes in Xet's store with no request here at all.
+          # Not authenticated, intercepted with no credential, so the scope
+          # holds: a token the session brings still reaches the Hub, but only
+          # for the reads. Everything else is refused -- the reads that mint
+          # a token among them, Xet's write token, with which a session could
+          # put bytes in Xet's store with no request here at all.
           paths = ops.paths s operations;
           unmatched = ops.unmatched s;
-        } // lib.optionalAttrs (!tier.apps.huggingface.anonymous) {
-          credentialFile = bindings.credentialFile;
+        } // lib.optionalAttrs tier.apps.huggingface.authenticated {
+          credentialFile = tier.apps.huggingface.credentialFile;
           placeholder = cfg.placeholder;
         };
     }) cfg.tiers;

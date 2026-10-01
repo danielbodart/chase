@@ -44,8 +44,10 @@
       apps = {
         claude = { state = "isolated"; connectors = false; };
         codex.state = "isolated";
-        git = { enable = true; anonymous = true; };
-        github = { enable = true; anonymous = true; };
+        # No credential: public clones, fetches and reads, and nothing that
+        # writes.
+        git.enable = true;
+        github.enable = true;
       };
     };
 
@@ -68,8 +70,8 @@
       apps = {
         claude = { state = "shared"; connectors = true; };
         codex.state = "shared";
-        git.enable = true;
-        github.enable = true;
+        git = { enable = true; authenticated = true; };
+        github = { enable = true; authenticated = true; };
       };
     };
   };
