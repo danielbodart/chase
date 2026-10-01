@@ -61,7 +61,7 @@ The design, what was decided and what was turned down, is in [PLAN.md](PLAN.md).
       allow = [ "*" ];
       grants = true;
       caches = "tier";                   # downloads kept for every checkout
-      apps.claude = { enable = true; scope = "host"; connectors = true; };
+      apps.claude = { enable = true; scope = "host"; connectors = true; trust = true; };
       apps.git = { enable = true; authenticated = true; };
       apps.github = { enable = true; authenticated = true; };
     };
@@ -223,7 +223,11 @@ per tier: one without `connectors` gets `user:inference` and nothing else. It ne
 the session never tries to refresh it, and the refresh endpoint and the Console
 are routed only to be refused — no response can hand the sandbox a real token.
 Claude Code's own sandbox is turned off, because bubblewrap cannot nest inside
-the container that is already the boundary.
+the container that is already the boundary. With `trust`, its folder-trust
+dialog is answered for the checkout at launch: in the `~/.claude.json` a
+session is seeded with, or, at the `host` scope, in the host's own; without
+it, the dialog is raised, and in a session that keeps nothing, at every
+launch.
 
 **codex.** The token comes from the host's `~/.codex/auth.json`, and the expiry
 from the `exp` claim inside the access token itself, since the file records
@@ -233,7 +237,9 @@ it finds, so what the container holds is a real-shaped unsigned JWT that
 expires in 2100. Nothing verifies its signature — not codex, which only splits
 on the dots, and not frisket, which compares the whole string. Refreshing stays
 on the host, because a refresh token is single-use and a session racing the
-host would burn it.
+host would burn it. With `trust`, codex is told on its command line that the
+checkout is trusted, rather than in `config.toml`, which is the host's;
+without it, codex asks, once for each home it keeps.
 
 **GitHub**, as two apps sharing one credential, bound from outside as
 `chase.apps.github.credentialFile` — `gh auth token`'s, read by frisket, in a
@@ -277,7 +283,11 @@ Its installs and downloads are kept as the tier's `caches` are, or at the
 `scope` it says: `session` overlays the host's, readable; `tier` keeps a set
 of the tier's own; `host` shares the host's. Its state — what `mise trust`
 has trusted — is never kept: the host's is readable in every session, and
-what a session trusts goes with it.
+what a session trusts goes with it. With `trust`, the checkout is trusted
+without asking, by naming it in `MISE_TRUSTED_CONFIG_PATHS` at launch, so
+its config's env and hooks run and nothing is written to mise's records;
+without it, a config the host has not trusted asks, as it would on the
+host.
 
 **Google Cloud.** gcloud and Google's client libraries, as a project's own
 service account: the project binds its key in its grant, and the session
