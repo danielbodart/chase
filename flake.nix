@@ -515,6 +515,23 @@
               && hostScope.containers.agent-trusted.bindMounts ? "/home/alice/.local/share/mise"
               && ! hostScope.containers.agent-trusted.bindMounts ? "/home/alice/.local/state/mise")
               || throw "assertions: mise was not kept where its scope says";
+            # Claude Code's managed settings are each sandbox container's,
+            # never the host's: the container the only boundary, a key a
+            # tier sets kept beside the others, and none at all when forced
+            # empty.
+            assert
+              (let
+                managed = config: name:
+                  builtins.fromJSON (builtins.readFile
+                    config.containers."agent-${name}".config.environment.etc."claude-code/managed-settings.json".source);
+                config = configWith { chase.tiers.strict.apps.claude.managedSettings.permissions.defaultMode = "plan"; };
+                none = configWith { chase.tiers.trusted.apps.claude.managedSettings = lib.mkForce { }; };
+              in
+              managed config "trusted" == { allowManagedPermissionRulesOnly = true; permissions.defaultMode = "auto"; }
+              && managed config "strict" == { allowManagedPermissionRulesOnly = true; permissions.defaultMode = "plan"; }
+              && ! config.environment.etc ? "claude-code/managed-settings.json"
+              && ! none.containers.agent-trusted.config.environment.etc ? "claude-code/managed-settings.json")
+              || throw "assertions: Claude Code's managed settings were not each container's";
             # Google Cloud is only ever a project's (PLAN.md, decision 9): a
             # tier that takes no grant cannot enable it, an API it names
             # must exist, and a tier that has it gets gcloud and nothing in

@@ -66,6 +66,8 @@ let
     ln -s ${base}/bin/claude $out/bin/claude-raw
   '';
 
+  json = pkgs.formats.json { };
+
   bind = path: readOnly: { hostPath = path; isReadOnly = readOnly; };
   claudeDir = "${cfg.home}/.claude";
 in
@@ -83,6 +85,12 @@ in
 
   options.chase.tiers = mkOption {
     type = types.attrsOf (types.submodule {
+      # Each a default of its own, so a tier that sets one key, or turns
+      # one off, keeps the rest.
+      config.apps.claude.managedSettings = {
+        allowManagedPermissionRulesOnly = lib.mkDefault true;
+        permissions.defaultMode = lib.mkDefault "auto";
+      };
       options.apps.claude = apps.overrides machine [ "package" ] // {
         enable = mkEnableOption "Claude Code in this tier";
         scope = mkOption {
@@ -107,6 +115,21 @@ in
           type = types.bool;
           default = false;
           description = "Whether claude.ai connectors (Gmail, Drive, Slack...) are available.";
+        };
+        managedSettings = mkOption {
+          type = json.type;
+          description = ''
+            Claude Code's managed settings in this tier's container,
+            /etc/claude-code/managed-settings.json, which nothing in the
+            user's, the project's or --settings overrides: never the host's.
+            By default the container is the only boundary: the permission
+            rules of every other file -- a project's checked-in `deny`
+            list, which blocks even in bypassPermissions mode, among them
+            -- are ignored, and a session starts in auto mode, Shift+Tab
+            still cycling to the others. The project's CLAUDE.md, skills,
+            agents and hooks are its own still. `lib.mkForce { }`
+            for no file.
+          '';
         };
       };
     });
@@ -166,6 +189,9 @@ in
           # ~/.claude is the session's own, with only the entries below bound
           # in: no login, and no shell snapshots from the host's PATH.
           config.environment.systemPackages = [ tier.apps.claude.package ];
+          config.environment.etc."claude-code/managed-settings.json" = mkIf (tier.apps.claude.managedSettings != { }) {
+            source = json.generate "claude-${name}-managed-settings.json" tier.apps.claude.managedSettings;
+          };
           bindMounts = {
             "${claudeDir}/settings.json" = bind "${claudeDir}/settings.json" true;
             "${claudeDir}/statusline.sh" = bind "${claudeDir}/statusline.sh" true;
