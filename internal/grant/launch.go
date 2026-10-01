@@ -20,6 +20,7 @@ import (
 	"github.com/danielbodart/frisket/policy"
 
 	"github.com/danielbodart/chase/internal/apps"
+	"github.com/danielbodart/chase/internal/files"
 	"github.com/danielbodart/chase/internal/policydoc"
 	"github.com/danielbodart/chase/internal/session"
 	"github.com/danielbodart/chase/internal/term"
@@ -84,7 +85,10 @@ func Launch(ctx context.Context, c Config, registry map[string]apps.App, tier, w
 	if err := enc.Encode(pd); err != nil {
 		return session.Given{}, err
 	}
-	if err := os.WriteFile(run+"/policy.json", out.Bytes(), 0o666); err != nil {
+	// Replaced whole, never truncated and rewritten: frisket, or anything
+	// else, reading it then would read half a document. 0600 is what the
+	// umask made of the 0666 it was written with.
+	if err := files.WriteAtomic(run+"/policy.json", out.Bytes(), 0o600); err != nil {
 		return session.Given{}, err
 	}
 	return given, nil

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // printed is exec's output read back as flong's parseExec reads it: fields
@@ -16,9 +17,11 @@ import (
 // followed by one field of content. What does not read is the test's
 // failure, as it would be the launch's.
 type printed struct {
-	env   []string
-	argv  []string
-	files []File
+	env     []string
+	argv    []string
+	files   []File
+	forward string
+	label   string
 }
 
 func parse(t *testing.T, out []byte) printed {
@@ -46,6 +49,10 @@ func parse(t *testing.T, out []byte) printed {
 			}
 			i++
 			p.files = append(p.files, File{Path: path, Mode: os.FileMode(m), Content: fields[i]})
+		case strings.HasPrefix(f, "forward:") && p.forward == "":
+			p.forward = strings.TrimPrefix(f, "forward:")
+		case strings.HasPrefix(f, "label:") && p.label == "":
+			p.label = strings.TrimPrefix(f, "label:")
 		default:
 			t.Fatalf("an untagged field: %q", f)
 		}
@@ -453,5 +460,28 @@ func TestWriteIsFlongsProtocol(t *testing.T) {
 	}
 	if !strings.HasSuffix(out.String(), "\x00\x00forward:127.101.170.171\x00") {
 		t.Errorf("a forward was written as %q", out.String())
+	}
+}
+
+// The terminal's name for a session: the project's repo, or the checkout's
+// directory, and the tier; within flong's 80 bytes, cut at a character and
+// never into the tier, and with no control character.
+func TestALabelIsTheReposAndTheTiers(t *testing.T) {
+	long := strings.Repeat("é", 50)
+	for _, c := range []struct{ project, workspace, tier, want string }{
+		{"example/shop", "/home/u/Projects/shop", "trusted", "shop · trusted"},
+		{"bodar/bodar.ts", "/home/u/Projects/anything", "trusted", "bodar.ts · trusted"},
+		{"", "/home/u/Projects/scratch", "strict", "scratch · strict"},
+		{"", "/home/u/Projects/x\x1b]0;y\x07z", "strict", "x]0;yz · strict"},
+		{"", "/", "strict", "strict"},
+		{"", "/home/u/" + long, "trusted", strings.Repeat("é", 34) + " · trusted"},
+	} {
+		got := Label(c.project, c.workspace, c.tier)
+		if got != c.want {
+			t.Errorf("%q %q %q: %q, not %q", c.project, c.workspace, c.tier, got, c.want)
+		}
+		if len(got) > 80 || !utf8.ValidString(got) {
+			t.Errorf("%q is not a label flong takes", got)
+		}
 	}
 }

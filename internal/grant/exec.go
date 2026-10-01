@@ -52,8 +52,13 @@ func Exec(ctx context.Context, s session.Config, e *Config, registry map[string]
 			return 1
 		}
 	}
-	if t, ok := s.Tiers[tier]; ok && t.Forward && e != nil {
-		given.Forward = forwardAddress(ctx, *e, tier, ws, given)
+	if e != nil {
+		given.Project = sessionProject(ctx, *e, tier, ws, given)
+		if t, ok := s.Tiers[tier]; ok && t.Forward && given.Project != "" {
+			if p, err := dockerproject.Of(given.Project); err == nil {
+				given.Forward = p.Address
+			}
+		}
 	}
 	p, err := session.Payload(s, tier, ws, binds, args, given, stderr)
 	if err != nil {
@@ -99,15 +104,15 @@ func forget(s session.Config, e *Config, stderr io.Writer) {
 	}
 }
 
-// forwardAddress is where the session's published ports are bound: its
-// project's address, the one its Docker publishes on, so two projects'
-// dev servers on one port do not meet. The approved Docker project's when
-// it has one; otherwise the project its origin names, said nothing of,
-// since a checkout with none is still launched, and "" leaves it on the
-// tier's own, 127.0.0.1.
-func forwardAddress(ctx context.Context, c Config, tier, ws string, given session.Given) string {
+// sessionProject is the project the session is of: the approved Docker
+// project's when it has one, otherwise the one its origin names, said
+// nothing of, since a checkout with none is still launched; "" for none.
+// Its address is where the session's published ports are bound, so two
+// projects' dev servers on one port do not meet, and its repo names the
+// session in the terminal's header.
+func sessionProject(ctx context.Context, c Config, tier, ws string, given session.Given) string {
 	for _, v := range given.Env {
-		if v.Name == "CHASE_DOCKER_ADDRESS" {
+		if v.Name == "CHASE_DOCKER_PROJECT" {
 			return v.Value
 		}
 	}
@@ -115,9 +120,5 @@ func forwardAddress(ctx context.Context, c Config, tier, ws string, given sessio
 	if err != nil {
 		return ""
 	}
-	p, err := dockerproject.Of(slug)
-	if err != nil {
-		return ""
-	}
-	return p.Address
+	return slug
 }
