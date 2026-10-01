@@ -447,11 +447,11 @@ func TestWriteIsFlongsProtocol(t *testing.T) {
 		t.Errorf("wrote %q, not %q", out.String(), want)
 	}
 	out.Reset()
-	e.Forward = "127.1.191.78"
+	e.Forward = "127.101.170.171"
 	if err := e.Write(&out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(out.String(), "\x00\x00forward:127.1.191.78\x00") {
+	if !strings.HasSuffix(out.String(), "\x00\x00forward:127.101.170.171\x00") {
 		t.Errorf("a forward was written as %q", out.String())
 	}
 }
