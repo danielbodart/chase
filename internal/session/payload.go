@@ -39,15 +39,19 @@ type File struct {
 type Given struct {
 	Env   []Var
 	Files []File
+	// Forward is the address the session's published ports are bound to,
+	// its project's; "" leaves the tier's own.
+	Forward string
 }
 
 // Exec is the payload, as flong's exec prints it (Write): its whole
 // argument list, the variables added to its environment, and the files
 // seeded into its home.
 type Exec struct {
-	Argv  []string
-	Env   []Var
-	Files []File
+	Argv    []string
+	Env     []Var
+	Files   []File
+	Forward string
 }
 
 // What Claude Code's placeholder login grants: what it offers is decided
@@ -261,6 +265,9 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 		e.Files = append(e.Files, File{Path: filepath.Join(c.Home, ".codex", "auth.json"), Mode: 0o600, Content: string(b)})
 	}
 	e.Files = append(e.Files, given.Files...)
+	if t.Forward {
+		e.Forward = given.Forward
+	}
 
 	if err := e.check(c.Home); err != nil {
 		return Exec{}, err
@@ -405,8 +412,9 @@ func (e Exec) check(home string) error {
 
 // Write prints e as flong reads exec's output: fields each ended by a NUL,
 // `env:NAME=VALUE` for each variable, `arg:WORD` for each word of the
-// argument list, its program first, and `file:MODE:PATH` for each file
-// followed by one field that is its content.
+// argument list, its program first, `file:MODE:PATH` for each file
+// followed by one field that is its content, and `forward:ADDRESS` when
+// the published ports are bound to an address of the launch's own.
 func (e Exec) Write(w io.Writer) error {
 	var b bytes.Buffer
 	field := func(s string) {
@@ -422,6 +430,9 @@ func (e Exec) Write(w io.Writer) error {
 	for _, f := range e.Files {
 		field(fmt.Sprintf("file:%04o:%s", uint32(f.Mode.Perm()), f.Path))
 		field(f.Content)
+	}
+	if e.Forward != "" {
+		field("forward:" + e.Forward)
 	}
 	_, err := w.Write(b.Bytes())
 	return err

@@ -58,8 +58,7 @@ type Config struct {
 	// Home/.cache/chase, and State defaults to Home/.local/state/chase.
 	Home string `json:"home"`
 	// State is where chase keeps what it approved (approved/<key>), each
-	// checkout's own directory (checkouts/<key>), and the Docker
-	// addresses already claimed (docker/addresses.json). Empty is
+	// checkout's own directory (checkouts/<key>). Empty is
 	// Home/.local/state/chase.
 	State string `json:"state,omitempty"`
 	// Runtime is the user's runtime directory, where a launch stages its
@@ -67,10 +66,6 @@ type Config struct {
 	// directory (chase/<machine>), which no session sees. Empty is
 	// /run/user/<UID>.
 	Runtime string `json:"runtime,omitempty"`
-	// Hosts is /etc/chase/docker-hosts.json, which nix-config writes with
-	// /etc/hosts: which of a project's names the host carries, at which
-	// address. Read as data; absent is none.
-	Hosts string `json:"hosts"`
 	// Policies is the directory of the tiers' own policy documents,
 	// /etc/frisket/policies, one <tier>.json each.
 	Policies string `json:"policies"`
@@ -146,13 +141,12 @@ func LoadConfig(path string) (Config, error) {
 // paths holds every path the script had spliced in to being one: absolute,
 // as a store path or the module's own is. A tool named without a slash is
 // looked up by exec on PATH, which is the caller's, and a path left out of
-// a hand-written file is "" -- a Hosts of "" is a file that is never there,
-// so the host's names would silently go unchecked when a claim is made. So
-// a file the module did not write is refused, rather than half obeyed, as
+// a hand-written file is "", which would be read as the working directory's
+// own. So a file the module did not write is refused, rather than half obeyed, as
 // the selector's is.
 func (c Config) paths() error {
 	for _, p := range []struct{ name, path string }{
-		{"home", c.Home}, {"hosts", c.Hosts}, {"policies", c.Policies},
+		{"home", c.Home}, {"policies", c.Policies},
 		{"sops", c.Sops}, {"diff", c.Diff},
 	} {
 		if !filepath.IsAbs(p.path) {

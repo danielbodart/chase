@@ -458,6 +458,10 @@ in
       tiers = lib.mapAttrs (name: tier: {
         environment = lib.listToAttrs
           config.environment.etc."flong/agent-${name}.zon".source.declaration.environment;
+        # A tier with a network publishes its ports on its project's own
+        # address, which exec gives flong per launch (internal/grant's
+        # Exec): 127.0.0.1 is only where a checkout with no project's go.
+        forward = tier.egress == "direct";
       } // lib.optionalAttrs (tier.caches != "session") {
         stores.caches = {
           scope = tier.caches;
@@ -527,6 +531,10 @@ in
     } // lib.optionalAttrs (tier.egress == "direct") {
       network = {
         inherit (tier) forwardPorts;
+        # The host's localhost alone, never every address; a launch whose
+        # checkout names a project puts it on that project's address
+        # instead (exec's `forward:`).
+        forwardAddress = "127.0.0.1";
         # What is published by `auto` is a dev server, and those listen on
         # 127.0.0.1: the host's localhost has to arrive on the session's.
         hostLoopbackToSession = tier.forwardPorts == "auto";

@@ -163,7 +163,7 @@ func TestAnAppWithNoCredentialAndNoCodeIsRefused(t *testing.T) {
 
 // Every path the script had spliced in is an absolute one: a tool named
 // without a slash would be looked up on the caller's PATH, and a path left
-// out would be "", which is a Hosts never there.
+// out would be "", which is read as the working directory.
 // Empty is a default only where there is one, and no approver.
 func TestAConfigsPathsAreAbsolute(t *testing.T) {
 	h := newHarness(t)
@@ -177,7 +177,6 @@ func TestAConfigsPathsAreAbsolute(t *testing.T) {
 	}{
 		{"sops", func(c *grant.Config) { c.Sops = "" }, `sops is "", which is not an absolute path`},
 		{"diff", func(c *grant.Config) { c.Diff = "bin/diff" }, `diff is "bin/diff", which is not an absolute path`},
-		{"hosts", func(c *grant.Config) { c.Hosts = "" }, `hosts is "", which is not an absolute path`},
 		{"policies", func(c *grant.Config) { c.Policies = "policies" }, `policies is "policies", which is not an absolute path`},
 		{"home", func(c *grant.Config) { c.Home = "" }, `home is "", which is not an absolute path`},
 		{"approver", func(c *grant.Config) { c.Approver = "approver" }, `approver is "approver", which is neither empty nor an absolute path`},
@@ -418,7 +417,7 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 		t.Errorf("the route is not the template's: %+v", rt)
 	}
 	dr := rt.Docker
-	if dr.Project != "example/shop" || dr.Address != "127.101.170.171" || !slices.Equal(dr.Names, []string{"shop.internal", "shop.example.internal"}) ||
+	if dr.Project != "example/shop" || dr.Address != "127.101.170.171" || !slices.Equal(dr.Names, []string{"shop.example.internal"}) ||
 		!slices.Equal(dr.Images, []string{"postgres:18", "library/postgres:18", "docker.io/postgres:18", "docker.io/library/postgres:18",
 			"bitnami/redis:7", "docker.io/bitnami/redis:7", "ghcr.io/o/x:1"}) ||
 		!slices.Equal(dr.Ports, []int{64320, 64321}) || dr.MaxBody != 262144 {
@@ -436,7 +435,7 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 		"DOCKER_CERT_PATH=/etc/chase/docker",
 		"CHASE_DOCKER_PROJECT=example/shop",
 		"CHASE_DOCKER_ADDRESS=127.101.170.171",
-		"CHASE_DOCKER_NAMES=shop.internal shop.example.internal",
+		"CHASE_DOCKER_NAMES=shop.example.internal",
 		"CHASE_DOCKER_PORTS=64320 64321",
 	} {
 		if !slices.Contains(env, line) {

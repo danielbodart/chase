@@ -168,7 +168,6 @@ func newHarness(t *testing.T) *harness {
 			Home:      dir + "/home",
 			State:     dir + "/state",
 			Runtime:   dir + "/run",
-			Hosts:     dir + "/docker-hosts.json",
 			Policies:  dir + "/policies",
 			Checkouts: map[string][]string{"example/nix-config": {"/home/user/Projects/nix-config"}},
 			Apps:      map[string]grant.App{},

@@ -65,6 +65,10 @@ type Tier struct {
 	// it, so Payload is told them, to judge what it would add first (see
 	// Payload).
 	Environment map[string]string `json:"environment,omitempty"`
+	// Forward is whether the tier's sessions have a network whose
+	// published ports exec may put on an address of its own: the
+	// project's, which flong is given as `forward:ADDRESS`.
+	Forward bool `json:"forward,omitempty"`
 }
 
 // Store is a directory a tier's sessions keep, made on the host and bound

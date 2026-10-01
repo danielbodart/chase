@@ -91,7 +91,6 @@ in
     chase.internal.config.grant = {
       inherit (cfg.internal.config.selector) git emptySha1 emptySha256;
       inherit (cfg) uid home;
-      hosts = "/etc/chase/docker-hosts.json";
       policies = "/etc/frisket/policies";
       inherit dockerTiers checkouts;
       apps = cfg.internal.projectApps;

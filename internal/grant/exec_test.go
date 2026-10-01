@@ -118,6 +118,35 @@ func TestTheExecHookAppliesTheGrantAndPrintsItsPayload(t *testing.T) {
 	h.mustSay("trusted's container sets SSL_CERT_FILE")
 }
 
+// A tier whose sessions publish ports puts them on the checkout's
+// project's address, and a checkout with no project leaves them on the
+// tier's own: no field, and nothing said.
+func TestTheExecHookBindsPublishedPortsToTheProjectsAddress(t *testing.T) {
+	h, _, ws := newProjectLaunch(t)
+	s := sessionConfig(h)
+	s.Tiers["trusted"] = session.Tier{Forward: true}
+	h.approved(ws, "m1", "trusted", `{}`)
+	if rc := h.exec(s, true, "trusted", ws, "m1", "shell"); rc != 0 {
+		t.Fatalf("the shell was refused: %s", h.err)
+	}
+	if got := h.fields(); got[len(got)-1] != "forward:127.101.170.171" {
+		t.Errorf("the payload is %q, with no forward to example/shop's address", got)
+	}
+
+	none := h.root() + "/w/none"
+	h.repo(none)
+	h.approved(none, "m2", "trusted", `{}`)
+	if rc := h.exec(s, true, "trusted", none, "m2", "shell"); rc != 0 {
+		t.Fatalf("a checkout with no origin was refused: %s", h.err)
+	}
+	if got := h.fields(); slices.ContainsFunc(got, func(f string) bool { return strings.HasPrefix(f, "forward:") }) {
+		t.Errorf("a checkout with no project was given a forward: %q", got)
+	}
+	if h.err != "" {
+		t.Errorf("a checkout with no project said %q", h.err)
+	}
+}
+
 // A tier that takes no grant is given its payload with nothing applied:
 // no stage looked for, no policy written.
 func TestAnExecHookWithNoGrantAppliesNone(t *testing.T) {

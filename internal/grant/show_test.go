@@ -12,12 +12,11 @@ import (
 // name the host's only where the host's map gives it this project at this
 // address.
 
-func block(host, ports string) string {
+func block(ports string) string {
 	return strings.Join([]string{
 		"example/shop",
 		"  address  127.101.170.171",
-		"  session  shop.internal shop.example.internal",
-		"  host     " + host,
+		"  names    shop.example.internal",
 		"  ports    " + ports,
 	}, "\n") + "\n"
 }
@@ -41,34 +40,16 @@ func TestWhereAProjectsDockerIsIsSaid(t *testing.T) {
 	ws := r + "/p/shop"
 	h.repo(ws, "git@github.com:Example/Shop.git")
 	os.MkdirAll(ws+"/sub", 0o755)
-	only := "(address only; not in this host's /etc/hosts)"
-	both := "shop.internal shop.example.internal"
 	ports := "64320 64321   (approved)"
 
-	// Nothing approved, and no map of the host's names: the names are the
-	// session's alone, and no port is the project's yet.
-	h.shown(ws, "trusted", block(only, "(none approved)"))
+	// Nothing approved: no port is the project's yet.
+	h.shown(ws, "trusted", block("(none approved)"))
 
 	// Approved, its ports are the project's, from anywhere in the checkout,
 	// which is keyed by its root as the launch keys it.
 	h.approved(ws, "m1", "trusted", `{"apps": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}`)
-	h.shown(ws, "trusted", block(only, ports))
-	h.shown(ws+"/sub", "trusted", block(only, ports))
-
-	// The host's names are those its map gives this project at this address,
-	// and no others.
-	for _, c := range []struct{ hosts, host string }{
-		{`{"example/shop": {"address": "127.101.170.171", "names": ["shop.internal", "shop.example.internal"]}}`, both},
-		{`{"example/shop": {"address": "127.101.170.171", "names": ["shop.example.internal", "other.internal"]}}`, "shop.example.internal"},
-		{`{"example/shop": {"address": "127.9.9.9", "names": ["shop.internal", "shop.example.internal"]}}`, only},
-		{`{"example/shop": {"address": "127.101.170.171", "names": []}}`, only},
-		{`{"evil/x": {"address": "127.101.170.171", "names": ["shop.internal"]}}`, only},
-	} {
-		write(t, h.cfg.Hosts, c.hosts)
-		h.shown(ws, "trusted", block(c.host, ports))
-	}
-	os.Remove(h.cfg.Hosts)
-	h.shown(ws, "trusted", block(only, ports))
+	h.shown(ws, "trusted", block(ports))
+	h.shown(ws+"/sub", "trusted", block(ports))
 
 	// A tier without Docker still has the address, and says so.
 	h.shown(ws, "plain", "example/shop\n  address  127.101.170.171\n  (no Docker on plain)\n")

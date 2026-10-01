@@ -7,11 +7,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1790848295,
-        "narHash": "sha256-jGZsnu1zxDpKk5fMgluO4i8je7sHdcEx6lFoY1Gka1U=",
+        "lastModified": 1790862996,
+        "narHash": "sha256-4OGkG4A7rTr5YrtI9dAvcB+xt576GvsKDd8aUthbfr4=",
         "owner": "danielbodart",
         "repo": "flong",
-        "rev": "4a6ad0a2771d4fc63fdbec4f5de7c5bc004e5350",
+        "rev": "7a2f328444adbdfc3fda08bd3a46dc13240c22e2",
         "type": "github"
       },
       "original": {
@@ -30,11 +30,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1790751144,
-        "narHash": "sha256-nBwG0Qo9fz3o7RvJ5M/g1O99MmXXSQorEM3w2xWbfLQ=",
+        "lastModified": 1790861623,
+        "narHash": "sha256-yHONC2iT/L/h0gvXLvOQxotpX69HyBQVOiSu8TBupMs=",
         "owner": "danielbodart",
         "repo": "frisket",
-        "rev": "712dd2d18b656c6a1f1b85c4d1322ffbc41afb7b",
+        "rev": "ed7f14caa1e41192351bc163d96b979fdf8e204a",
         "type": "github"
       },
       "original": {

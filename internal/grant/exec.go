@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/danielbodart/chase/internal/apps"
+	"github.com/danielbodart/chase/internal/dockerproject"
 	"github.com/danielbodart/chase/internal/session"
 	"github.com/danielbodart/chase/internal/term"
 )
@@ -51,6 +52,9 @@ func Exec(ctx context.Context, s session.Config, e *Config, registry map[string]
 			return 1
 		}
 	}
+	if t, ok := s.Tiers[tier]; ok && t.Forward && e != nil {
+		given.Forward = forwardAddress(ctx, *e, tier, ws, given)
+	}
 	p, err := session.Payload(s, tier, ws, binds, args, given, stderr)
 	if err != nil {
 		term.Say(stderr, "%s: %v", ws, err)
@@ -93,4 +97,27 @@ func forget(s session.Config, e *Config, stderr io.Writer) {
 			term.Say(stderr, "%s is left from an earlier chase, and could not be removed: %v", dir, err)
 		}
 	}
+}
+
+// forwardAddress is where the session's published ports are bound: its
+// project's address, the one its Docker publishes on, so two projects'
+// dev servers on one port do not meet. The approved Docker project's when
+// it has one; otherwise the project its origin names, said nothing of,
+// since a checkout with none is still launched, and "" leaves it on the
+// tier's own, 127.0.0.1.
+func forwardAddress(ctx context.Context, c Config, tier, ws string, given session.Given) string {
+	for _, v := range given.Env {
+		if v.Name == "CHASE_DOCKER_ADDRESS" {
+			return v.Value
+		}
+	}
+	slug, err := Project(ctx, c, ws, tier, io.Discard)
+	if err != nil {
+		return ""
+	}
+	p, err := dockerproject.Of(slug)
+	if err != nil {
+		return ""
+	}
+	return p.Address
 }

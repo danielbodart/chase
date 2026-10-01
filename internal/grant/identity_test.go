@@ -1,7 +1,7 @@
 package grant_test
 
 import (
-	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -146,7 +146,7 @@ func TestAPinIsHeldBothWays(t *testing.T) {
 
 const dockerGrant = `{"apps": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}`
 
-const shopLine = "Docker as example/shop at 127.101.170.171 (shop.internal, shop.example.internal)"
+const shopLine = "Docker as example/shop at 127.101.170.171 (shop.example.internal)"
 
 func (h *harness) dockerSaid() string {
 	for _, l := range strings.Split(h.err, "\n") {
@@ -155,19 +155,6 @@ func (h *harness) dockerSaid() string {
 		}
 	}
 	return ""
-}
-
-func (h *harness) addresses() string {
-	b, err := os.ReadFile(h.dir + "/state/docker/addresses.json")
-	if err != nil {
-		return ""
-	}
-	var v any
-	if json.Unmarshal(b, &v) != nil {
-		return "not JSON: " + string(b)
-	}
-	c, _ := json.Marshal(v)
-	return string(c)
 }
 
 func (h *harness) stagedProject(machine string) any {
@@ -179,18 +166,16 @@ func (h *harness) stagedProject(machine string) any {
 }
 
 // APPROVAL, of a grant that binds Docker: said beside the approval with
-// its address and names, and which the host has; asked about once while it
-// is unchanged, and again when its origin changes; recorded once.
+// its address and names; asked about once while it is unchanged, and again
+// when its origin changes.
 func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	h := newIdentity(t)
 	r := h.root()
 	ws := r + "/p/shop"
 	h.repo(ws, "git@github.com:Example/Shop.git")
 
-	// No hosts file: the names are the session's, and the host has only the
-	// address.
 	h.approved(ws, "m1", "trusted", dockerGrant)
-	if got := h.dockerSaid(); got != "chase: "+shopLine+"; on this host, 127.101.170.171 only" {
+	if got := h.dockerSaid(); got != "chase: "+shopLine {
 		t.Errorf("the approval did not say where Docker is: %s", h.err)
 	}
 	if got := h.stagedProject("m1"); got != "example/shop" {
@@ -202,39 +187,12 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	if !strings.Contains(h.approvals()[0].Diff, `"dockerProject": "example/shop"`) {
 		t.Errorf("the approval's diff does not show the project: %s", h.approvals()[0].Diff)
 	}
-	if got := h.addresses(); got != `{"example/shop":"127.101.170.171"}` {
-		t.Errorf("the address was not recorded: %s", got)
-	}
 
-	// The host's names, where the hosts file gives this project them at this
-	// address; the address alone where it gives them elsewhere, and only
-	// those it gives. Approved again, the same project passes, is not asked
-	// about, and is held once.
-	write(t, h.cfg.Hosts, `{"example/shop": {"address": "127.101.170.171", "names": ["shop.internal", "shop.example.internal"]}}`)
+	// Approved again, the same project is not asked about.
 	h.approved(ws, "m2", "trusted", dockerGrant)
-	if got := h.dockerSaid(); got != "chase: "+shopLine {
-		t.Errorf("the host's names were not recognised: %s", h.err)
-	}
 	if n := len(h.approvals()); n != 1 {
 		t.Error("an unchanged grant was asked about again")
 	}
-	if got := h.addresses(); got != `{"example/shop":"127.101.170.171"}` {
-		t.Errorf("the address is not held once: %s", got)
-	}
-	if n := strings.Count(read(t, h.dir+"/state/docker/addresses.json"), "example/shop"); n != 1 {
-		t.Error("the project is recorded twice")
-	}
-	write(t, h.cfg.Hosts, `{"example/shop": {"address": "127.9.9.9", "names": ["shop.internal", "shop.example.internal"]}}`)
-	h.approved(ws, "m3", "trusted", dockerGrant)
-	if got := h.dockerSaid(); got != "chase: "+shopLine+"; on this host, 127.101.170.171 only" {
-		t.Errorf("names at another address were taken as the host's: %s", h.err)
-	}
-	write(t, h.cfg.Hosts, `{"example/shop": {"address": "127.101.170.171", "names": ["shop.example.internal"]}}`)
-	h.approved(ws, "m4", "trusted", dockerGrant)
-	if got := h.dockerSaid(); got != "chase: "+shopLine+"; on this host, 127.101.170.171 and shop.example.internal only" {
-		t.Errorf("a name the host lacks was taken as the host's: %s", h.err)
-	}
-	os.Remove(h.cfg.Hosts)
 
 	// A changed origin is a changed grant, asked about again.
 	app := r + "/w/scp"
@@ -268,13 +226,12 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	}
 }
 
-// A declined approval holds no address, and stages nothing.
-func TestADeclinedProjectHoldsNoAddress(t *testing.T) {
+// A declined approval stages nothing.
+func TestADeclinedProjectIsNotStaged(t *testing.T) {
 	h := newIdentity(t)
 	d := h.root() + "/w/declined"
 	h.repo(d, "git@github.com:acme/declined.git")
-	// Its source is approved, so what is declined is the grant, the
-	// approval the address is recorded after.
+	// Its source is approved, so what is declined is the grant.
 	t.Setenv(refuseAll, "1")
 	if h.approve(d, "m14", "trusted", dockerGrant) == 0 {
 		t.Error("a declined grant was applied")
@@ -283,57 +240,20 @@ func TestADeclinedProjectHoldsNoAddress(t *testing.T) {
 	if h.isStaged("m14") {
 		t.Error("a declined grant was staged")
 	}
-	if strings.Contains(h.addresses(), "acme/declined") {
-		t.Errorf("a declined project holds its address: %s", h.addresses())
-	}
 }
 
-// AN ADDRESS ANOTHER PROJECT HOLDS: in the approved addresses, or only in the
-// host's map, or a pinned project's before it is ever approved. Refused,
-// naming both, with nothing staged or recorded.
-func TestAnAddressAnotherProjectHoldsIsRefused(t *testing.T) {
+// Two projects at one address are both approved: the address keeps most
+// projects' ports apart, not all, and what keeps a session to its own
+// project's containers is frisket's check of each connection.
+// collide/x33613042 hashes to acme/app's address (found once, offline).
+func TestTwoProjectsMayShareAnAddress(t *testing.T) {
 	h := newIdentity(t)
 	r := h.root()
-	ws := r + "/p/shop"
-	h.repo(ws, "git@github.com:Example/Shop.git")
-
-	write(t, h.dir+"/state/docker/addresses.json", `{"evil/x": "127.101.170.171"}`)
-	if h.approve(ws, "m7", "trusted", dockerGrant) == 0 {
-		t.Error("shop was approved at an address evil/x holds")
-	}
-	h.mustSay("chase: " + ws + ": example/shop would be at 127.101.170.171, which evil/x already holds")
-	if h.isStaged("m7") {
-		t.Error("a collision was staged")
-	}
-	if got := h.addresses(); got != `{"evil/x":"127.101.170.171"}` {
-		t.Errorf("a collision was recorded: %s", got)
-	}
-	os.RemoveAll(h.dir + "/state/docker")
-	write(t, h.cfg.Hosts, `{"evil/x": {"address": "127.101.170.171", "names": ["x.internal"]}}`)
-	if h.approve(ws, "m8", "trusted", dockerGrant) == 0 {
-		t.Error("shop was approved at an address the host gives evil/x")
-	}
-	h.mustSay("chase: " + ws + ": example/shop would be at 127.101.170.171, which evil/x already holds")
-	if h.isStaged("m8") {
-		t.Error("the host's collision was staged")
-	}
-	if got := h.addresses(); got != `{}` {
-		t.Errorf("the host's collision was recorded: %s", got)
-	}
-	os.Remove(h.cfg.Hosts)
-
-	// collide/x33613042, pinned, hashes to acme/app's address (found once,
-	// offline), so acme/app is refused.
-	app := r + "/w/scp"
-	h.repo(app, "git@github.com:acme/app.git")
-	h.cfg.Checkouts["collide/x33613042"] = []string{"/nowhere/collide"}
-	os.RemoveAll(h.dir + "/state/docker")
-	if h.approve(app, "m12", "trusted", dockerGrant) == 0 {
-		t.Error("acme/app was approved at an address a pinned project holds")
-	}
-	h.mustSay("chase: " + app + ": acme/app would be at 127.95.137.218, which collide/x33613042 already holds")
-	if h.isStaged("m12") {
-		t.Error("the pinned project's collision was staged")
+	for i, slug := range []string{"acme/app", "collide/x33613042"} {
+		ws := r + "/w/" + strings.ReplaceAll(slug, "/", "-")
+		h.repo(ws, "git@github.com:"+slug+".git")
+		h.approved(ws, fmt.Sprintf("m%d", 20+i), "trusted", dockerGrant)
+		h.mustSay("chase: Docker as " + slug + " at 127.95.137.218 ")
 	}
 }
 

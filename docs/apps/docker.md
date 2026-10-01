@@ -29,6 +29,6 @@ Grant:
 ```
 
 The project is the checkout's `origin`. It has its own loopback address
-(`example/shop` is `127.101.170.171`) and names (`shop.internal`,
-`shop.example.internal`); its ports are published there, and a session
-reaches them as `localhost` too. `chase docker [DIR]` shows them.
+(`example/shop` is `127.101.170.171`) and name (`shop.example.internal`);
+its ports are published there, and a session reaches them as `localhost`
+too. `chase docker [DIR]` shows them.

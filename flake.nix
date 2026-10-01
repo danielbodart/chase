@@ -69,7 +69,7 @@
         # policy document's types, so chase builds what frisket reads with
         # frisket's own code. The frisket-pin check holds go.mod's frisket to
         # the one flake.lock pins.
-        vendorHash = "sha256-Cbg3IWAi26u6k34iS0OB83pKmPnpdR6wpZqPGgTkeeA=";
+        vendorHash = "sha256-wUc/H2QmXmwpFuqTIAL+sYedSsp8xwOiXOB7nO9m/vY=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -125,14 +125,6 @@
       # them in or import them first. See ./module.nix.
       nixosModules.chase = import ./module.nix self;
       nixosModules.default = self.nixosModules.chase;
-
-      # A project's loopback address and names, from its owner/repo, as
-      # `chase docker-address` prints them: address, names, reserved and
-      # isProject (see ./lib/docker.nix). Pure Nix and the same on every system, so a
-      # consumer writing /etc/hosts derives them from here, not from a copy.
-      # The reserved names are frisket's, which it exports as the list its Go
-      # code embeds.
-      lib.docker = import ./lib/docker.nix { lib = nixpkgs.lib; inherit (frisket.lib.docker) reserved; };
 
       checks = forAllSystems (system:
         let
@@ -641,62 +633,6 @@
               || throw "assertions: the tiers' seccomp is not what they say";
             pkgs.runCommand "assertions" { } "touch $out";
 
-          # The address and names frisket derives again and refuses a route
-          # over, and nix-config derives for /etc/hosts. chase gives them
-          # with frisket's own functions, which frisket's tests and chase's
-          # (internal/dockerproject) hold to the contract's vectors. What is
-          # left to hold is lib.docker, the one derivation that is not Go
-          # because nix-config has only Nix to evaluate: for every slug here
-          # it gives what the binary does, and it refuses what the binary
-          # refuses rather than naming a project frisket could never route.
-          docker-address =
-            let
-              docker = self.lib.docker;
-              lib = nixpkgs.lib;
-              as = n: lib.concatStrings (lib.replicate n "a");
-              slugs = [
-                "example/shop" "example/billing" "danielbodart/frisket"
-                "test/repo-66" "Example/Shop" "bodar/bodar.ts" "bodar/bodar-ts"
-                "test/${as 63}" "test/${as 64}" "test/___" "test/..." "test/-x.-" "test/_.._"
-                "frisket/docker" "google/metadata" "google/shop" "frisket/foo"
-                "frisket/frisket" "google/google" "x/frisket"
-              ];
-              fromNix = map (slug: { inherit slug; address = docker.address slug; names = docker.names slug; }) slugs;
-              refused = [
-                "example" "example/shop/x" "" "${lib.concatStrings (lib.replicate 40 "o")}/repo"
-                "test/.." "test/." "-test/repo" "test/${lib.concatStrings (lib.replicate 101 "r")}"
-                "test/a b" "test/repo\nx" "test/ré" "a/b/c" "evil/../shop" "a/rép" "/x"
-              ];
-              acceptedByNix = builtins.filter
-                (slug: (builtins.tryEval (docker.address slug)).success
-                  || (builtins.tryEval (builtins.deepSeq (docker.names slug) true)).success)
-                refused;
-            in
-            assert lib.assertMsg (docker.reserved == frisket.lib.docker.reserved)
-              "lib.docker reserves ${builtins.toJSON docker.reserved}, but frisket reserves ${builtins.toJSON frisket.lib.docker.reserved}";
-            assert lib.assertMsg (acceptedByNix == [ ])
-              "lib.docker gave an address or names to ${builtins.toJSON acceptedByNix}";
-            pkgs.runCommand "docker-address" {
-              nativeBuildInputs = [ self.packages.${system}.chase pkgs.jq ];
-              fromNix = builtins.toJSON fromNix;
-              refused = builtins.toJSON refused;
-              passAsFile = [ "fromNix" "refused" ];
-            } ''
-              fail() { echo "docker-address: $*" >&2; exit 1; }
-              [ "$(jq length "$fromNixPath")" -eq ${toString (builtins.length slugs)} ] || fail "the slugs from Nix did not arrive"
-              while IFS= read -r want; do
-                slug=$(jq -r .slug <<< "$want")
-                got=$(chase docker-address "$slug") || fail "$slug was refused"
-                [ "$(jq -c '{address, names}' <<< "$got")" = "$(jq -c '{address, names}' <<< "$want")" ] \
-                  || fail "lib.docker gives $slug $want, but chase docker-address gives $got"
-              done < <(jq -c '.[]' "$fromNixPath")
-              # NUL-separated: one of the refused has a newline in it.
-              while IFS= read -r -d "" slug; do
-                ! chase docker-address "$slug" >/dev/null 2>&1 || fail "chase docker-address gave $slug an address"
-              done < <(jq -j '.[] + "\u0000"' "$refusedPath")
-              touch $out
-            '';
-
           # WHAT A DOCKER BODY MAY HOLD (docs/docker.md): the hand-written
           # tables in apps/docker/fields.json, one per body admit.json names,
           # each judging every field the pinned spec knows. A field the spec
@@ -824,7 +760,7 @@
 
               fresh
               judge || fail "the tables were not judged whole: $(cat $TMPDIR/err)"
-              [ "$(jq -c '.routes[0].docker | [.address, .names]' $TMPDIR/sample.json)" = '["127.101.170.171",["shop.internal","shop.example.internal"]]' ] \
+              [ "$(jq -c '.routes[0].docker | [.address, .names]' $TMPDIR/sample.json)" = '["127.101.170.171",["shop.example.internal"]]' ] \
                 || fail "the sample is not shop's address and names: $(jq -c '.routes[0].docker' $TMPDIR/sample.json | head -c 300)"
               [ "$(jq -c '.routes[0].docker.bodies | keys' $TMPDIR/sample.json)" = '["ContainerCreate","ExecCreate","ExecStart","NetworkCreate","VolumeCreate"]' ] \
                 || fail "the sample does not carry every admitted body's table"
@@ -856,10 +792,10 @@
                 ! loads $TMPDIR/bad.json || fail "frisket loaded $why"
                 grep -qF -- "$said" $TMPDIR/err || fail "$why, refused otherwise: $(cat $TMPDIR/err)"
               }
-              own="are not [\"shop.internal\" \"shop.example.internal\"], the project's own"
-              unloaded "names in another order than it derives" '.routes[0].docker.names |= reverse' "$own"
-              unloaded "names short of what it derives" '.routes[0].docker.names = ["shop.internal"]' "$own"
-              unloaded "another project's names" '.routes[0].docker.names = ["billing.internal", "billing.example.internal"]' "$own"
+              own="are not [\"shop.example.internal\"], the project's own"
+              unloaded "names beyond what it derives" '.routes[0].docker.names += ["shop.internal"]' "$own"
+              unloaded "names short of what it derives" '.routes[0].docker.names = []' "$own"
+              unloaded "another project's names" '.routes[0].docker.names = ["billing.example.internal"]' "$own"
               unloaded "an address it does not derive" '.routes[0].docker.address = "127.101.170.172"' "is not 127.101.170.171, the project's own"
 
               touch $out

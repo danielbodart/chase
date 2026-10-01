@@ -236,7 +236,7 @@ the route. A registry is Docker Hub or one of a fixed few public ones
 (`ghcr.io`, `quay.io`, `gcr.io` and its regions, Artifact Registry's
 `*-docker.pkg.dev`, …) whose names no project controls, and nothing else:
 the daemon would pull from the host's own loopback by an address, by
-`localhost`, or by any name `/etc/hosts` gives it, a project's `.internal`
+`localhost`, or by any name the host resolves, a project's `.internal`
 name among them.
 
 **9. Ownership is by project, named by the checkout's origin, and stamped
@@ -358,10 +358,7 @@ hash the 64 hex digits again and take bytes from that result. Repeat until
 the address is allowed. frisket does it in Go, in its public `docker`
 package, and refuses a route whose address is not the one the project gives.
 chase calls those same functions (`chase docker-address`), so there is
-nothing of its own to drift. What has only Nix to evaluate cannot call them:
-nix-config derives the address and names through chase's `lib.docker`
-(`lib/docker.nix`, `builtins.hashString` and `lib.fromHexString`), and
-chase's `docker-address` check holds it to what the binary gives.
+nothing of its own to drift, and nothing else derives them.
 
 | project | first bytes | address |
 |---|---|---|
@@ -371,72 +368,60 @@ chase's `docker-address` check holds it to what the binary gives.
 | `test/repo-66` | `00 80 2f`, then `d3 12 4b` | `127.211.18.75` |
 | `bodar/bodar.ts` | `64 54 63` | `127.100.84.99` |
 
-The names come from the repo part. It is lower-cased; every character
-outside `[a-z0-9-]` becomes `-`; and leading and trailing `-` are trimmed.
-A repo that leaves nothing, or more than 63 characters (the longest a DNS
-label may be), has no names; its address still works. The short name is
-`<repo>.internal`, `shop.internal`; the long one is
-`<repo>.<owner>.internal`. A name that equals or falls under a reserved apex,
-`frisket.internal` or `google.internal`, is never given: frisket's route host
-`docker.frisket.internal` and `metadata.google.internal` are names of their
-own. So `frisket/frisket` and `google/google` have no names,
-`danielbodart/frisket` has only `frisket.danielbodart.internal`, and
-`frisket/foo` has `foo.internal`, and `google/shop` has
-`shop.internal`. frisket owns that list: `docker/reserved.json`, which its Go code embeds
-and its flake exports as `lib.docker.reserved`. chase's binary has it
-through frisket's `docker` package, and its `lib.docker` (`lib/docker.nix`)
-reads it from its frisket input; the `docker-address` check holds the two
-to the same answers.
-nix-config derives its names through chase's `lib.docker` rather than
-a copy of the rule.
-Neither is unique: two owners can share a short name, and because `.` and
-`_` fold to `-`, `bodar/bodar.ts` and `bodar/bodar-ts` share a long one.
+A project has one name, `<repo>.<owner>.internal`: the slug lower-cased,
+the `/` made a `.`, and nothing else changed, so `example/shop` is
+`shop.example.internal` and `bodar/bodar.ts` is `bodar.ts.bodar.internal`.
+An owner has no dots, so the label before `.internal` is the owner and the
+rest is the repo: the name reads back to its project (frisket's
+`docker.Project`), and no two projects share one. A repo with an empty
+label (`.github`, `a..b`), a `-` first, or a label longer than 63
+characters has no name; its address still works. A name that equals or
+falls under a reserved apex, `frisket.internal` or `google.internal`, is
+never given: frisket's route host `docker.frisket.internal` and
+`metadata.google.internal` are names of their own. frisket owns that list,
+`docker/reserved.json`, which its Go code embeds.
 
-In a session, frisket's DNS answers both names with the address, but only
-for the session's own project, and before the allowlist rather than by
-adding to it, so neither name is looked up upstream or reaches egress's
-resolved set. frisket does not fence `.internal`: any other name under it,
-another project's included, is an ordinary name and goes wherever the
-tier's allowlist sends it. On a tier that allows `*`, `billing.internal`
-is looked up upstream, and on the host's resolver `/etc/hosts` may answer
-it; on a tier that does not allow it, it is `NXDOMAIN` and never leaves the
-host. That is no reach into another project: the address it gives is not
-steered to, and a session's connections go only to its own project's
-address.
+In a session, frisket's DNS answers the session's own project's name with
+the address, before the allowlist rather than by adding to it, so it is
+never looked up upstream. Any other name under `.internal`, another
+project's included, goes wherever the tier's allowlist sends it. That is no
+reach into another project: the address it gives is not steered to, and a
+session's connections go only to its own project's address.
 
-On the host, the names are only those nix-config knows. It writes
-`networking.hosts` for every project in `home/repos.nix` and the tiers'
-pinned checkouts, with only the names exactly one of them gives, short or
-long, and writes the same map to `/etc/chase/docker-hosts.json`. chase
-prints the address and names in the approval, in `chase shell`'s banner, and
-from `chase docker`, and calls a name a host name only when that file gives
-it this project's address. Otherwise it says to use the address: a name
-missing from `/etc/hosts` would be asked of the upstream resolver, which a
-hostile network answers.
+On the host, frisket answers every project's name, computed from the name
+alone: `frisket dns` (`services.frisket.hostDNS`, on `127.0.0.153:53`) reads
+the name back to its project and answers its address, with no list of
+projects, nothing forwarded, `NXDOMAIN` for the rest of `.internal`, and
+`REFUSED` outside it. The host's resolver sends only `~internal` there
+(systemd-resolved's `Domains=~internal`), so a clone the host has never
+seen has its name at once, and no `.internal` query reaches the network.
 
-No two projects on one host share an address. By accident, among 30
-projects, the odds are about one in 40,000, and nix-config asserts that the
-projects it knows do not. On purpose it takes seconds: 24 bits can be
-searched for a repo name that lands on shop's address. So an address
-is first come, first served on each host. `approve` keeps
-`~/.local/state/chase/docker/addresses.json`, which project was first
-approved at each address, written by nothing else and pruned only by hand.
-It refuses a project whose address another holds there, among the projects
-the tiers pin, or in `/etc/chase/docker-hosts.json`, whose addresses are
-read as given, not derived again. It checks before anyone is asked and
-again once the grant is approved, and only then records the project: one
-refused approval holds no address. frisket refuses to open a session
-whose address a live session of another project holds. And the relay's
-ownership check keeps a session from reaching another project's container
-even so.
+Two projects can share an address: by accident, among 30 projects, the odds
+are about one in 40,000, and on purpose a repo name that lands on another's
+address takes seconds to find. Neither is refused. The address keeps most
+projects' ports apart, not all, and what keeps a session to its own
+project's containers is the relay's check of each connection: it relays
+only to a running container with the session's own project's label that
+publishes that address and port.
+
+The same address is where a session's own ports are published. A tier with
+a network gives flong the project's address per launch (exec's
+`forward:ADDRESS`), so `forwardPorts = "auto"` binds `ADDRESS/auto` and a
+dev server on 3000 in one project is not another's 3000; a checkout with no
+project's ports stay on `127.0.0.1`. frisket's session ruleset sends a
+connection that arrives that way to the session's `127.0.0.1`, so a server
+listening on localhost alone is reached at the project's address too.
 
 *Rejected:* handing addresses out, at approval or at launch. A hash needs no
-allocation, and gives each project the same address on every machine;
-`addresses.json` only remembers who came first, and holds nothing a new
-machine needs.
-*Rejected:* asking the resolver (`getent`) whether a name is on the host.
-For a name `/etc/hosts` lacks, that is the upstream lookup a hostile
-network answers.
+allocation, and gives each project the same address on every machine.
+*Rejected:* `/etc/hosts`, written by nix-config for the projects it knows.
+A name was there only after a rebuild, the file it wrote had to be read
+back to tell a host name from one the upstream resolver would answer, and
+the `.`-to-`-` fold that kept a short name one label made two repos share a
+name.
+*Rejected:* refusing a project whose address another holds, first come on
+each host. It made a collision, which the relay already contains, a project
+that cannot run.
 
 **15. Docker is steered only where the steering file allows it.** The
 steering file's ruleset gains two sets, `relay4` and `relay6`, which are
@@ -475,10 +460,9 @@ since dropped a port refuses connections to it.
    `apps/docker/admit.json` names the admitted operations.
 5. **chase: the project's identity**, read from the checkout's `.git` by
    `chase origin`, never by a git that reads its config, bound both ways to
-   the tiers' pins, approved as `dockerProject`, and first come, first
-   served for its address (decisions 9 and 14). Its address and names are
-   frisket's own `docker.Address` and `docker.Names`, printed by
-   `chase docker-address`, and `lib.docker` in Nix.
+   the tiers' pins, and approved as `dockerProject` (decisions 9 and 14).
+   Its address and name are frisket's own `docker.Address` and
+   `docker.Names`, printed by `chase docker-address`.
 6. **chase: `apps/docker.nix`** — `chase.tiers.<tier>.apps.docker.enable`,
    only on a direct-egress tier that takes grants;
    `apps.docker.images` and `.ports` in the grant; the route,
@@ -486,13 +470,13 @@ since dropped a port refuses connections to it.
    ports, by an app with no credential; the Docker CLI and Compose in the
    container, and `DOCKER_HOST`, `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH`
    in the session.
-7. **chase: where it is** — the address and names in the approval, in
-   `chase shell`'s banner, and from `chase docker [DIR]`.
-8. **nix-config: `networking.hosts`** for the projects it knows, and
-   `/etc/chase/docker-hosts.json` saying which names it wrote; and
-   rootless Docker for the user.
+7. **chase: where it is** — the address and name in the approval, and
+   from `chase docker [DIR]`.
+8. **nix-config:** systemd-resolved sending `~internal` to frisket's host
+   DNS, and rootless Docker for the user.
 
-flong needs nothing: no hook, no `hostPorts`, no range per tier.
+flong needs no hook for Docker, no `hostPorts`, no range per tier; it binds
+a session's own published ports to the address exec gives it.
 
 ## Test plan
 
@@ -512,75 +496,55 @@ file changes; attached `up`; and a cold pull. An empty, `0.0.0.0` and
 `127.0.0.1` `HostIp` each reach the daemon as the project's address.
 
 In a session: `psql -h localhost -p 64320`, `-h ::1` and `-h
-shop.internal` all reach the container, and each is one `relay` line.
+shop.example.internal` all reach the container, and each is one `relay` line.
 `127.0.0.1:64330`, a port the project does not name, reaches nothing and is
 not steered. With shop's container down and a host listener on
 `0.0.0.0:64320`, `127.0.0.1:64320` in the session reaches nothing, and the
 line says `no owned container publishes it`; the same for a container of
 another project, or one not running. A relayed connection left idle for more
-than ten minutes is still open. `billing.internal` is not answered by
-frisket itself: its line records the allowlist's decision, and it never
-resolves to shop's address. `approve` refuses a project whose address
-`addresses.json` gives another, and frisket refuses to open a session at an
-address another project's live session holds. `approve` gives no Docker to a
+than ten minutes is still open. `billing.example.internal` is not answered
+by frisket itself: its line records the allowlist's decision, and it never
+resolves to shop's address. Two projects at one address are both approved,
+and both run. `approve` gives no Docker to a
 checkout with no origin, or two, or one not on GitHub; to a pinned path
 whose origin names another project, a pinned project found at another path,
 or a clone nested under a pinned path; and runs no command the checkout's
 config names while it looks. The names are frisket's vectors:
-`danielbodart/frisket` has only `frisket.danielbodart.internal`,
-`google/shop` only `shop.internal`, `frisket/frisket` and
-`google/google` none, and `frisket/foo` has `foo.internal`. A second
+`danielbodart/frisket` has `frisket.danielbodart.internal`, `bodar/bodar.ts`
+has `bodar.ts.bodar.internal`, and `frisket/foo`, `google/shop` and
+`.github` repos have none. A second
 session, of another project, cannot reach `127.101.170.171:64320`: nothing
 steers it there, and the session's own loopback has nothing on it. On a tier
-with `forwardPorts = "auto"`, the host has no `*:64320` while the session
-runs, and `docker compose up` binds `127.101.170.171:64320`. On the host,
-`shop.internal` resolves to `127.101.170.171`, and `chase docker` lists it
-as a host name; for a project nix-config does not know, it says to use the
-address.
+with `forwardPorts = "auto"`, a session's own listener on 3000 is published
+at `127.101.170.171:3000` and nowhere else, and reached there even when it
+listens on `127.0.0.1` alone. On the host, `shop.example.internal` resolves
+to `127.101.170.171` through frisket's host DNS, for any project, known or
+not.
 
 ## Open
 
 - **Worktrees of one repository share containers, volumes and ports.**
   Concurrent sessions in two of them see one database, and one's `down -v`
   removes the other's.
-- **Any session's listener on P, in any project on an auto tier, takes the
-  host's `*:P`.** pasta's `auto` republishes it within a second, and a
-  wildcard socket accepts every `127/8` address. Every project's later
-  publish of P then fails with the daemon's `address already in use`, and in
-  the other direction a Docker publish of P keeps pasta from forwarding P for
-  sessions started later. A host process bound to every address on P does
-  the same. A session's own listener on P is also never reached from inside
-  it, because P is steered to frisket.
-- **On the host, that is interception.** While shop's container is down
-  (before `up`, or during a recreate or `down`/`up`), a host tool that dials
-  `shop.internal:P` reaches whichever auto-tier session listens on P, so a
-  host `psql` would send its login and queries to another project's server.
-  Sessions are safe, since the relay checks ownership; the host's own tools
-  do not go through frisket. The fixes are to forbid `forwardPorts = "auto"`
-  while any tier has Docker, or to exclude a Docker port range from `auto`
-  with pasta 2026_07_16. Neither is taken yet; this is the user's call.
+- **A session's own listener on a project's Docker port takes it first.**
+  `auto` publishes the session's listener on P at the project's address, so
+  the project's later `docker compose up` of P fails with `address already
+  in use`, and the other way round pasta does not publish P. It is one
+  project's own ports meeting each other, not another project's.
 - **Between the relay's check and its dial**, the container could stop and
   a wildcard listener take its place. The window is the lookup's round
   trip.
 - **Anyone on the host reaches a project's containers.** The project's
   address is on the host's loopback, like everything else published there.
   It keeps projects' sessions apart, not the host's users.
-- **Addresses are first come, first served per host.** A project whose
-  address another approved first cannot have Docker on this host until a
-  person edits `addresses.json`. The projects the tiers pin and those in
-  nix-config's `/etc/chase/docker-hosts.json` are always held, so they win.
-  A tier that pins a project's path makes its address the project's even
-  before its first approval.
-- **A `.internal` name not in `/etc/hosts` goes to the upstream resolver**,
-  on the host and in a session whose tier allows it. chase never prints such
-  a name as a host name, but a person can still type one. `.internal` is
-  reserved for private use, so no public resolver should answer it, but
-  nothing here stops the query leaving.
-- **frisket's `15001` is republished too.** A trusted session's pasta should
-  publish the host's `*:15001` for it, by the measurement above; this was
-  not seen on a live session. It answers nothing, since a connection that
-  dials the listener is refused, but the host's port is held while the
-  session runs.
+- **Two projects can share an address**, by accident or on purpose. Their
+  sessions still reach only their own containers (the relay's check), but on
+  the host the shared address is both projects': a host tool that dials it
+  reaches whichever published the port.
+- **frisket's `15001` is republished too.** A trusted session's pasta may
+  publish `15001` at the project's address for it. It answers nothing, since
+  a connection that dials the listener is refused, but that port of the
+  project's address is held while the session runs.
 - **What frisket cannot see.** Containers run outside flong: their DNS is
   not frisket's, they have no pids or memory limit unless the project sets
   one, and their egress is the user's.
@@ -618,8 +582,8 @@ address.
 - **What shop does that is refused.** Every `test_ci` and `docker run`
   of a locally built image needs `docker build`; `docker cp` needs archive.
   Neither is planned.
-- **Only a session's own names are answered by frisket,** and the host's
-  `/etc/hosts` is not the container's. A tool in a session that names
+- **Only a session's own name is answered by frisket in a session.** A tool
+  in a session that names
   another project's containers gets whatever the allowlist and the upstream
   resolver give; even an address, it cannot reach, since nothing steers it
   there.

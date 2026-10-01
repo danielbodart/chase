@@ -177,31 +177,20 @@ func Approve(ctx context.Context, c Config, ws, machine, tier string, stderr io.
 	// what is approved: a changed origin is asked about again. A grant
 	// without Docker gains nothing, so one approved before there was Docker
 	// still is.
-	slug, addr := "", ""
 	if d, err := result.path("apps", "docker"); err == nil && d.kind != 'n' {
-		if slug, err = project(ctx, g, c, ws, tier, stderr); err != nil {
+		slug, err := project(ctx, g, c, ws, tier, stderr)
+		if err != nil {
 			return Result{}, err
 		}
 		who, err := address(slug, stderr)
 		if err != nil {
 			return Result{}, refuse("%s: %s has no address", ws, slug)
 		}
-		addr = who.Address
-		if err := claim(c, ws, slug, addr, false); err != nil {
-			return Result{}, err
-		}
 		result.set("dockerProject", jstr(slug))
-		if err := dockerLine(c, ws, slug, who, stderr); err != nil {
-			return Result{}, err
-		}
+		dockerLine(slug, who, stderr)
 	}
 	if err := approveGrant(ctx, c, ws, result, dir, stderr); err != nil {
 		return Result{}, err
-	}
-	if slug != "" {
-		if err := claim(c, ws, slug, addr, true); err != nil {
-			return Result{}, err
-		}
 	}
 
 	// What exec applies is what was approved, with the snapshot's sops

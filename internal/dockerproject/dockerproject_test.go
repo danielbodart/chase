@@ -14,17 +14,16 @@ func TestASlugIsGivenItsAddressAndNames(t *testing.T) {
 		slug, project, address string
 		names                  []string
 	}{
-		{"example/shop", "example/shop", "127.101.170.171", []string{"shop.internal", "shop.example.internal"}},
-		{"example/billing", "example/billing", "127.10.146.214", []string{"billing.internal", "billing.example.internal"}},
+		{"example/shop", "example/shop", "127.101.170.171", []string{"shop.example.internal"}},
+		{"example/billing", "example/billing", "127.10.146.214", []string{"billing.example.internal"}},
 		{"danielbodart/frisket", "danielbodart/frisket", "127.103.202.234", []string{"frisket.danielbodart.internal"}},
-		{"test/repo-66", "test/repo-66", "127.211.18.75", []string{"repo-66.internal", "repo-66.test.internal"}},
-		{"Example/Shop", "example/shop", "127.101.170.171", []string{"shop.internal", "shop.example.internal"}},
-		// The label folds "." to "-", so two repos of one owner can share
-		// both names, at different addresses.
-		{"bodar/bodar.ts", "bodar/bodar.ts", "127.100.84.99", []string{"bodar-ts.internal", "bodar-ts.bodar.internal"}},
-		{"bodar/bodar-ts", "bodar/bodar-ts", "127.113.253.232", []string{"bodar-ts.internal", "bodar-ts.bodar.internal"}},
+		{"test/repo-66", "test/repo-66", "127.211.18.75", []string{"repo-66.test.internal"}},
+		{"Example/Shop", "example/shop", "127.101.170.171", []string{"shop.example.internal"}},
+		// A "." in the repo stays one, so no two repos share a name.
+		{"bodar/bodar.ts", "bodar/bodar.ts", "127.100.84.99", []string{"bodar.ts.bodar.internal"}},
+		{"bodar/bodar-ts", "bodar/bodar-ts", "127.113.253.232", []string{"bodar-ts.bodar.internal"}},
 		// A DNS label is at most 63 characters.
-		{"test/" + a63, "test/" + a63, "127.9.96.222", []string{a63 + ".internal", a63 + ".test.internal"}},
+		{"test/" + a63, "test/" + a63, "127.9.96.222", []string{a63 + ".test.internal"}},
 		{"test/" + a64, "test/" + a64, "127.60.34.62", []string{}},
 	} {
 		got, err := Of(v.slug)
@@ -38,19 +37,19 @@ func TestASlugIsGivenItsAddressAndNames(t *testing.T) {
 	}
 }
 
-// A repo that folds to nothing has no label, its ends are trimmed, and a name
-// that is already something else's -- all of frisket.internal and
-// google.internal -- is never given.
+// A repo that is no DNS label has no name -- an empty label, or a '-'
+// first -- and a name that is already something else's -- all of
+// frisket.internal and google.internal -- is never given.
 func TestANameIsGivenOnlyWhereItIsALabelNothingElseHas(t *testing.T) {
 	for slug, want := range map[string][]string{
-		"test/___":        {},
+		"test/___":        {"___.test.internal"},
 		"test/...":        {},
 		"test/_.._":       {},
-		"test/-x.-":       {"x.internal", "x.test.internal"},
-		"frisket/docker":  {"docker.internal"},
-		"google/metadata": {"metadata.internal"},
-		"google/shop":     {"shop.internal"},
-		"frisket/foo":     {"foo.internal"},
+		"test/-x.-":       {},
+		"frisket/docker":  {},
+		"google/metadata": {},
+		"google/shop":     {},
+		"frisket/foo":     {},
 		"frisket/frisket": {},
 		"google/google":   {},
 		"x/frisket":       {"frisket.x.internal"},

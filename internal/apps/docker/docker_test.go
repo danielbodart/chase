@@ -190,7 +190,7 @@ func TestTheRouteIsTheProjects(t *testing.T) {
 	if r.Refusal == nil || *r.Refusal != (policy.Refusal{ContentType: "application/json", Body: `{"message":"{{message}}"}`}) {
 		t.Errorf("the refusal is not Docker's: %+v", r.Refusal)
 	}
-	if d.Project != "example/shop" || d.Address != "127.101.170.171" || !slices.Equal(d.Names, []string{"shop.internal", "shop.example.internal"}) {
+	if d.Project != "example/shop" || d.Address != "127.101.170.171" || !slices.Equal(d.Names, []string{"shop.example.internal"}) {
 		t.Errorf("the route is not shop's: %s %s %q", d.Project, d.Address, d.Names)
 	}
 	wantImages := []string{"postgres:18", "library/postgres:18", "docker.io/postgres:18", "docker.io/library/postgres:18",
@@ -272,7 +272,7 @@ func TestTheRouteIsTheProjects(t *testing.T) {
 		"DOCKER_CERT_PATH":     "/etc/chase/docker",
 		"CHASE_DOCKER_PROJECT": "example/shop",
 		"CHASE_DOCKER_ADDRESS": "127.101.170.171",
-		"CHASE_DOCKER_NAMES":   "shop.internal shop.example.internal",
+		"CHASE_DOCKER_NAMES":   "shop.example.internal",
 		"CHASE_DOCKER_PORTS":   "64320 64321",
 	}
 	if !reflect.DeepEqual(p.Env, wantEnv) {
@@ -504,7 +504,7 @@ func TestFrisketLoadsTheSampleAndNotAnotherProjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := p.Routes[0].Docker
-	if d.Address != "127.101.170.171" || !slices.Equal(d.Names, []string{"shop.internal", "shop.example.internal"}) {
+	if d.Address != "127.101.170.171" || !slices.Equal(d.Names, []string{"shop.example.internal"}) {
 		t.Errorf("the sample is not shop's address and names: %s %q", d.Address, d.Names)
 	}
 	if !slices.Equal(d.Images, []string{"postgres:18", "library/postgres:18", "docker.io/postgres:18", "docker.io/library/postgres:18"}) {
@@ -522,15 +522,15 @@ func TestFrisketLoadsTheSampleAndNotAnotherProjects(t *testing.T) {
 		t.Fatalf("the tables were not judged whole: %v: %s", err, out)
 	}
 
-	own := `are not ["shop.internal" "shop.example.internal"], the project's own`
+	own := `are not ["shop.example.internal"], the project's own`
 	for _, v := range []struct {
 		why  string
 		edit func(*policy.DockerRoute)
 		said string
 	}{
-		{"names in another order than it derives", func(d *policy.DockerRoute) { slices.Reverse(d.Names) }, own},
-		{"names short of what it derives", func(d *policy.DockerRoute) { d.Names = []string{"shop.internal"} }, own},
-		{"another project's names", func(d *policy.DockerRoute) { d.Names = []string{"billing.internal", "billing.example.internal"} }, own},
+		{"names beyond what it derives", func(d *policy.DockerRoute) { d.Names = append(d.Names, "shop.internal") }, own},
+		{"names short of what it derives", func(d *policy.DockerRoute) { d.Names = []string{} }, own},
+		{"another project's names", func(d *policy.DockerRoute) { d.Names = []string{"billing.example.internal"} }, own},
 		{"an address it does not derive", func(d *policy.DockerRoute) { d.Address = "127.101.170.172" }, "is not 127.101.170.171, the project's own"},
 	} {
 		bad, _, _ := prepare(t, template(t), "trusted", "example/shop", `{"images": ["postgres:18"], "ports": [64320, 64321]}`)

@@ -193,182 +193,15 @@ func realpathM(p string) (string, error) {
 	return gitsafe.TrimNL(resolved), nil
 }
 
-// claim is NO TWO PROJECTS AT ONE ADDRESS (I10). The address is a hash of
-// the project's name, and 24 bits can be searched in seconds for a repo name
-// that lands on another project's: an approval saying `Docker as evil/x at
-// 127.101.170.171` would not be compared with shop's by anyone. So an
-// address is first come on this host: the projects already approved here
-// (<state>/docker/addresses.json, which only this writes, and from which
-// nothing is ever removed but by hand), those the tiers pin, and those whose
-// names the host's /etc/hosts carries, read as data. The directory is
-// locked, not the file, since the file is replaced whole: the same lock the
-// script's flock took, so the two agree while both are about.
-//
-// record false refuses before anyone is asked; record true checks again,
-// once the grant is approved, and remembers the project: one that was
-// refused approval holds no address.
-func claim(c Config, ws, slug, addr string, record bool) error {
-	dir := c.state() + "/docker"
-	file := dir + "/addresses.json"
-	if err := os.MkdirAll(dir, 0o777); err != nil {
-		return err
-	}
-	lock, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer lock.Close()
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
-		return err
-	}
-	if _, err := os.Stat(file); err != nil {
-		if err := os.WriteFile(file, []byte("{}\n"), 0o666); err != nil {
-			return err
-		}
-	}
-	held, err := heldLines(file, func(v *value) (*value, error) { return v, nil })
-	if err != nil {
-		return refuse("%s: %s cannot be read", ws, file)
-	}
-	if _, err := os.Stat(c.Hosts); err == nil {
-		more, err := heldLines(c.Hosts, func(v *value) (*value, error) { return v.index("address") })
-		if err != nil {
-			return refuse("%s: %s cannot be read", ws, c.Hosts)
-		}
-		held += "\n" + more
-	}
-	for _, s := range slices.Sorted(maps.Keys(c.checkouts())) {
-		p, err := dockerproject.Of(s)
-		if err != nil {
-			continue
-		}
-		held += "\n" + s + "\t" + p.Address
-	}
-	for _, line := range gitsafe.HereLines(held) {
-		f := gitsafe.Fields(line, gitsafe.Tab, 2)
-		other, a := f[0], f[1]
-		if other != "" && lowerASCII(other) != slug && a == addr {
-			return refuse("%s: %s would be at %s, which %s already holds", ws, slug, addr, other)
-		}
-	}
-	if !record {
-		return nil
-	}
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return err
-	}
-	v, err := parseJSON(b)
-	if err != nil {
-		return err
-	}
-	if v.kind == '{' {
-		if cur, _ := v.optional(slug); cur == addr {
-			return nil
-		}
-	}
-	if v.kind != '{' {
-		return fmt.Errorf("%s: %s cannot be added to", ws, file)
-	}
-	v.set(slug, jstr(addr))
-	if err := os.WriteFile(file+".new", []byte(v.pretty()+"\n"), 0o666); err != nil {
-		return err
-	}
-	return os.Rename(file+".new", file)
-}
-
-// heldLines is `jq -r 'to_entries[] | "\(.key)\t\(.value | F | strings)"'`
-// of a file, as a command substitution held it: a line for each entry whose
-// F is a string.
-func heldLines(file string, f func(*value) (*value, error)) (string, error) {
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return "", err
-	}
-	v, err := parseJSON(b)
-	if err != nil {
-		return "", err
-	}
-	keys, vals, err := v.entries()
-	if err != nil {
-		return "", err
-	}
-	var lines []string
-	for i, k := range keys {
-		x, err := f(vals[i])
-		if err != nil {
-			return "", err
-		}
-		if x.kind == '"' {
-			lines = append(lines, k+"\t"+x.text)
-		}
-	}
-	return gitsafe.TrimNL(strings.Join(lines, "\n")), nil
-}
-
-// hostNames is what the approval is read beside (3.8): the names the host
-// has of a project. The names are the session's, which frisket answers. On
-// the host a name is one only where /etc/chase/docker-hosts.json, which
-// nix-config writes with /etc/hosts, gives it this project at this address:
-// read as a file, never looked up, since a name /etc/hosts lacks goes to the
-// upstream resolver, which a hostile network answers.
-func hostNames(c Config, ws, slug string, who dockerproject.Project) ([]string, error) {
-	if _, err := os.Stat(c.Hosts); err != nil {
-		return []string{}, nil
-	}
-	cannot := refuse("%s: %s cannot be read", ws, c.Hosts)
-	b, err := os.ReadFile(c.Hosts)
-	if err != nil {
-		return nil, cannot
-	}
-	v, err := parseJSON(b)
-	if err != nil {
-		return nil, cannot
-	}
-	e, err := v.index(slug)
-	if err != nil {
-		return nil, cannot
-	}
-	host := []string{}
-	if e.kind != '{' {
-		return host, nil
-	}
-	if a := e.members["address"]; a == nil || a.kind != '"' || a.text != who.Address {
-		return host, nil
-	}
-	var theirs []*value
-	if n := e.members["names"]; n != nil {
-		theirs, _ = n.iterate()
-	}
-	for _, name := range who.Names {
-		if slices.ContainsFunc(theirs, func(x *value) bool { return x.kind == '"' && x.text == name }) {
-			host = append(host, name)
-		}
-	}
-	return host, nil
-}
-
 // dockerLine says, beside the approval, where the project's Docker is: its
-// project, address and names, and which of the names the host has. Its
-// ports are the grant's, which the approval shows, and its checkout the
-// one launched from, which goes without saying.
-func dockerLine(c Config, ws, slug string, who dockerproject.Project, stderr io.Writer) error {
+// project, address and names. Its ports are the grant's, which the approval
+// shows, and its checkout the one launched from, which goes without saying.
+func dockerLine(slug string, who dockerproject.Project, stderr io.Writer) {
 	names := "no names"
 	if len(who.Names) > 0 {
 		names = strings.Join(who.Names, ", ")
 	}
-	host, err := hostNames(c, ws, slug, who)
-	if err != nil {
-		return err
-	}
-	line := fmt.Sprintf("Docker as %s at %s (%s)", slug, who.Address, names)
-	if len(host) == 0 {
-		line += fmt.Sprintf("; on this host, %s only", who.Address)
-	} else if !slices.Equal(host, who.Names) {
-		line += fmt.Sprintf("; on this host, %s and %s only", who.Address, strings.Join(host, ", "))
-	}
-	term.Say(stderr, "%s", line)
-	return nil
+	term.Say(stderr, "Docker as %s at %s (%s)", slug, who.Address, names)
 }
 
 func dockerTier(c Config, tier string) bool {
@@ -376,12 +209,11 @@ func dockerTier(c Config, tier string) bool {
 }
 
 // Show is `chase docker`: where a checkout's containers are, for a person to
-// read on the host. Its project and address, the names a session answers,
-// which of them this host's /etc/hosts carries (as the approval reads it),
+// read on the host. Its project and address, the names frisket answers,
 // and the ports last approved for this project: an approval of the checkout
 // as another project, before its origin changed, approved none of this
-// one's. A tier without Docker still has the address, since nix-config names
-// it whatever the tier.
+// one's. A tier without Docker still has the address, which is its
+// project's whatever the tier.
 func Show(ctx context.Context, c Config, ws, tier string, stdout, stderr io.Writer) error {
 	g, err := newGit(c)
 	if err != nil {
@@ -401,20 +233,11 @@ func Show(ctx context.Context, c Config, ws, tier string, stdout, stderr io.Writ
 		fmt.Fprintf(stdout, "  (no Docker on %s)\n", tier)
 		return nil
 	}
-	session := "(none)"
+	names := "(none)"
 	if len(who.Names) > 0 {
-		session = strings.Join(who.Names, " ")
+		names = strings.Join(who.Names, " ")
 	}
-	fmt.Fprintf(stdout, "  session  %s\n", session)
-	host, err := hostNames(c, ws, slug, who)
-	if err != nil {
-		return err
-	}
-	shown := "(address only; not in this host's /etc/hosts)"
-	if len(host) > 0 {
-		shown = strings.Join(host, " ")
-	}
-	fmt.Fprintf(stdout, "  host     %s\n", shown)
+	fmt.Fprintf(stdout, "  names    %s\n", names)
 	var out bytes.Buffer
 	if rc := checkout.RunOrigin(ctx, g, []string{ws}, &out, stderr); rc != 0 {
 		return refuse("%s: its checkout cannot be sorted: %s", ws, gitsafe.Output(out.Bytes()))

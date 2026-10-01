@@ -4,11 +4,9 @@
 // decision 14).
 //
 // None of it is derived here. frisket derives the address and names again
-// from a route's project and refuses a route whose values differ, so chase
-// calls frisket's own public functions for them rather than keep a copy that
-// could drift. Only lib/docker.nix derives them a second time, for what has
-// nothing but Nix to evaluate -- nix-config writing /etc/hosts -- and the
-// docker-address check holds it to what this package gives.
+// from a route's project and refuses a route whose values differ, and
+// answers the names on the host, so chase calls frisket's own public
+// functions for them rather than keep a copy that could drift.
 package dockerproject
 
 import (

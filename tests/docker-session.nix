@@ -265,7 +265,7 @@ in
           [route] = [r for r in policy["routes"] if r["name"] == "docker"]
           d = route["docker"]
           assert d["project"] == "${project}" and d["address"] == "${address}" and d["ports"] == [64320], d
-          assert d["names"] == ["shop.internal", "shop.example.internal"], d["names"]
+          assert d["names"] == ["shop.example.internal"], d["names"]
           env = dict(l.split("=", 1) for l in machine.succeed("cat ${ws}/cmd/env").splitlines() if "=" in l)
           assert env["DOCKER_HOST"] == "tcp://docker.frisket.internal:2376" and env["DOCKER_TLS_VERIFY"] == "1", env
           assert env["CHASE_DOCKER_ADDRESS"] == "${address}" and env["CHASE_DOCKER_PORTS"] == "64320", env
@@ -302,7 +302,7 @@ in
           # pg_isready inside the container can answer before the server
           # listens on TCP: the image's first start runs one on its socket alone.
           session_ok("for i in $(seq 120); do pg_isready -h 127.0.0.1 -p 64320 && exit 0; sleep 1; done; exit 1", timeout=300)
-          for host in ["localhost", "::1", "shop.internal", "shop.example.internal", "${address}"]:
+          for host in ["localhost", "::1", "shop.example.internal", "${address}"]:
               out = session_ok(f"PGPASSWORD=data_lab psql -h {host} -p 64320 -U data_lab -d data_lab -tAc 'SELECT what FROM seen'")
               assert out.strip() == "through frisket", (host, out)
           relays = frisket_lines("relay")
@@ -315,12 +315,12 @@ in
           # frisket answers only the session's own names; any other .internal
           # name is an ordinary name, and trusted allows every name, so it is
           # looked up upstream. The VM has no upstream, so it answers nothing.
-          session("getent ahosts billing.internal")
+          session("getent ahosts billing.example.internal")
           dns = frisket_lines("dns")
-          own = [m for m in dns if m.get("name") == "shop.internal"]
+          own = [m for m in dns if m.get("name") == "shop.example.internal"]
           assert own and all(m["decision"] == "local" and m.get("answers") == ["${address}"] for m in own if m["type"] == "A"), own
-          other = [m for m in dns if m.get("name") == "billing.internal"]
-          assert other, "no dns line for billing.internal"
+          other = [m for m in dns if m.get("name") == "billing.example.internal"]
+          assert other, "no dns line for billing.example.internal"
           assert all(m["decision"] in ("resolved", "failed") and "127.10.146.214" not in m.get("answers", []) for m in other), other
 
       with subtest("on the host, the database is at the project's address and not at 127.0.0.1"):
