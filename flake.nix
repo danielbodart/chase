@@ -473,6 +473,32 @@
               && hostScope.containers.agent-trusted.bindMounts ? "/home/alice/.cache/huggingface/hub"
               && ! hostScope.chase.internal.config.session.tiers.trusted.stores ? huggingface)
               || throw "assertions: huggingface's downloads were not kept where its scope says";
+            # mise's installs follow the tier's caches as Hugging Face's do:
+            # trusted's for the tier, in a store, with its shims on PATH;
+            # strict's overlaid from the host. Its state is the host's,
+            # overlaid, in every scope; `host` binds the installs.
+            assert
+              (let
+                config = configWith {
+                  chase.tiers.trusted.apps.mise.enable = true;
+                  chase.tiers.strict.apps.mise.enable = true;
+                };
+                hostScope = configWith { chase.tiers.trusted.apps.mise = { enable = true; scope = "host"; }; };
+                session = config.chase.internal.config.session.tiers;
+                trusted = config.containers.agent-trusted.config.environment;
+              in
+              lib.all (a: a.assertion) config.assertions
+              && session.trusted.stores.mise.env.MISE_DATA_DIR == "data"
+              && lib.hasInfix "/home/alice/.cache/chase/mise/trusted/all/data/shims" trusted.extraInit
+              && ! trusted.variables ? MISE_DATA_DIR
+              && trusted.variables.MISE_STATE_DIR == "/home/alice/.local/state/mise"
+              && config.flong.agent-trusted.overlays ? "/home/alice/.local/state/mise"
+              && ! config.flong.agent-trusted.overlays ? "/home/alice/.local/share/mise"
+              && config.flong.agent-strict.overlays ? "/home/alice/.local/share/mise"
+              && config.containers.agent-strict.config.environment.variables.MISE_DATA_DIR == "/home/alice/.local/share/mise"
+              && hostScope.containers.agent-trusted.bindMounts ? "/home/alice/.local/share/mise"
+              && ! hostScope.containers.agent-trusted.bindMounts ? "/home/alice/.local/state/mise")
+              || throw "assertions: mise was not kept where its scope says";
             # Google Cloud is only ever a project's (PLAN.md, decision 9): a
             # tier that takes no grant cannot enable it, an API it names
             # must exist, and a tier that has it gets gcloud and nothing in

@@ -264,6 +264,14 @@ its own cannot upload either. See [docs/huggingface.md](docs/huggingface.md). It
 model is downloaded once — not in a tier that runs other people's code, since
 the host loads what is in it.
 
+**mise.** The toolchains a checkout's own `mise.toml` asks for, with their
+shims on a session's PATH and the user's `~/.config/mise` bound read-only.
+Its installs and downloads are kept as the tier's `caches` are, or at the
+`scope` it says: `session` overlays the host's, readable; `tier` keeps a set
+of the tier's own; `host` shares the host's. Its state — what `mise trust`
+has trusted — is never kept: the host's is readable in every session, and
+what a session trusts goes with it.
+
 **Google Cloud.** gcloud and Google's client libraries, as a project's own
 service account: the project binds its key in its grant, and the session
 gets a key file of the same shape whose key Google has never seen. frisket

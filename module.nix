@@ -257,6 +257,7 @@ in
     ./apps/huggingface.nix
     ./apps/gcloud.nix
     ./apps/docker.nix
+    ./apps/mise.nix
     ./apps/gcloud-renew.nix
     ./grant.nix
   ] ++ map
