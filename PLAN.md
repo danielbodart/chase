@@ -421,6 +421,13 @@ Which variables a command may set in front of itself -- `LANG=C sort x` --
 is the tier's `apps.ssh.env`, never a grant's: a name one program reads as
 code makes every rule for it say less than it seems to, and that is the
 machine owner's to weigh.
+A tier may name machines of its own, `apps.ssh.hosts`, held to the
+same checks and decided the same way, and only they say what logs in --
+their own agent, key file or password file, or the machine's: a grant never
+names a credential, since one naming a file to send as a password would
+send any file of the user's to a machine of its choosing, and never one of
+the tier's machines again. A tier with them and no grants is launched as
+one that takes grants, for their routes, its checkouts' grants unread.
 
 **19. Every app is configured the same way.** `chase.apps.<app>` is the
 machine's: what an app runs, the credential it would use, the host files it

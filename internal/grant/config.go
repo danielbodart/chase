@@ -87,6 +87,12 @@ type Config struct {
 	// which is what its `prepare` was; its entry here says only whether it
 	// has a credential, and may be left out when it does.
 	Apps map[string]App `json:"apps"`
+	// Ungranted are the tiers that take no checkout's grant but are
+	// launched as those that do, for routes made at launch that are the
+	// tier's own: a tier's SSH machines (apps/ssh.nix). Approve stages each
+	// launch of one as a checkout with no grant, and never reads its
+	// chase.jsonc.
+	Ungranted []string `json:"ungranted,omitempty"`
 	// Approver is chase.approver: the program that asks a person to
 	// approve a checkout's grant. Empty is none, and nothing is
 	// approved.

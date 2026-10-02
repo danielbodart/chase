@@ -41,6 +41,12 @@ type Host struct {
 	// the host: the one trust in it, never learnt on first use.
 	HostKeys []string `json:"hostKeys,omitempty"`
 	Refuse   []string `json:"refuse,omitempty"`
+	// Shell is for a device whose login shell ignores the command an exec
+	// carries -- a router's or a modem's CLI: frisket types each command
+	// into that shell on a terminal instead (its docs/ssh.md, "Shell
+	// routes"). Only one simple command of plain words is readable there,
+	// none of its stdin is sent, and the tier's env is not taken off it.
+	Shell bool `json:"shell,omitempty"`
 	// Unmatched is what a command no rule matches is answered with, in
 	// place of the tier's: "allow", "ask" or "refuse".
 	Unmatched string `json:"unmatched,omitempty"`

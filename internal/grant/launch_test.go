@@ -488,6 +488,86 @@ func TestSSHIsLaunchedAsTheGrantNamesIt(t *testing.T) {
 	h.mustSay("chase: " + ws + ": ssh could not be prepared")
 }
 
+// A TIER'S OWN MACHINES, LAUNCHED: each is an SSH route in every session of
+// the tier, a checkout with no grant too, logging in with its own
+// credential, which is a path in the session's document -- frisket's to
+// read, at login -- and nothing the session is given. A grant adds its own machines beside them, never one of
+// the same name, which is refused before anyone is asked. A tier that takes
+// no grant is launched for its machines alone, and its checkouts'
+// chase.jsonc is never read.
+func TestATiersOwnMachinesAreInEverySessionOfIt(t *testing.T) {
+	h := newHarness(t)
+	ws := h.root() + "/p/ops"
+	h.repo(ws, "git@github.com:Example/Ops.git")
+	h.cfg.Apps["ssh"] = grant.App{Credential: no()}
+	key := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl modem"
+	modem := appsssh.TierHost{
+		Host:         appsssh.Host{Address: "192.168.1.1", User: "admin", HostKeys: []string{key}, Shell: true},
+		PasswordFile: "/run/secrets/modem-password",
+	}
+	answers := appsssh.Tier{Writes: "ask", Guarded: "refuse", Unmatched: "ask", Hosts: map[string]appsssh.TierHost{"modem": modem}}
+	h.cfg.SSH = &appsssh.Config{
+		Tiers:     map[string]appsssh.Tier{"ops": answers, "fixed": answers},
+		Catalogue: "../../apps/ssh/operations.json",
+	}
+	h.cfg.Ungranted = []string{"fixed"}
+	for _, tier := range []string{"ops", "fixed"} {
+		write(t, h.cfg.Policies+"/"+tier+".json", `{"name": "`+tier+`", "allow": ["github.com"], "routes": []}`)
+	}
+
+	// No chase.jsonc: the tier as it is, with its machine.
+	h.launched(ws, "m1", "ops", "")
+	d := h.policyDoc("m1")
+	if len(d.SSH) != 1 || d.SSH[0].Name != "modem" || d.SSH[0].PasswordFile != "/run/secrets/modem-password" || !d.SSH[0].Shell || d.SSH[0].Agent != "" {
+		t.Fatalf("the tier's machine is not in the session's document: %+v", d.SSH)
+	}
+	if len(h.env()) != 0 || len(h.given.Files) != 0 {
+		t.Errorf("the session was given something of the tier's machine: %q %+v", h.env(), h.given.Files)
+	}
+	frisketCheck(t, h.dir+"/run/chase/m1/policy.json")
+
+	// A grant's machine beside it, with no credential of the machine's to
+	// log in with, is refused at launch; one of the tier's name, before
+	// anyone is asked.
+	server := func(name, address string) string {
+		return `{"apps": {"ssh": {"hosts": {"` + name + `": {"address": "` + address + `", "user": "ops", "hostKeys": ["` + strings.Replace(key, "modem", "server", 1) + `"]}}}}}`
+	}
+	asked := len(h.approvals())
+	if h.approve(ws, "m2", "ops", server("modem", "192.168.1.10")) == 0 {
+		t.Error("a grant naming the tier's machine was approved")
+	}
+	h.mustSay("apps.ssh.hosts.modem is the tier's own machine")
+	if len(h.approvals()) != asked {
+		t.Error("a grant naming the tier's machine was put to a person")
+	}
+	h.cfg.SSH.Agent = "/run/user/1000/gcr/ssh"
+	h.launched(ws, "m3", "ops", server("server", "192.168.1.10"))
+	if d := h.policyDoc("m3"); len(d.SSH) != 2 || d.SSH[0].Name != "modem" || d.SSH[1].Name != "server" || d.SSH[1].Agent != "/run/user/1000/gcr/ssh" {
+		t.Errorf("not the tier's machine and the grant's: %+v", d.SSH)
+	}
+
+	// A tier taking no grant: its machine, and nothing of the chase.jsonc
+	// the checkout now has.
+	asked = len(h.approvals())
+	h.launched(ws, "m4", "fixed", server("modem", "192.168.1.10"))
+	if d := h.policyDoc("m4"); len(d.SSH) != 1 || d.SSH[0].Name != "modem" {
+		t.Errorf("not the ungranted tier's machine alone: %+v", d.SSH)
+	}
+	if len(h.approvals()) != asked {
+		t.Error("a tier taking no grant asked about one")
+	}
+
+	// A tier's machine frisket would not log in with ends every launch.
+	bad := h.cfg.SSH.Tiers["ops"]
+	bad.Hosts = map[string]appsssh.TierHost{"modem": {Host: modem.Host, PasswordFile: "/tmp/p"}}
+	h.cfg.SSH.Tiers["ops"] = bad
+	h.approved(ws, "m5", "ops", server("server", "192.168.1.10"))
+	if h.launch("ops", ws, "m5") == 0 {
+		t.Error("a tier's machine with a password under /tmp was launched")
+	}
+	h.mustSay("chase: " + ws + ": ssh: chase.tiers.ops.apps.ssh.hosts.modem.passwordFile")
+}
+
 // The ported docker-launch check, as far as the launch goes (the prepare's
 // own refusals are internal/apps/docker's): DOCKER, LAUNCHED. A checkout
 // whose grant binds Docker gets a route to the rootless daemon, as the

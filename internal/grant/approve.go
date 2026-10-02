@@ -83,6 +83,12 @@ func Approve(ctx context.Context, c Config, ws, machine, tier string, stderr io.
 		}
 	}
 	stage := staged(c, machine)
+	// A tier launched only for its own SSH machines takes no checkout's
+	// grant: its sessions are the tier as it is, whatever chase.jsonc says,
+	// which is never read.
+	if slices.Contains(c.Ungranted, tier) {
+		return Result{}, files.WriteAtomic(stage, []byte("null\n"), 0o600)
+	}
 	// A checkout with no chase.jsonc is the tier as it is, and is never read
 	// or asked about. Anything there at all -- a link, a directory -- is
 	// taken to the snapshot, which refuses what is not a tracked file.

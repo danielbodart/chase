@@ -37,7 +37,9 @@
 let
   inherit (lib) mkOption types;
   cfg = config.chase;
-  tiers = lib.filterAttrs (_: t: t.grants) cfg.tiers;
+  # And those launched as if they did, for routes of their own made at
+  # launch, whose checkouts' grants are never read.
+  tiers = lib.filterAttrs (n: t: t.grants || lib.elem n cfg.internal.launchedTiers) cfg.tiers;
   chase = lib.getExe cfg.package;
 
   # Every tier's pinned checkouts, as the selector holds them: each
@@ -61,6 +63,18 @@ in
         launch, with one JSON document on stdin: `workspace`, and `diff`,
         unified, of the grant last approved against the one proposed. Exit 0
         approves; anything else ends the launch. Null: nothing is approved.
+      '';
+    };
+
+    internal.launchedTiers = mkOption {
+      internal = true;
+      default = [ ];
+      type = types.listOf types.str;
+      description = ''
+        Tiers that take no grant but are launched as those that do, for
+        routes of the tier's own made at launch -- its SSH machines
+        (apps/ssh.nix). Each launch of one is the tier as it is, a
+        checkout's `chase.jsonc` never read.
       '';
     };
 
@@ -93,6 +107,7 @@ in
       inherit (cfg) uid home;
       policies = "/etc/frisket/policies";
       inherit dockerTiers checkouts;
+      ungranted = lib.attrNames (lib.filterAttrs (_: t: !t.grants) tiers);
       apps = cfg.internal.projectApps;
       approver = if cfg.approver == null then "" else cfg.approver;
       sops = lib.getExe pkgs.sops;

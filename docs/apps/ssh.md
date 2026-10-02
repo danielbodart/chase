@@ -4,8 +4,9 @@ Commands on your own machines, by `ssh <name> <command>` from a session,
 with no key in the session. frisket terminates the session's SSH, logs in to
 the machine with your key, and decides each command: allowed, asked about,
 or refused. Which machines, at which address, as whom and with which host
-key, are a project's grant to name and yours to approve. No shell, no pty,
-no forwarding. See frisket's docs/ssh.md for the route itself.
+key, are a project's grant to name and yours to approve, or the tier's own
+([The tier's machines](#the-tiers-machines)). No interactive shell, no
+forwarding. See frisket's docs/ssh.md for the route itself.
 
 | `chase.apps.ssh.…` | Default | |
 |---|---|---|
@@ -17,7 +18,8 @@ Each is a string, never a Nix path, which would copy a key into the store.
 
 | `chase.tiers.<name>.apps.ssh.…` | Default | |
 |---|---|---|
-| `enable` | `false` | Only in a tier with `grants = true`. |
+| `enable` | `false` | Only in a tier with `grants = true`, or with `hosts`. |
+| `hosts` | `{ }` | The tier's own machines, in every session of it: see [The tier's machines](#the-tiers-machines). |
 | `writes`, `guarded`, `unmatched` | the tier's | |
 | `env` | `LANG`, `LC_*`, `TZ`, `COLUMNS`, `LINES`, `NO_COLOR`, `SYSTEMD_COLORS` | What a command may set in front of itself; see [What runs](#what-runs). |
 
@@ -47,6 +49,67 @@ Grant:
 `ssh-keyscan -t ed25519 <address>` prints a machine's key with its host in
 front; the grant takes the rest of the line. A machine whose key is not one
 of these is never reached.
+
+## The tier's machines
+
+A tier can name machines of its own, which are in every session of it,
+whatever the checkout's grant says, and need no grant at all: a tier with
+`hosts` and `grants = false` is launched for them, and never reads a
+checkout's `chase.jsonc`. Each takes what a grant's host does --
+`address`, `user`, `hostKeys`, `allow`, `ask`, `refuse`, `unmatched` -- held
+to the same checks, when the system is built and again at every launch, and
+decided the same way, by the catalogue, the tier's answers and its own
+lists. And what it logs in with, which a grant never names:
+
+| `chase.tiers.<name>.apps.ssh.hosts.<host>.…` | Default | |
+|---|---|---|
+| `agent` | `null` | An ssh-agent's socket. |
+| `keyFile` | `null` | An unencrypted private key. |
+| `passwordFile` | `null` | A file holding the password, for a machine that takes no key: a sops-nix secret's path, say. |
+| `identity` | `null` | The one key of its own `agent` to offer. |
+| `shell` | `false` | For a device whose shell ignores the command an exec carries: see below. |
+
+At most one of `agent`, `keyFile` and `passwordFile`; naming none, it logs in
+with `chase.apps.ssh`'s, which is then needed. Each is a string, never a Nix
+path, never in the store and never under `/tmp`, and frisket reads it on the
+host, at each login: the session's document holds the path, in your runtime
+directory, which no session sees, and the session is given nothing of it --
+no file, no variable, no line of its ssh_config but the machine's name,
+address and user. A grant's machines are added beside the tier's, never one
+of the same name or address, which is refused before you are asked.
+
+```nix
+chase.tiers.ops.apps.ssh = {
+  enable = true;
+  hosts.server = {
+    address = "10.0.0.4";
+    user = "core";
+    hostKeys = [ "ssh-ed25519 AAAAC3…" ];
+  };
+  hosts.modem = {
+    address = "192.168.1.1";
+    user = "admin";
+    hostKeys = [ "ssh-rsa AAAAB3…" ];
+    passwordFile = config.sops.secrets.modem-password.path;
+    shell = true;
+  };
+};
+```
+
+A `shell` host is frisket's shell route: a router's or a modem's CLI, which
+runs no command it is given, has the command typed into it on a terminal,
+and what it printed given back once it is done, its echo and prompt taken
+off. `ssh modem xdslctl info --show` in the session is all it takes. Only
+one simple command of plain words is readable there -- no operator, quote
+or redirection, since the device's shell is no shell frisket knows the
+grammar of -- the tier's `env` is not taken off it, and none of its stdin is
+sent. Anything else is refused there, whatever `unmatched` says, and never
+asked about: it would be typed into the device byte for byte, where a
+carriage return in it types a second command the person asked could not
+see. A command the catalogue reads on Linux -- `uptime`, `ls` -- is decided
+there as it would be on Linux; the device's own commands are mostly no
+catalogue's, so they are `unmatched`, and asked about unless its lists say
+otherwise: `allow = [ "xdslctl info **" ]`.
 
 ## Commands
 

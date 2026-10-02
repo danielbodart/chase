@@ -53,6 +53,12 @@ type Tier struct {
 	// reads would make every rule a project is approved for say less than
 	// it seems to, and only the machine's owner can weigh that.
 	Env []string `json:"env,omitempty"`
+	// Hosts are the tier's own machines, by the name ssh knows each by in
+	// the sandbox: in every session of the tier, whatever its checkout's
+	// grant says, each logging in with its own credential or the machine's.
+	// A grant's machines are added to them, and never one of the same name
+	// or address.
+	Hosts map[string]TierHost `json:"hosts,omitempty"`
 }
 
 // LoadConfig reads a Config strictly, as frisket reads a policy.
@@ -91,7 +97,7 @@ func (a *App) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
 	if err := policy.Decode(r.Binding, &b); err != nil {
 		return die("%v", err)
 	}
-	if (a.Config.Agent == "") == (a.Config.KeyFile == "") {
+	if len(b.Hosts) > 0 && (a.Config.Agent == "") == (a.Config.KeyFile == "") {
 		return die("the machine has %s, and frisket logs in with exactly one of chase.apps.ssh.agentSocket and keyFile", credentialsSaid(a.Config))
 	}
 	routes, err := a.Config.routes(r.Tier, b)
@@ -119,8 +125,23 @@ func (c Config) CheckBinding(tier string, b Binding) error {
 }
 
 // routes are the binding's machines in name order, each an SSH route but
-// for the credential it logs in with, which is the machine's.
+// for the credential it logs in with, which is the machine's. None is one
+// of the tier's own.
 func (c Config) routes(name string, b Binding) ([]policy.SSHRoute, error) {
+	routes, err := c.hostRoutes(name, "apps.ssh", b.Hosts)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.Tiers[name].clashes(b); err != nil {
+		return nil, err
+	}
+	return routes, nil
+}
+
+// hostRoutes are hosts, which at names, in name order, each an SSH route
+// decided as tier name says but for the credential it logs in with: a
+// grant's machines and the tier's own alike.
+func (c Config) hostRoutes(name, at string, hosts map[string]Host) ([]policy.SSHRoute, error) {
 	tier := c.Tiers[name]
 	for _, s := range []struct{ field, answer string }{{"writes", tier.Writes}, {"guarded", tier.Guarded}, {"unmatched", tier.Unmatched}} {
 		if !slices.Contains(answers, s.answer) {
@@ -132,7 +153,7 @@ func (c Config) routes(name string, b Binding) ([]policy.SSHRoute, error) {
 	if _, err := execrule.Compile(policy.SSHRoute{Env: tier.Env}); err != nil {
 		return nil, fmt.Errorf("%s's %v", name, err)
 	}
-	if err := b.Check("apps.ssh"); err != nil {
+	if err := (Binding{Hosts: hosts}).Check(at); err != nil {
 		return nil, err
 	}
 	ops, err := LoadCatalogue(c.Catalogue)
@@ -140,26 +161,32 @@ func (c Config) routes(name string, b Binding) ([]policy.SSHRoute, error) {
 		return nil, err
 	}
 	var routes []policy.SSHRoute
-	for _, host := range slices.Sorted(maps.Keys(b.Hosts)) {
-		h := b.Hosts[host]
+	for _, host := range slices.Sorted(maps.Keys(hosts)) {
+		h := hosts[host]
 		exec, unmatched, err := rules(ops, tier, h)
 		if err != nil {
-			return nil, fmt.Errorf("apps.ssh.hosts.%s: %v", host, err)
+			return nil, fmt.Errorf("%s.hosts.%s: %v", at, host, err)
 		}
 		r := policy.SSHRoute{
 			Name:      host,
 			Address:   h.Address,
 			User:      h.User,
 			HostKeys:  h.HostKeys,
+			Shell:     h.Shell,
 			Exec:      exec,
-			Env:       slices.Clone(tier.Env),
 			Unmatched: unmatched,
 		}
+		// A device's shell is no shell frisket knows the grammar of, so
+		// nothing is taken off the front of a command typed into it, and a
+		// name to take off is refused there.
+		if !h.Shell {
+			r.Env = slices.Clone(tier.Env)
+		}
 		// Whatever else frisket refuses to load of how a route decides,
-		// refused here, where the grant is named, rather than by a session
-		// that does not start.
+		// refused here, where the machine is named, rather than by a
+		// session that does not start.
 		if _, err := execrule.Compile(r); err != nil {
-			return nil, fmt.Errorf("apps.ssh.hosts.%s: %v", host, err)
+			return nil, fmt.Errorf("%s.hosts.%s: %v", at, host, err)
 		}
 		routes = append(routes, r)
 	}

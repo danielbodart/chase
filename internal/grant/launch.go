@@ -72,6 +72,18 @@ func Launch(ctx context.Context, c Config, registry map[string]apps.App, tier, w
 	if err := policy.Decode(pb, &pd); err != nil {
 		return session.Given{}, err
 	}
+	// The tier's own machines, in every session of it, before any app a
+	// grant binds: SSH's Prepare refuses a grant's machine of the same name
+	// or address, so none of them is replaced.
+	if c.SSH != nil {
+		routes, err := c.SSH.TierRoutes(tier)
+		if err != nil {
+			return session.Given{}, refuse("%s: ssh: %v", ws, err)
+		}
+		if len(routes) > 0 {
+			policydoc.Merge(&pd, apps.Patch{SSH: routes})
+		}
+	}
 	var given session.Given
 	if strings.TrimRight(string(b), "\n") != "null" {
 		if given, err = apply(ctx, c, registry, &pd, b, run, tier, ws, stderr); err != nil {

@@ -6,9 +6,10 @@
 # every command by the catalogue's operations (./ssh/operations.json),
 # answered as the tier says and the project's lists before it. frisket
 # gives the session its ssh_config and the CA its host certificates are
-# signed by, in /etc/frisket; what is here points ssh at them. Only in a
-# tier that takes grants: which machines, and as whom, are a project's to
-# name and a person's to approve.
+# signed by, in /etc/frisket; what is here points ssh at them. The
+# machines are a project's grant's to name and a person's to approve, or
+# the tier's own (`hosts`), in every session of it, each logging in with
+# its own credential or the machine's.
 
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
@@ -16,8 +17,12 @@ let
   ops = import ../lib/operations.nix { inherit lib; };
   machine = cfg.apps.ssh;
 
-  enabled = lib.filterAttrs (_: t: !t.bare && t.grants && t.apps.ssh.enable) cfg.tiers;
+  enabled = lib.filterAttrs (_: t: !t.bare && (t.grants || t.apps.ssh.hosts != { }) && t.apps.ssh.enable) cfg.tiers;
   wanted = lib.any (t: t.apps.ssh.enable) (lib.attrValues cfg.tiers);
+  # The machine's credential is what a grant's machines log in with, and a
+  # tier's that names none of its own.
+  needed = lib.any (t: t.apps.ssh.enable && (t.grants || lib.any (h: hostCredentials h == { }) (lib.attrValues t.apps.ssh.hosts)))
+    (lib.attrValues cfg.tiers);
 
   # A path the frisket daemon reaches as it is: absolute and clean, since
   # it has no working directory of the user's. Never in the store, which is
@@ -30,6 +35,84 @@ let
     else if lib.any (d: lib.hasPrefix d p) [ "/tmp/" "/var/tmp/" ] then "is under a /tmp the frisket daemon's PrivateTmp hides"
     else null;
   credentials = lib.filterAttrs (_: p: p != null) { inherit (machine) agentSocket keyFile; };
+  hostCredentials = h: lib.filterAttrs (_: p: p != null) { inherit (h) agent keyFile passwordFile; };
+
+  # A tier's machine as internal/apps/ssh reads it: what it leaves out is
+  # the default there.
+  hostConfig = h: lib.filterAttrs (n: v: v != null && v != [ ] && v != false) {
+    inherit (h) address user hostKeys allow ask refuse unmatched shell agent keyFile passwordFile identity;
+  };
+
+  answer = types.enum [ "allow" "ask" "refuse" ];
+  fingerprint = types.strMatching "SHA256:[A-Za-z0-9+/]{43}";
+
+  host = types.submodule {
+    options = {
+      address = mkOption {
+        type = types.str;
+        example = "10.0.0.4";
+        description = "A literal IP, v4:port or [v6]:port; 22 by default. Never a name: what is reached is fixed here.";
+      };
+      user = mkOption {
+        type = types.str;
+        example = "core";
+        description = "Who the commands run as.";
+      };
+      hostKeys = mkOption {
+        type = types.listOf types.str;
+        example = [ "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHp6lanvRi86XJnpME3lUbtyAWnykpE7SwLQXBzaXa/F" ];
+        description = ''
+          The machine's own keys, as known_hosts writes them less the host:
+          the one trust in it, never learnt on first use.
+        '';
+      };
+      allow = mkOption { type = types.listOf types.str; default = [ ]; description = "Operation ids, `category:<name>` or command patterns allowed on this machine, before the tier."; };
+      ask = mkOption { type = types.listOf types.str; default = [ ]; description = "Likewise, asked about."; };
+      refuse = mkOption { type = types.listOf types.str; default = [ ]; description = "Likewise, refused."; };
+      unmatched = mkOption {
+        type = types.nullOr answer;
+        default = null;
+        description = "What a command no rule matches is answered with, in place of the tier's `unmatched`.";
+      };
+      shell = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          For a device whose login shell ignores the command an exec
+          carries -- a router's or a modem's CLI: frisket types each command
+          into that shell on a terminal, and gives back what it printed.
+          Only one simple command of plain words is readable there, none
+          of its stdin is sent, and the tier's `env` is not taken off it.
+        '';
+      };
+      agent = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = "An ssh-agent's socket to log in to this machine with, in place of `chase.apps.ssh`'s credential.";
+      };
+      keyFile = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = "An unencrypted private key to log in with, in place of `chase.apps.ssh`'s credential.";
+      };
+      passwordFile = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        example = "/run/secrets/modem-password";
+        description = ''
+          A file holding the password to log in with, for a machine that
+          takes no key: read by frisket at each login, and never by the
+          session, which is given nothing of it. A sops-nix secret's path,
+          owned by the user.
+        '';
+      };
+      identity = mkOption {
+        type = types.nullOr fingerprint;
+        default = null;
+        description = "The one key of this machine's own `agent` to offer.";
+      };
+    };
+  };
 in
 {
   options.chase.apps.ssh = {
@@ -78,7 +161,27 @@ in
           which logs in with `chase.apps.ssh`'s credential and decides each
           command by the catalogue's operations -- a read allowed, the rest
           answered as `writes`, `guarded` and `unmatched` say. Only for a
-          tier that takes grants'';
+          tier that takes grants, or names machines of its own in `hosts`'';
+        hosts = mkOption {
+          type = types.attrsOf host;
+          default = { };
+          example = lib.literalExpression ''
+            {
+              server = { address = "10.0.0.4"; user = "core"; hostKeys = [ "ssh-ed25519 AAAA..." ]; };
+              modem = { address = "192.168.1.1"; user = "admin"; hostKeys = [ "ssh-rsa AAAA..." ]; passwordFile = "/run/secrets/modem-password"; shell = true; };
+            }
+          '';
+          description = ''
+            The tier's own machines, by the name ssh knows each by in a
+            session: in every session of the tier, whatever its checkout's
+            grant says, and decided as a grant's machine is -- by the
+            catalogue, the tier's answers and the machine's own lists. Each
+            logs in with its own `agent`, `keyFile` or `passwordFile`, or,
+            naming none, with `chase.apps.ssh`'s, and none of it is ever in
+            the session: frisket reads it, at login. A grant adds machines
+            beside these, and never one of the same name or address.
+          '';
+        };
         env = mkOption {
           type = types.listOf (types.strMatching "[A-Za-z_][A-Za-z0-9_]*[*]?");
           default = [ "LANG" "LC_*" "TZ" "COLUMNS" "LINES" "NO_COLOR" "SYSTEMD_COLORS" ];
@@ -111,18 +214,46 @@ in
   config = {
     assertions = lib.concatLists (lib.mapAttrsToList (name: tier: lib.optionals tier.apps.ssh.enable [
       {
-        assertion = tier.grants;
-        message = "chase.tiers.${name}.apps.ssh is enabled, but the tier takes no grant: which machines a session reaches, and as whom, are only ever a project's.";
+        assertion = tier.grants || tier.apps.ssh.hosts != { };
+        message = "chase.tiers.${name}.apps.ssh is enabled, but the tier takes no grant and names no machine of its own in hosts: a session would reach none.";
       }
       {
         assertion = !tier.bare;
         message = "chase.tiers.${name}.apps.ssh is enabled, but the tier is bare: frisket is what holds the key, and a bare tier has no frisket.";
       }
-    ]) cfg.tiers)
+    ] ++ lib.concatLists (lib.mapAttrsToList (h: m: let at = "chase.tiers.${name}.apps.ssh.hosts.${h}"; creds = hostCredentials m; in [
+      {
+        assertion = builtins.match "[a-z0-9][a-z0-9.-]*" h != null;
+        message = "${at}: '${h}' is not a host's name: lower-case letters, digits, dots and hyphens, starting with a letter or digit.";
+      }
+      {
+        assertion = m.hostKeys != [ ];
+        message = "${at}.hostKeys is empty: the machine's own key is the only trust in it, and none is ever learnt on first use.";
+      }
+      {
+        assertion = lib.length (lib.attrNames creds) <= 1;
+        message = "${at} names ${lib.concatStringsSep " and " (lib.attrNames creds)}: frisket logs in with one of agent, keyFile and passwordFile.";
+      }
+      {
+        assertion = m.identity == null || m.agent != null;
+        message = "${at}.identity names a key of the host's own agent, and it names no agent.";
+      }
+    ] ++ lib.mapAttrsToList (n: p: {
+      assertion = pathProblem p == null;
+      message = "${at}.${n} is '${p}', which ${toString (pathProblem p)}.";
+    }) creds) tier.apps.ssh.hosts)) cfg.tiers)
+    ++ lib.concatLists (lib.mapAttrsToList (name: tier: lib.optional (tier.apps.ssh.hosts != { }) {
+      assertion = tier.apps.ssh.enable;
+      message = "chase.tiers.${name}.apps.ssh.hosts names machines, and apps.ssh is not enabled.";
+    }) cfg.tiers)
     ++ lib.optionals wanted ([
       {
-        assertion = lib.length (lib.attrNames credentials) == 1;
+        assertion = lib.length (lib.attrNames credentials) <= 1;
         message = "chase.apps.ssh needs exactly one of agentSocket and keyFile: what frisket logs in to every machine with.";
+      }
+      {
+        assertion = !needed || lib.length (lib.attrNames credentials) == 1;
+        message = "chase.apps.ssh needs exactly one of agentSocket and keyFile: what frisket logs in to a grant's machines with, and a tier's that names none of its own.";
       }
       {
         assertion = machine.identity == null || machine.agentSocket != null;
@@ -151,9 +282,13 @@ in
 
     # Made at launch, from each machine the grant names (internal/apps/ssh).
     chase.internal.projectApps = mkIf (enabled != { }) { ssh.credential = false; };
+    # A tier with machines of its own and no grant is still launched as one
+    # that takes grants, for its machines' routes (../grant.nix).
+    chase.internal.launchedTiers = lib.attrNames (lib.filterAttrs (_: t: !t.grants) enabled);
     chase.internal.config = mkIf (enabled != { }) {
       grant.ssh = {
-        tiers = lib.mapAttrs (_: tier: ops.answers tier.apps.ssh // { inherit (tier.apps.ssh) env; }) enabled;
+        tiers = lib.mapAttrs (_: tier: ops.answers tier.apps.ssh // { inherit (tier.apps.ssh) env; }
+          // lib.optionalAttrs (tier.apps.ssh.hosts != { }) { hosts = lib.mapAttrs (_: hostConfig) tier.apps.ssh.hosts; }) enabled;
         catalogue = "${./ssh/operations.json}";
       } // lib.optionalAttrs (machine.agentSocket != null) { agent = machine.agentSocket; }
       // lib.optionalAttrs (machine.keyFile != null) { inherit (machine) keyFile; }

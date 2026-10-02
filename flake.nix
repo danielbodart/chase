@@ -70,7 +70,7 @@
         # frisket's own code; and golang.org/x/crypto's ssh, which reads an SSH
         # grant's host keys as frisket does. The frisket-pin check holds
         # go.mod's frisket to the one flake.lock pins.
-        vendorHash = "sha256-NBjuvLHx8zpHzm9A5Iy1XdQIHWMJ0YgV2wkdeNmeKcM=";
+        vendorHash = "sha256-G1X2r+vJDxu8Sk67ZOh1Em8a0qEJzzySZ1RR3YVv67c=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -636,6 +636,44 @@
               && c.apps.ssh.credential == false
               && ! config.services.frisket.policies.trusted ? ssh)
               || throw "assertions: SSH in trusted did not hold together";
+            # A TIER'S OWN MACHINES, each logging in with its own credential
+            # or the machine's, by a path frisket reads and the session never
+            # sees; a tier with them needs no grant, and is launched for them.
+            assert
+              (let
+                key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHp6lanvRi86XJnpME3lUbtyAWnykpE7SwLQXBzaXa/F";
+                config = configWith {
+                  chase.tiers.strict.apps.ssh = {
+                    enable = true;
+                    hosts.modem = { address = "192.168.1.1"; user = "admin"; hostKeys = [ key ]; passwordFile = "/run/secrets/modem-password"; shell = true; };
+                  };
+                };
+                c = config.chase.internal.config;
+                failed = map (a: a.message) (lib.filter (a: ! a.assertion) config.assertions);
+                inside = builtins.toJSON config.containers.chase-strict.config.environment.etc;
+              in
+              failed == [ ]
+              && c.grant.ssh.tiers.strict.hosts == { modem = { address = "192.168.1.1"; user = "admin"; hostKeys = [ key ]; passwordFile = "/run/secrets/modem-password"; shell = true; }; }
+              && ! c.grant.ssh ? agent
+              && c.grant.ungranted == [ "strict" ] && lib.elem "strict" c.grantTiers
+              && config.flong.chase-strict.seccompPolicy != [ ]
+              && lib.hasInfix "Include /etc/frisket/ssh_config" config.containers.chase-strict.config.environment.etc."ssh/ssh_config".text
+              && ! lib.hasInfix "modem-password" inside)
+              || throw "assertions: a tier's own machines did not hold together";
+            assert refused "tier machines with SSH off"
+              { chase.tiers.trusted.apps.ssh.hosts.m = { address = "10.0.0.9"; user = "u"; hostKeys = [ "k" ]; }; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; } "chase.tiers.trusted.apps.ssh.hosts names machines, and apps.ssh is not enabled";
+            assert refused "a tier machine with two credentials"
+              { chase.tiers.trusted.apps.ssh = { enable = true; hosts.m = { address = "10.0.0.9"; user = "u"; hostKeys = [ "k" ]; keyFile = "/home/alice/k"; passwordFile = "/run/secrets/p"; }; }; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; } "chase.tiers.trusted.apps.ssh.hosts.m names keyFile and passwordFile";
+            assert refused "a tier machine's password under /tmp"
+              { chase.tiers.trusted.apps.ssh = { enable = true; hosts.m = { address = "10.0.0.9"; user = "u"; hostKeys = [ "k" ]; passwordFile = "/tmp/p"; }; }; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; } "chase.tiers.trusted.apps.ssh.hosts.m.passwordFile is '/tmp/p', which is under a /tmp";
+            assert refused "a tier machine's identity with no agent of its own"
+              { chase.tiers.trusted.apps.ssh = { enable = true; hosts.m = { address = "10.0.0.9"; user = "u"; hostKeys = [ "k" ]; identity = "SHA256:${lib.fixedWidthString 43 "A" ""}"; }; }; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; } "hosts.m.identity names a key of the host's own agent";
+            assert refused "a tier machine with no key"
+              { chase.tiers.trusted.apps.ssh = { enable = true; hosts.m = { address = "10.0.0.9"; user = "u"; hostKeys = [ ]; }; }; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; } "hosts.m.hostKeys is empty";
+            assert refused "a tier machine with an upper-case name"
+              { chase.tiers.trusted.apps.ssh = { enable = true; hosts.M = { address = "10.0.0.9"; user = "u"; hostKeys = [ "k" ]; }; }; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; } "'M' is not a host's name";
+            assert refused "a tier machine logging in with the machine's credential, which it has not"
+              { chase.tiers.strict.apps.ssh = { enable = true; hosts.m = { address = "10.0.0.9"; user = "u"; hostKeys = [ "k" ]; }; }; } "a tier's that names none of its own";
             # A CLASS IS ANSWERED AS THE TIER AND THE APP SAY (PLAN.md,
             # decision 18). By default a read is allowed, a write asks and a
             # guarded operation is refused; the tier's settings are every

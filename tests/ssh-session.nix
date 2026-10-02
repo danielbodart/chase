@@ -6,17 +6,26 @@
 # config includes -- frisket's ssh_config and its CA, in a namespace whose
 # root is not the host's, which is what ssh's ownership check on an
 # included file is about -- and each command is decided by the catalogue.
+# The tier names a machine of its own too, the same sshd on another port
+# taking only a password, which frisket reads from a file of alice's and
+# the session never sees.
 { self, home-manager }:
 { lib, hostPkgs, ... }:
 
 let
   pkgs = hostPkgs;
   ws = "/home/alice/proj";
+  password = "open sesame 2222";
+  passwordFile = "/home/alice/.ssh/box-password";
 
-  # Test keys, so in the store: the machine's host key and alice's.
+  # Test keys, so in the store: the machine's host key, nixpkgs' snakeoil,
+  # which the tier's own machine pins when the module is evaluated, and
+  # alice's.
+  snakeoil = import "${pkgs.path}/nixos/tests/ssh-keys.nix" pkgs;
   sshKeys = pkgs.runCommand "chase-test-ssh-keys" { nativeBuildInputs = [ pkgs.openssh ]; } ''
     mkdir $out
-    ssh-keygen -q -t ed25519 -N "" -C server -f $out/host
+    cp ${snakeoil.snakeOilEd25519PrivateKey} $out/host
+    echo '${snakeoil.snakeOilEd25519PublicKey}' > $out/host.pub
     ssh-keygen -q -t ed25519 -N "" -C alice -f $out/client
   '';
 
@@ -60,19 +69,30 @@ in
   # The machine, by its VLAN address: its host key from the store, a copy
   # only root reads, as sshd insists, and a user whose one authorized key is
   # alice's.
-  nodes.server = { pkgs, ... }: {
+  # On 2222 it takes a password and no key, as a device with no key support
+  # does.
+  nodes.server = { lib, pkgs, ... }: {
     services.openssh = {
       enable = true;
+      ports = [ 22 2222 ];
       hostKeys = [{ path = "/etc/ssh/ssh_host_ed25519_key"; type = "ed25519"; }];
       settings.PasswordAuthentication = false;
       settings.KbdInteractiveAuthentication = false;
+      extraConfig = ''
+        Match LocalPort 2222
+          PasswordAuthentication yes
+          PubkeyAuthentication no
+      '';
     };
     environment.etc."ssh/ssh_host_ed25519_key" = { source = "${sshKeys}/host"; mode = "0600"; };
     environment.etc."ssh/authorized_keys.d/ops" = { source = "${sshKeys}/client.pub"; mode = "0444"; };
-    users.users.ops.isNormalUser = true;
+    users.users.ops = { isNormalUser = true; inherit password; };
+    # NixOS gives sshd's PAM a password check only when PasswordAuthentication
+    # is on everywhere; here it is on for 2222 alone.
+    security.pam.services.sshd.unixAuth = lib.mkForce true;
   };
 
-  nodes.machine = { config, pkgs, ... }: {
+  nodes.machine = { config, nodes, pkgs, ... }: {
     imports = [ self.nixosModules.default home-manager.nixosModules.home-manager ];
 
     virtualisation.memorySize = 3072;
@@ -125,6 +145,12 @@ in
         allow = [ "*" ];
         grants = true;
         apps.ssh.enable = true;
+        apps.ssh.hosts.box = {
+          address = "${nodes.server.networking.primaryIPAddress}:2222";
+          user = "ops";
+          hostKeys = [ snakeoil.snakeOilEd25519PublicKey ];
+          inherit passwordFile;
+        };
       };
     };
 
@@ -185,6 +211,7 @@ in
       machine.wait_for_unit("home-manager-alice.service")
       machine.wait_until_succeeds("nc -z -w 2 ${address} 22")
       machine.succeed("install -d -m 0700 -o alice -g users /home/alice/.ssh && install -m 0600 -o alice -g users ${sshKeys}/client /home/alice/.ssh/frisket")
+      machine.succeed("printf '%s\\n' '${password}' > ${passwordFile} && chown alice:users ${passwordFile} && chmod 0400 ${passwordFile}")
 
       with subtest("the launch approves the machine the grant names, and routes it"):
           host_key = machine.succeed("cat ${sshKeys}/host.pub").strip()
@@ -196,7 +223,9 @@ in
           approvals = machine.succeed("journalctl -t chase-test-approver -o cat --no-pager")
           assert "${address}" in approvals, approvals
           policy = json.loads(machine.succeed(f"cat /run/user/1000/chase/{name}/policy.json"))
-          [route] = policy["ssh"]
+          routes = {r["name"]: r for r in policy["ssh"]}
+          assert sorted(routes) == ["box", "server"], routes
+          route = routes["server"]
           assert (route["name"], route["address"], route["user"], route["hostKeys"], route["keyFile"]) == \
               ("server", "${address}", "ops", [host_key], "/home/alice/.ssh/frisket"), route
 
@@ -232,6 +261,20 @@ in
               assert rc == 126 and "refused" in out, (command, rc, out)
           server.succeed("test -e /home/ops/approve-me")
           assert logins() == before and len(asked()) == questions, (logins(), before, asked())
+
+      with subtest("the tier's own machine is logged in to with its password file, which the session never sees"):
+          rc, out = session("ssh -o BatchMode=yes box id -un")
+          assert rc == 0 and out.splitlines()[-1] == "ops", (rc, out)
+          server.succeed("journalctl -u sshd -o cat | grep -q 'Accepted password for ops'")
+          box = routes["box"]
+          assert (box["passwordFile"], box["address"]) == ("${passwordFile}", "${address}:2222") and "agent" not in box and "keyFile" not in box, box
+          # The password in two halves, so that this command's own file,
+          # which the session reads, does not hold it.
+          rc, out = session("p=$(printf %s 'open ses' 'ame 2222'); grep -rlF -D skip \"$p\" /etc /home /tmp 2>/dev/null; "
+                            "env | grep -cF \"$p\"; cat ${passwordFile} 2>/dev/null | grep -cF \"$p\"")
+          assert out.split() == ["0", "0"], out
+          machine.fail(f"grep -qF '${password}' /run/user/1000/chase/{name}/policy.json")
+          machine.fail("journalctl -o cat --no-pager | grep -qF '${password}'")
 
       with subtest("the session's end ends its route"):
           machine.succeed("runuser -u alice -- touch ${ws}/release")

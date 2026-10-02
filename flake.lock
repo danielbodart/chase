@@ -30,11 +30,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1790928351,
-        "narHash": "sha256-CWz7am64IpLlueTFgHq8Az/+2GQJmcHl08oVrIgbbaw=",
+        "lastModified": 1790950879,
+        "narHash": "sha256-sdgH7cr0un6/wBwCAgE7PnVdDypEu90wtPNekQk7j3o=",
         "owner": "danielbodart",
         "repo": "frisket",
-        "rev": "78cc881ab11c628e405b1de9d7d8e136922becc4",
+        "rev": "fc6ed4d78b51a139c59d8e92e20991de096d6262",
         "type": "github"
       },
       "original": {

@@ -164,7 +164,7 @@ lives.
 | [huggingface](docs/apps/huggingface.md) | `hf` | ✓ | `session` `workspace` `tier` `host` | | ✓ |
 | [gcloud](docs/apps/gcloud.md) | gcloud, as a project's service account | grant only | | | ✓ |
 | [docker](docs/apps/docker.md) | Docker and Compose, on your rootless daemon | | | | |
-| [ssh](docs/apps/ssh.md) | commands on a project's machines, by SSH through frisket | | | | ✓ |
+| [ssh](docs/apps/ssh.md) | commands on a project's machines, or the tier's own, by SSH through frisket | | | | ✓ |
 | [mise](docs/apps/mise.md) | mise toolchains | | `session` `tier` `host` | ✓ | |
 
 Every app takes the same settings, where they apply:
