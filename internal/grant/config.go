@@ -97,6 +97,11 @@ type Config struct {
 	// approve a checkout's grant. Empty is none, and nothing is
 	// approved.
 	Approver string `json:"approver,omitempty"`
+	// RecordDir is where frisket appends a recording session's lines,
+	// its -record-dir: each session's <RecordDir>/<machine>.jsonl, named
+	// in the record block a recording's exec writes. Empty: the journal
+	// alone.
+	RecordDir string `json:"recordDir,omitempty"`
 	// Sops and Diff are the absolute paths of the tools run: sops to
 	// decrypt, and diffutils' diff to show a person what changed. Neither
 	// is looked up on PATH, which is the caller's.
@@ -163,7 +168,7 @@ func (c Config) paths() error {
 	}
 	// Empty is a default, or, for the approver, none: nothing is approved.
 	for _, p := range []struct{ name, path string }{
-		{"state", c.State}, {"runtime", c.Runtime}, {"approver", c.Approver},
+		{"state", c.State}, {"runtime", c.Runtime}, {"approver", c.Approver}, {"recordDir", c.RecordDir},
 	} {
 		if p.path != "" && !filepath.IsAbs(p.path) {
 			return fmt.Errorf("%s is %q, which is neither empty nor an absolute path", p.name, p.path)

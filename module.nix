@@ -261,6 +261,7 @@ in
     ./apps/mise.nix
     ./apps/gcloud-renew.nix
     ./grant.nix
+    (import ./record.nix self)
   ] ++ map
     (name: lib.mkRemovedOptionModule [ "chase" name ] ''
       chase ships no tiers and no selector opinions: a tier says what puts a

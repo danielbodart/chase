@@ -56,6 +56,21 @@ func (s *Selector) launch(tier string, w Wrapper, args []string) []string {
 	return append([]string{t.Launcher, w.Agent}, args...)
 }
 
+// Recorder is the launcher `chase record` runs a session of tier through,
+// as launch picks a tier's: the fallback's for a tier with no entry, and
+// nothing for a bare tier, which has no sandbox to record, or for one with
+// no recording.
+func (s *Selector) Recorder(tier string) (string, bool) {
+	t, ok := s.cfg.Tiers[tier]
+	if !ok {
+		t = s.cfg.Tiers[s.cfg.Fallback]
+	}
+	if t.Bare || t.RecordLauncher == "" {
+		return "", false
+	}
+	return t.RecordLauncher, true
+}
+
 // TierOrFallback is `$(chase tier DIR 2>/dev/null) || tier=FALLBACK`, as
 // `chase docker` asks it: dir's tier. `chase tier` no longer fails, so it is
 // always the tier; the name says what the caller may rely on.

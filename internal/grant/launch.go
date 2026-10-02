@@ -47,6 +47,12 @@ import (
 // Everything written is the user's alone, decrypted secrets above all: the
 // process's umask is 077 while it runs, as the script's was.
 func Launch(ctx context.Context, c Config, registry map[string]apps.App, tier, ws, machine string, stderr io.Writer) (session.Given, error) {
+	return launch(ctx, c, registry, nil, tier, ws, machine, stderr)
+}
+
+// launch is Launch, with the record block rec, when it is not nil, written
+// into the session's document: a recording session's (Recording).
+func launch(ctx context.Context, c Config, registry map[string]apps.App, rec *Recording, tier, ws, machine string, stderr io.Writer) (session.Given, error) {
 	old := unix.Umask(0o077)
 	defer unix.Umask(old)
 	stage := staged(c, machine)
@@ -94,7 +100,11 @@ func Launch(ctx context.Context, c Config, registry map[string]apps.App, tier, w
 	enc := json.NewEncoder(&out)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(pd); err != nil {
+	var doc any = pd
+	if rec != nil {
+		doc = recordedDocument{Document: pd, Record: rec.block(c, machine)}
+	}
+	if err := enc.Encode(doc); err != nil {
 		return session.Given{}, err
 	}
 	// Replaced whole, never truncated and rewritten: frisket, or anything
@@ -245,6 +255,17 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 	}
 	if err := applyLists(pd, bindings, ws, tier, stderr); err != nil {
 		return given, err
+	}
+	// The names the project reaches beyond its apps', added last, as an
+	// app's are: to a tier that allows every name, nothing.
+	var named struct {
+		Network *Network `json:"network"`
+	}
+	if err := json.Unmarshal([]byte(result.compact()), &named); err != nil {
+		return given, err
+	}
+	if named.Network != nil && len(named.Network.Allow) > 0 {
+		policydoc.Merge(pd, apps.Patch{Allow: named.Network.Allow})
 	}
 	return given, nil
 }

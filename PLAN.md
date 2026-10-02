@@ -446,6 +446,27 @@ checkouts are trusted follows from what sorts them into a tier, not from a
 list of paths kept beside it. No option means anything by being null: an
 app is off or on, and a credential is bound or not.
 
+**20. A recording finds what a grant needs; only a person starts one.**
+Something is refused; `chase record --default allow claude` runs the same
+checkout's tier again through its record launcher, the person does the one
+action, and what the tier would have refused or asked about -- an operation
+on a route, a command on a machine, a name off the allowlist, a syscall --
+is let through and written down, then proposed as exactly the grant entries
+that would give it, each in the list its answer says: `allow`, `ask` or
+`refuse`, the same three words a person answers with when there is no
+`--default` (Ask is what happens now, and what is proposed). Entries are what
+was seen, never generalised, and a proposal changes nothing until `chase
+record apply` adds it to `chase.jsonc` and the changed grant is approved as
+any change is (decision 17). Recording is manual mode, guarded operations
+included; what no rule decides -- frisket's structural refusals, flong's
+fixed filters, the tier's own `seccomp.deny` -- stays refused, and is
+reported. The record launcher is never a wrapper's, nothing in a checkout
+selects it, its guard is the tier's, and what it records comes from the
+environment of the person who ran it. A syscall is learnt from the kernel's
+audit, by flong's `log` lines, and put down to the session in `chase
+record` itself, by cgroup while the session lives: no hook runs while its
+processes do. See [docs/record.md](docs/record.md).
+
 ## Considered and rejected
 
 - **Per-project path matching in frisket, to scope a project to one zone.**

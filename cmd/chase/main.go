@@ -32,6 +32,7 @@ import (
 	"github.com/danielbodart/chase/internal/gcloud"
 	"github.com/danielbodart/chase/internal/gitsafe"
 	"github.com/danielbodart/chase/internal/grant"
+	"github.com/danielbodart/chase/internal/record"
 	"github.com/danielbodart/chase/internal/selector"
 	"github.com/danielbodart/chase/internal/session"
 	"github.com/danielbodart/chase/internal/snapshot"
@@ -57,6 +58,18 @@ const usage = `chase -- which sandbox a checkout gets, and which credential each
         Where a checkout's Docker containers are reached from the host, as
         the tier it would run in has them.
 
+  chase record [--default allow|ask|refuse] [--base tier|none] [--] AGENT [ARG...]
+        AGENT -- claude, codex or shell -- in this checkout's tier, as a
+        recording: what the tier would refuse or ask about is put to you,
+        or answered by --default, and written down; once it ends, a report
+        of what it needed and a proposal of the grant entries that would
+        give it. --base none learns syscalls against nothing but the
+        calls every process makes, rather than the tier's filter.
+
+  chase record apply [--last | MACHINE]
+        A recording's proposal, the last one's by default, added to its
+        checkout's chase.jsonc.
+
   chase docker-address OWNER/REPO
         A project's Docker identity, as one line of JSON: its owner/repo
         lower-cased, the loopback address everything it publishes is bound
@@ -75,6 +88,11 @@ What the module runs, rather than a person:
   chase guard TIER                 flong's guard for a sandbox tier
   chase hook binds TIER            flong's binds: what is bound beside it
   chase hook approve TIER          flong's seccompPolicy: approve the grant
+  chase hook record-approve TIER   a record launcher's: the same, and learn
+                                   what the session calls
+  chase hook record-exec TIER AGENT [ARG...]
+                                   a record launcher's exec: the same, the
+                                   session's document a recording's
   chase hook exec TIER AGENT [ARG...]
                                    flong's exec: apply what was approved, and
                                    print the payload, its environment and the
@@ -149,6 +167,8 @@ func main() {
 		exit(grant.Run(ctx, *cfg.Grant, args, os.Stdin, os.Stdout, os.Stderr))
 	case "docker":
 		exit(runDocker(ctx, cfgPath, args))
+	case "record":
+		exit(runRecord(ctx, cfgPath, args))
 	case "checkout", "origin", "ls-files":
 		exit(runCheckout(ctx, cfgPath, command, args))
 	case "copy-tracked":
@@ -344,7 +364,7 @@ func wrap(ctx context.Context, cfgPath, agent string, args []string) int {
 // and its arguments.
 func runHook(ctx context.Context, cfgPath string, args []string) int {
 	if len(args) < 2 {
-		fmt.Fprint(os.Stderr, "usage: chase hook binds|approve|exec|poststop TIER\n")
+		fmt.Fprint(os.Stderr, "usage: chase hook binds|approve|exec|record-approve|record-exec|poststop TIER\n")
 		return 2
 	}
 	hook, tier := args[0], args[1]
@@ -364,6 +384,28 @@ func runHook(ctx context.Context, cfgPath string, args []string) int {
 		return 0
 	case "exec":
 		return runExec(ctx, cfg, tier, ws, machine, takes, args[2:])
+	case "record-exec", "record-approve":
+		if !takes {
+			fmt.Fprintf(os.Stderr, "chase hook %s: %s takes no grant, so it does not record\n", hook, tier)
+			return 1
+		}
+		// What to record is the person's who ran `chase record`, from their
+		// environment, and never anything a checkout says.
+		rec, err := grant.RecordingFromEnv(os.Getenv)
+		if err != nil {
+			term.Say(os.Stderr, "%v", err)
+			return 1
+		}
+		if hook == "record-exec" {
+			return grant.ExecRecording(ctx, cfg.Session, cfg.Grant, nil, rec, tier, ws, machine, os.Getenv("binds"), args[2:], os.Stdout, os.Stderr)
+		}
+		r, err := grant.ApproveRecording(ctx, *cfg.Grant, ws, machine, tier, rec, os.Stderr)
+		if err != nil {
+			term.Say(os.Stderr, "%v", err)
+			return 1
+		}
+		io.WriteString(os.Stdout, r.Lines())
+		return 0
 	case "approve", "poststop":
 		if !takes {
 			fmt.Fprintf(os.Stderr, "chase hook %s: %s takes no grant\n", hook, tier)
@@ -391,6 +433,53 @@ func runExec(ctx context.Context, cfg config.Config, tier, ws, machine string, t
 		e = cfg.Grant
 	}
 	return grant.Exec(ctx, cfg.Session, e, nil, tier, ws, machine, os.Getenv("binds"), args, os.Stdout, os.Stderr)
+}
+
+// runRecord is `chase record`: a session of the checkout's own tier, as
+// the wrapper would pick it, run through the tier's record launcher as a
+// child rather than exec'd, so that what it needed is harvested once it
+// ends; or `chase record apply`. Only ever a person's: no wrapper runs it,
+// and nothing a checkout says starts one.
+func runRecord(ctx context.Context, cfgPath string, args []string) int {
+	cfg, s, err := selectorOf(cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "chase record: %v\n", err)
+		return 1
+	}
+	if cfg.Grant == nil || cfg.Record == nil {
+		s.Close()
+		fmt.Fprint(os.Stderr, "chase record: the module configures no tier that records\n")
+		return 1
+	}
+	if len(args) > 0 && args[0] == "apply" {
+		s.Close()
+		return record.Apply(*cfg.Grant, args[1:], os.Stdout, os.Stderr)
+	}
+	a, err := record.ParseArgs(args)
+	if err != nil {
+		s.Close()
+		fmt.Fprintf(os.Stderr, "chase record: %v\n%s\n", err, record.Usage)
+		return 2
+	}
+	pwd, err := os.Getwd()
+	if err != nil {
+		s.Close()
+		fmt.Fprintf(os.Stderr, "chase record: %v\n", err)
+		return 1
+	}
+	tier := s.Tier(ctx, pwd)
+	launcher, ok := s.Recorder(tier)
+	if !ok {
+		s.Close()
+		term.Say(os.Stderr, "%s is '%s', which records nothing: a bare tier has no sandbox, and a sandbox records with chase.tiers.%s.record.enable", pwd, tier, tier)
+		return 1
+	}
+	ws := (&checkout.Finder{Git: s.Git()}).Workspace(ctx, pwd)
+	s.Close()
+	return record.Run(record.Session{
+		Grant: *cfg.Grant, Config: *cfg.Record, Tier: tier, Workspace: ws, Launcher: launcher, Args: a,
+		Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
+	})
 }
 
 // runDocker is `chase docker [DIR]`: where the checkout's containers are

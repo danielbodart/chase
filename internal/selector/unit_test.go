@@ -253,6 +253,27 @@ func TestTheWrapperRunsTheTiersCommand(t *testing.T) {
 	}
 }
 
+// `chase record` runs the tier's record launcher, as the wrapper runs its
+// launcher: the fallback's for a tier with no entry, and none for a bare
+// tier or one that records nothing.
+func TestARecordingRunsTheTiersRecorder(t *testing.T) {
+	r := gitsafetest.Dir(t)
+	s := newSelector(t, selector.Config{
+		Order: []string{"host"}, Fallback: "strict",
+		Tiers: map[string]selector.Tier{
+			"host":    {Bare: true, Match: []selector.Rule{{Paths: []string{r + "/home"}}}},
+			"strict":  {Launcher: "/l/strict", RecordLauncher: "/l/strict-record"},
+			"trusted": {Launcher: "/l/trusted"},
+		},
+	})
+	for tier, want := range map[string]string{"strict": "/l/strict-record", "gone": "/l/strict-record", "trusted": "", "host": ""} {
+		got, ok := s.Recorder(tier)
+		if got != want || ok != (want != "") {
+			t.Errorf("%s records through %q, %v", tier, got, ok)
+		}
+	}
+}
+
 func TestAConfigIsWhatTheModuleAsserts(t *testing.T) {
 	git := gitsafetest.GitPath(t)
 	good := selector.Config{
@@ -280,6 +301,10 @@ func TestAConfigIsWhatTheModuleAsserts(t *testing.T) {
 		"twice in order":    func(c *selector.Config) { c.Order = []string{"host", "host", "strict"} },
 		"rules not ordered": func(c *selector.Config) { c.Order = []string{"strict"} },
 		"no launcher":       func(c *selector.Config) { c.Tiers["strict"] = selector.Tier{} },
+		"relative recorder": func(c *selector.Config) { c.Tiers["strict"] = selector.Tier{Launcher: "/l", RecordLauncher: "r"} },
+		"bare recorder": func(c *selector.Config) {
+			c.Tiers["host"] = selector.Tier{Bare: true, RecordLauncher: "/r", Match: good.Tiers["host"].Match}
+		},
 		"empty rule": func(c *selector.Config) {
 			c.Tiers["strict"] = selector.Tier{Launcher: "/l", Match: []selector.Rule{{}}}
 		},

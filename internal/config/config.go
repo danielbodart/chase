@@ -24,6 +24,7 @@ import (
 	"github.com/danielbodart/chase/internal/apps/codex"
 	"github.com/danielbodart/chase/internal/gcloud"
 	"github.com/danielbodart/chase/internal/grant"
+	"github.com/danielbodart/chase/internal/record"
 	"github.com/danielbodart/chase/internal/selector"
 	"github.com/danielbodart/chase/internal/session"
 )
@@ -65,6 +66,10 @@ type Config struct {
 
 	// GrantTiers are the tiers that take a checkout's grant.
 	GrantTiers []string `json:"grantTiers,omitempty"`
+
+	// Record is `chase record`'s, when any tier records: the tools it
+	// runs, and what each recording tier's filter allows.
+	Record *record.Config `json:"record,omitempty"`
 }
 
 // Wrapper is what one agent runs as on a bare tier.
@@ -90,6 +95,11 @@ func Load(path string) (Config, error) {
 	if c.Grant != nil {
 		if err := grant.Validate(*c.Grant, grant.DefaultApps(*c.Grant, io.Discard)); err != nil {
 			return Config{}, fmt.Errorf("%s: grant: %w", path, err)
+		}
+	}
+	if c.Record != nil {
+		if err := c.Record.Validate(); err != nil {
+			return Config{}, fmt.Errorf("%s: record: %w", path, err)
 		}
 	}
 	for name, w := range c.Wrappers {

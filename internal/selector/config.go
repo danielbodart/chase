@@ -47,6 +47,13 @@ type Tier struct {
 	// agent's name and its arguments. Empty for a bare tier.
 	Launcher string `json:"launcher,omitempty"`
 
+	// RecordLauncher is the absolute path of the tier's record launcher,
+	// `lib.getExe config.flong."chase-<name>-record".launcher`, which
+	// `chase record` runs a session through, and only it: empty for a tier
+	// with no recording (chase.tiers.<name>.record.enable), and always for
+	// a bare one.
+	RecordLauncher string `json:"recordLauncher,omitempty"`
+
 	// Trust is what a bare tier trusts its checkouts in, on the host, before
 	// the agent starts; nil for nothing, and for a sandbox tier, whose
 	// session trusts them itself (internal/session).
@@ -121,6 +128,9 @@ func (c Config) Validate() error {
 	for name, t := range c.Tiers {
 		if !t.Bare && !filepath.IsAbs(t.Launcher) {
 			return fmt.Errorf("tier %q is a sandbox with no launcher", name)
+		}
+		if t.RecordLauncher != "" && (t.Bare || !filepath.IsAbs(t.RecordLauncher)) {
+			return fmt.Errorf("tier %q has a record launcher that is not a sandbox's absolute path", name)
 		}
 		if len(t.Match) > 0 && !seen[name] {
 			return fmt.Errorf("tier %q has rules but is not in the order", name)

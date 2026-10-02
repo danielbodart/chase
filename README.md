@@ -95,6 +95,8 @@ for each choice.
 | `chase shell` | A login shell in that tier's sandbox, as an agent gets it. |
 | `chase tier --dry-run DIR…` | Show each directory's tier and why. |
 | `chase docker [DIR]` | Show a checkout's Docker project, address and ports. |
+| `chase record [--default allow\|ask\|refuse] [--base tier\|none] AGENT` | Run the agent in its tier as a recording: what the tier would refuse or ask about is answered, by you or `--default`, and written down; at the end, a report and a proposal of the grant entries it needed. See [docs/record.md](docs/record.md). |
+| `chase record apply [--last\|MACHINE]` | Add a recording's proposal to its checkout's `chase.jsonc`. |
 
 ```
 $ chase tier --dry-run ~ ~/Projects/thing ~/Projects/a-fork
@@ -131,6 +133,7 @@ a-fork                     strict    first commit by someone@upstream.org
 | `grants` | `false` | Apply a checkout's grant, once approved. |
 | `caches` | `session` | Where tools keep downloads: `session`, `workspace` or `tier`. |
 | `writes`, `guarded`, `unmatched` | `ask`, `refuse`, `ask` | The answer for each class, in every app. See [Operations](#operations). |
+| `record.enable` | `false` | `chase record` in this tier, which must take grants: a second launcher on its container, every connection through frisket. See [docs/record.md](docs/record.md). |
 | `apps.<app>` | | See [Apps](#apps). |
 
 ### Rules
@@ -251,7 +254,12 @@ data and never run.
 |---|---|
 | `secrets` | The checkout's sops file. Each `credential.secret` is a key in it. |
 | `apps.<app>` | The app's credential, its other settings, and `allow`, `ask` and `refuse` lists of operation ids or `category:<name>`. ssh's lists are each host's, and take command patterns too, `docker compose ps **` ([docs/apps/ssh.md](docs/apps/ssh.md)). |
+| `network` | Names to `allow` beyond the tier's and its apps', for connections no route serves: exact, or `*.suffix`. |
 | `seccomp` | Syscalls to `allow` or `deny` beyond the tier's filter. |
+
+`chase record` writes most of a grant for you: run the agent again under it,
+do what was refused, and apply the proposal it leaves
+([docs/record.md](docs/record.md)).
 
 A grant applies only in a tier with `grants = true`. An agent can write to its
 own checkout, so nothing in a grant applies until you approve it: when it

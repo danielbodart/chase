@@ -24,22 +24,34 @@ import (
 )
 
 // Result is what an approval gives flong: the syscalls the approved grant
-// loosens, each list as seccompPolicy printed it after "allow " and "deny ".
+// loosens, each list as seccompPolicy printed it after "allow " and "deny ",
+// and, for a recording session (ApproveRecording), what flong learns with:
+// Base "none" to apply the lines to no names in place of the tier's, and
+// the calls to Log, those Nolog names taken back out.
 type Result struct {
+	Base  string
 	Allow []string
 	Deny  []string
+	Log   []string
+	Nolog []string
 }
 
 // Lines is the result as seccompPolicy prints it on stdout, and nothing
-// else: an `allow` line when there is anything to allow, then a `deny` line
-// when there is anything to deny.
+// else: `base none` when the result is from scratch; an `allow` line when
+// there is anything to allow, then a `deny` line when there is anything to
+// deny; then `log` and `nolog` lines likewise.
 func (r Result) Lines() string {
 	var b strings.Builder
-	if len(r.Allow) > 0 {
-		b.WriteString("allow " + strings.Join(r.Allow, " ") + "\n")
+	if r.Base != "" {
+		b.WriteString("base " + r.Base + "\n")
 	}
-	if len(r.Deny) > 0 {
-		b.WriteString("deny " + strings.Join(r.Deny, " ") + "\n")
+	for _, l := range []struct {
+		word  string
+		names []string
+	}{{"allow", r.Allow}, {"deny", r.Deny}, {"log", r.Log}, {"nolog", r.Nolog}} {
+		if len(l.names) > 0 {
+			b.WriteString(l.word + " " + strings.Join(l.names, " ") + "\n")
+		}
 	}
 	return b.String()
 }

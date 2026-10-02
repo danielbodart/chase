@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
@@ -50,12 +51,25 @@ type File struct {
 	Secrets string `json:"secrets,omitempty"`
 	// Apps is what each app is given for this project.
 	Apps Apps `json:"apps"`
+	// Network is names this project's sessions reach beyond the tier's
+	// allowlist and its apps' own (Allow), each added to the session's
+	// policy document's: what `chase record` proposes for a connection to
+	// a name no route serves.
+	Network *Network `json:"network,omitempty"`
 	// Seccomp is syscalls, or systemd @groups, this project's sessions need
 	// beyond the tier's filter (Allow), or do without (Deny, after Allow,
 	// which it overrides). Each one allowed is kernel surface the session
 	// gains. The fixed filters stay whatever this says: no terminal
 	// injection, no audit socket, no namespaces of its own.
 	Seccomp *Seccomp `json:"seccomp,omitempty"`
+}
+
+// Network is names a project's sessions may resolve and connect to. A name
+// is frisket's: exact, or "*.suffix" for every name below suffix; never "*",
+// which only a tier says, and never an address, which no allowlist holds.
+// A tier that allows every name is left as it is.
+type Network struct {
+	Allow []string `json:"allow,omitempty"`
 }
 
 type Seccomp struct {
@@ -269,6 +283,7 @@ var (
 	namedName      = regexp.MustCompile(`^(category:.+|[A-Za-z0-9_./:-]+)$`)
 	namedPath      = regexp.MustCompile(`^/[^[:space:]]*$`)
 	accountID      = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	networkName    = regexp.MustCompile(`^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$`)
 	serviceAccount = regexp.MustCompile(`^[^@[:space:]]+@[^@[:space:]]+$`)
 )
 
@@ -289,6 +304,11 @@ func (f File) check() error {
 					return fmt.Errorf("%s: %q is not a syscall's name or an @group's", field, n)
 				}
 			}
+		}
+	}
+	if n := f.Network; n != nil {
+		if err := checkNetwork(n.Allow); err != nil {
+			return err
 		}
 	}
 	b := f.Apps
@@ -353,6 +373,43 @@ func (f File) check() error {
 		}
 	}
 	return nil
+}
+
+// maxNetwork is how many names a grant's network may add: a session's
+// allowlist is read on every lookup, and a list longer than this is no
+// longer one a person reads before approving it.
+const maxNetwork = 256
+
+// checkNetwork is what frisket's allowlist holds of a name, refused here
+// first: lower-case labels, "*." before one for every name below it, at
+// most 253 bytes; never "*", every name, which is the tier's to say, and
+// never an address, which a name is looked up to give.
+func checkNetwork(names []string) error {
+	if len(names) > maxNetwork {
+		return fmt.Errorf("network.allow: at most %d names, not %d", maxNetwork, len(names))
+	}
+	seen := map[string]bool{}
+	for _, n := range names {
+		switch {
+		case n == "*":
+			return errors.New(`network.allow: "*" is every name, which only a tier allows`)
+		case len(n) > 253 || !networkName.MatchString(n):
+			return fmt.Errorf("network.allow: %q is not a name: lower-case letters, digits and hyphens, in labels joined by dots, or *. before them", n)
+		case isAddress(n):
+			return fmt.Errorf("network.allow: %q is an address: an allowlist holds names", n)
+		case seen[n]:
+			return fmt.Errorf("network.allow: %q is named twice", n)
+		}
+		seen[n] = true
+	}
+	return nil
+}
+
+// isAddress is whether n is an IPv4 address, which networkName would take
+// for four labels of digits.
+func isAddress(n string) bool {
+	_, err := netip.ParseAddr(n)
+	return err == nil
 }
 
 func checkCredential(at string, c *Credential) error {

@@ -6,17 +6,19 @@ import (
 )
 
 // Normal is a grant as it is approved: a project that loosens nothing
-// has no seccomp section, and says nothing of an app it does not bind, so an
-// grant approved before there were any still is. One approved before is
-// read through this too, so it is compared as it would be written now.
+// has no seccomp section, no network that names nothing, and says nothing
+// of an app it does not bind, so a grant approved before there were any
+// still is. One approved before is read through this too, so it is
+// compared as it would be written now.
 //
 // The grant is one JSON value, and what comes back is it as jq -c wrote
 // it, without the newline: its keys where they were, and its numbers as
-// written. A seccomp section of exactly {allow: [], deny: []} goes, and each
-// object under apps loses every member that is null, [] or {} once its
-// own have been pruned, so an app whose fields are all empty goes too.
-// Arrays are kept as they are. A grant that is null is null; one that is
-// not an object is an error, as indexing it was jq's.
+// written. A seccomp section of exactly {allow: [], deny: []} goes, as does
+// a network section with nothing left in it once pruned, and each object
+// under apps loses every member that is null, [] or {} once its own have
+// been pruned, so an app whose fields are all empty goes too. Arrays are
+// kept as they are. A grant that is null is null; one that is not an
+// object is an error, as indexing it was jq's.
 func Normal(grant []byte) ([]byte, error) {
 	v, err := parse(grant)
 	if err != nil {
@@ -26,6 +28,14 @@ func Normal(grant []byte) ([]byte, error) {
 	case '{':
 		if s := v.get("seccomp"); s != nil && unloosened(s) {
 			v.del("seccomp")
+		}
+		// A network that adds no name adds nothing, as an app that binds
+		// nothing binds nothing.
+		if n := v.get("network"); n != nil && n.kind == '{' {
+			pruned(n)
+			if n.empty() {
+				v.del("network")
+			}
 		}
 		if b := v.get("apps"); b != nil && b.kind != 'n' && b.kind != 'f' {
 			pruned(b)

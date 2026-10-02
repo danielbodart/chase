@@ -378,6 +378,36 @@
               && config.containers ? chase-strict && config.flong ? chase-trusted
               && config.services.frisket.policies ? strict)
               || throw "assertions: a bare tier was given a sandbox, or a sandbox was not";
+            # RECORDING (record.nix) is a tier's own second launcher: on its
+            # container, with its guard, binds and filter, but every
+            # connection steered to frisket and chase's record hooks in
+            # place of approve and exec; the selector knows it, and only a
+            # tier whose seccompPolicy and document chase writes records.
+            assert refused "recording a tier that takes no grant" { chase.tiers.strict.record.enable = true; } "strict takes no grant";
+            assert refused "recording a bare tier" { chase.tiers.host.record.enable = true; } "host is bare";
+            assert
+              (let
+                config = configWith { chase.tiers.trusted.record.enable = true; };
+                l = config.flong.chase-trusted-record;
+                t = config.flong.chase-trusted;
+                f = config.services.frisket.flong;
+                c = config.chase.internal.config;
+              in
+              lib.all (a: a.assertion) config.assertions
+              && l.container == "chase-trusted" && l.network == null && t.network != null
+              && l.guard == t.guard && l.binds == t.binds && l.workspace == t.workspace && l.seccomp == t.seccomp
+              && lib.elem [ "record-approve" "trusted" ] (map (h: lib.drop 2 h) l.seccompPolicy)
+              && lib.drop 1 l.exec == [ "hook" "record-exec" "trusted" ]
+              && f.chase-trusted-record.set == "all" && f.chase-trusted.set == "service"
+              && f.chase-trusted-record.policyFile == f.chase-trusted.policyFile
+              && lib.hasSuffix "/bin/chase-trusted-record" c.selector.tiers.trusted.recordLauncher
+              && ! c.selector.tiers.strict ? recordLauncher
+              && c.grant.recordDir == "/var/lib/frisket/records"
+              && lib.hasSuffix "/bin/flong-seccomp" c.record.seccomp
+              && lib.hasSuffix "/bin/journalctl" c.record.journalctl
+              && lib.hasPrefix "/nix/store/" c.record.names.trusted
+              && ! config.flong ? chase-strict-record)
+              || throw "assertions: trusted's record launcher is not the tier's own, steered whole";
             # The old selector options say where their replacement is.
             assert refused "a removed selector option" { chase.trustedOrgs = [ "alice" ]; } "chase.tiers.<name>.match";
             # DECLARED BUT UNBOUND REFUSES (PLAN.md, decision 4). trusted's
@@ -931,6 +961,7 @@
 
           gcloud-session = pkgs.testers.runNixOSTest (import ./tests/gcloud-session.nix { inherit self home-manager; });
           ssh-session = pkgs.testers.runNixOSTest (import ./tests/ssh-session.nix { inherit self home-manager; });
+          record-session = pkgs.testers.runNixOSTest (import ./tests/record-session.nix { inherit self home-manager; });
         } // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
           # Only where the pinned postgres:18 runs: the image is amd64's.
           docker-session = pkgs.testers.runNixOSTest (import ./tests/docker-session.nix { inherit self home-manager; });

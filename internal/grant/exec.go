@@ -36,6 +36,12 @@ import (
 // postStop releasing what was made; stdout is the payload's alone, and
 // everything said goes to stderr.
 func Exec(ctx context.Context, s session.Config, e *Config, registry map[string]apps.App, tier, ws, machine, binds string, args []string, stdout, stderr io.Writer) int {
+	return execute(ctx, s, e, registry, nil, tier, ws, machine, binds, args, stdout, stderr)
+}
+
+// execute is Exec, for a recording session when rec is not nil
+// (ExecRecording).
+func execute(ctx context.Context, s session.Config, e *Config, registry map[string]apps.App, rec *Recording, tier, ws, machine, binds string, args []string, stdout, stderr io.Writer) int {
 	if err := session.Agent(s, tier, args); err != nil {
 		term.Say(stderr, "%s: %v", ws, err)
 		return 1
@@ -47,7 +53,7 @@ func Exec(ctx context.Context, s session.Config, e *Config, registry map[string]
 			registry = DefaultApps(*e, stderr)
 		}
 		var err error
-		if given, err = Launch(ctx, *e, registry, tier, ws, machine, stderr); err != nil {
+		if given, err = launch(ctx, *e, registry, rec, tier, ws, machine, stderr); err != nil {
 			term.Say(stderr, "%v", err)
 			return 1
 		}
