@@ -145,6 +145,21 @@ func TestTheExecHookBindsPublishedPortsToTheProjectsAddress(t *testing.T) {
 	if h.err != "" {
 		t.Errorf("a checkout with no project said %q", h.err)
 	}
+
+	// A recording of the same checkout has no network of flong's to
+	// publish ports from, whatever the tier's, so it is given no forward,
+	// which flong would refuse the launch for.
+	h.approved(ws, "m3", "trusted", `{}`)
+	var out, errb bytes.Buffer
+	registry := grant.DefaultApps(h.cfg, &bytes.Buffer{})
+	maps.Copy(registry, h.registry)
+	if rc := grant.ExecRecording(context.Background(), s, &h.cfg, registry, grant.Recording{Default: "allow", Base: "tier"}, "trusted", ws, "m3", "", []string{"shell"}, &out, &errb); rc != 0 {
+		t.Fatalf("the recording was refused: %s", errb.String())
+	}
+	h.out = out.String()
+	if got := h.fields(); slices.ContainsFunc(got, func(f string) bool { return strings.HasPrefix(f, "forward:") }) {
+		t.Errorf("a recording was given a forward: %q", got)
+	}
 }
 
 // A tier that takes no grant is given its payload with nothing applied:

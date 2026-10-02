@@ -20,6 +20,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/danielbodart/chase/internal/files"
 	"github.com/danielbodart/chase/internal/grant"
 	"github.com/danielbodart/chase/internal/term"
@@ -107,6 +109,11 @@ func ParseArgs(args []string) (Args, error) {
 			a.Base = value
 		}
 	}
+	if a.Default == "refuse" && a.Base == "none" {
+		// What is refused now is refused by the filter, which then logs
+		// nothing: from scratch, every call but the few every process makes.
+		return Args{}, errors.New("--default refuse learns no syscalls, so --base none would only refuse every call the session makes")
+	}
 	if len(args) == 0 || args[0] == "" || strings.HasPrefix(args[0], "-") {
 		return Args{}, errors.New("no agent: name claude, codex or shell")
 	}
@@ -139,8 +146,9 @@ const drain = 1500 * time.Millisecond
 // ^\ typed at the terminal reaches the session through the terminal's own
 // process group, and is not this process's to act on; a SIGTERM or SIGHUP
 // sent to this process is passed on -- following the logged calls while
-// it runs; then harvests what it needed, writes the recording and its
-// proposal, says what it found, and exits as the session did.
+// it runs; then, a ^C its own again, harvests what it needed, writes the
+// recording and its proposal, says what it found, and exits as the session
+// did.
 func Run(s Session) int {
 	uid := os.Getuid()
 	say := func(format string, args ...any) { term.Say(s.Stderr, format, args...) }
@@ -163,9 +171,15 @@ func Run(s Session) int {
 
 	var notes []string
 	start := time.Now()
-	col, err := Collect(s.Config.Journalctl, uid, start.Add(-2*time.Second))
-	if err != nil {
+	// A recording that refuses everything leaves the filter as it is
+	// (grant.Recording's learning): nothing is logged, and nothing read.
+	var col *Collector
+	if s.Args.Default == "refuse" {
+		notes = append(notes, "syscalls were not recorded: --default refuse leaves the tier's filter as it is, refusing what it refuses")
+	} else if c, err := Collect(s.Config.Journalctl, uid, start.Add(-2*time.Second)); err != nil {
 		notes = append(notes, fmt.Sprintf("no syscalls were collected: %v", err))
+	} else {
+		col = c
 	}
 
 	env := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "CHASE_RECORD_") })
@@ -231,6 +245,11 @@ func Run(s Session) int {
 	werr := cmd.Wait()
 	end := time.Now()
 	cancel()
+	// The session is over, and a ^C now is meant for this process: what
+	// follows reads files the session could write, and a person must be
+	// able to stop it.
+	signal.Stop(sigs)
+	close(sigs)
 	exit := status(cmd, werr)
 
 	var events []Event
@@ -313,7 +332,7 @@ func (h *harvest) run(events []Event, pids map[int]bool) {
 		h.notes = append(h.notes, s.Tier+" reads no checkout's grant: what is proposed applies once it takes grants")
 	}
 
-	if len(events) == 0 && h.s.Config.Journalctl != "" {
+	if len(events) == 0 && h.s.Config.Journalctl != "" && s.Args.Default != "refuse" {
 		h.notes = append(h.notes, "no logged call was read: right if the session needed no call its filter refuses, and otherwise a sign you cannot read the system journal (systemd-journal) or journald's audit socket is off")
 	}
 	a := Attribute(events, h.machine, pids, h.start, h.end, h.sole)
@@ -324,7 +343,7 @@ func (h *harvest) run(events []Event, pids map[int]bool) {
 	}
 
 	path := filepath.Join(s.Workspace, grant.FileName)
-	current, err := os.ReadFile(path)
+	current, _, err := readGrant(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		h.notes = append(h.notes, fmt.Sprintf("%s could not be read: %v", path, err))
 	}
@@ -350,11 +369,7 @@ func (h *harvest) run(events []Event, pids map[int]bool) {
 
 	all := slices.Clone(lines)
 	for _, c := range calls {
-		answer := "allow"
-		if o.Default == "refuse" {
-			answer = "refuse"
-		}
-		all = append(all, Line{Session: h.machine, Kind: "syscall", Name: c.Name, Count: c.Count, Probable: c.Probable, Would: "refuse", Answer: answer, Source: "default"})
+		all = append(all, Line{Session: h.machine, Kind: "syscall", Name: c.Name, Count: c.Count, Probable: c.Probable, Would: "refuse", Answer: "allow", Source: "default"})
 	}
 	meta := Meta{
 		Machine: h.machine, Tier: s.Tier, Workspace: s.Workspace, Agent: s.Args.Agent,
@@ -371,7 +386,7 @@ func (h *harvest) run(events []Event, pids map[int]bool) {
 		os.Remove(sink)
 	}
 	Report{
-		Meta: meta, Lines: lines, Calls: calls, Proposal: p,
+		Meta: meta, Lines: lines, Calls: calls, Proposal: p, Granted: against.Granted,
 		Elsewhere: a.Elsewhere, Unsure: a.Unsure, Notes: h.notes, Dir: at, Diff: diff,
 	}.Write(s.Stdout)
 	Prune(dir, time.Now(), Keep, KeepFor)
@@ -405,7 +420,7 @@ func (h *harvest) lines(ctx context.Context) ([]Line, bool) {
 // checkout's grant names, and the calls it allows; and for a recording
 // from scratch, the calls the tier's filter allows.
 func (h *harvest) against(current []byte) Against {
-	a := Against{Hosts: map[string]bool{}, Allowed: map[string]bool{}}
+	a := Against{Hosts: map[string]bool{}, Allowed: map[string]bool{}, Granted: map[string]bool{}}
 	if current != nil {
 		if b, err := grant.ParseFile(slices.Clone(current)); err != nil {
 			h.notes = append(h.notes, fmt.Sprintf("%s is not a grant chase reads: %v", grant.FileName, err))
@@ -419,7 +434,7 @@ func (h *harvest) against(current []byte) Against {
 				}
 				if f.Seccomp != nil {
 					for _, n := range f.Seccomp.Allow {
-						a.Allowed[n] = true
+						a.Allowed[n], a.Granted[n] = true, true
 					}
 				}
 			}
@@ -439,6 +454,42 @@ func (h *harvest) against(current []byte) Against {
 		}
 	}
 	return a
+}
+
+// maxGrant is the most of a checkout's chase.jsonc a recording reads:
+// far more than any grant a person reads before approving it.
+const maxGrant = 1 << 20
+
+// readGrant is the checkout's chase.jsonc at path, and what it is, read as
+// approve takes it: a plain file, and not a link -- the session could
+// write it, and a link to a file of the user's, or to /dev/zero, a pipe
+// that blocks the read forever, is none. It is opened without following a
+// link or waiting on a pipe, and read no further than maxGrant.
+func readGrant(path string) ([]byte, os.FileInfo, error) {
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if errors.Is(err, unix.ELOOP) {
+		return nil, nil, fmt.Errorf("%s is a link, not a grant", path)
+	}
+	if err != nil {
+		return nil, nil, &os.PathError{Op: "open", Path: path, Err: err}
+	}
+	f := os.NewFile(uintptr(fd), path)
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, nil, fmt.Errorf("%s is not a plain file, so not a grant", path)
+	}
+	b, err := io.ReadAll(io.LimitReader(f, maxGrant+1))
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(b) > maxGrant {
+		return nil, nil, fmt.Errorf("%s is larger than %d bytes, so not a grant", path, maxGrant)
+	}
+	return b, fi, nil
 }
 
 // RecordsDir is where recordings are kept: <state>/records.
@@ -487,12 +538,10 @@ func Apply(c grant.Config, args []string, stdout, stderr io.Writer) int {
 	}
 	path := filepath.Join(m.Workspace, grant.FileName)
 	mode := os.FileMode(0o644)
-	current, err := os.ReadFile(path)
+	current, fi, err := readGrant(path)
 	switch {
 	case err == nil:
-		if fi, err := os.Stat(path); err == nil {
-			mode = fi.Mode().Perm()
-		}
+		mode = fi.Mode().Perm()
 	case errors.Is(err, os.ErrNotExist):
 		current = nil
 	default:

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -24,7 +25,8 @@ func TestTheAgentsArgumentsAreItsOwn(t *testing.T) {
 	}{
 		{[]string{"claude"}, record.Args{Options: record.Options{Base: "tier"}, Agent: "claude", Args: []string{}}},
 		{[]string{"--default", "allow", "claude", "-p", "x"}, record.Args{Options: record.Options{Default: "allow", Base: "tier"}, Agent: "claude", Args: []string{"-p", "x"}}},
-		{[]string{"--default=refuse", "--base=none", "--", "shell", "-c", "true"}, record.Args{Options: record.Options{Default: "refuse", Base: "none"}, Agent: "shell", Args: []string{"-c", "true"}}},
+		{[]string{"--default=ask", "--base=none", "--", "shell", "-c", "true"}, record.Args{Options: record.Options{Default: "ask", Base: "none"}, Agent: "shell", Args: []string{"-c", "true"}}},
+		{[]string{"--default=refuse", "--", "shell"}, record.Args{Options: record.Options{Default: "refuse", Base: "tier"}, Agent: "shell", Args: []string{}}},
 		{[]string{"codex", "--default", "allow"}, record.Args{Options: record.Options{Base: "tier"}, Agent: "codex", Args: []string{"--default", "allow"}}},
 		{[]string{"--base", "tier", "--default", "ask", "shell"}, record.Args{Options: record.Options{Default: "ask", Base: "tier"}, Agent: "shell", Args: []string{}}},
 	} {
@@ -36,6 +38,8 @@ func TestTheAgentsArgumentsAreItsOwn(t *testing.T) {
 	for _, bad := range [][]string{
 		{}, {"--default", "always", "claude"}, {"--default=Allow", "claude"}, {"--base", "everything", "shell"},
 		{"--what", "shell"}, {"--default"}, {"--", "-p"}, {"--default", "allow"}, {""},
+		// Refusing, nothing is logged, and from scratch every call refused.
+		{"--default", "refuse", "--base", "none", "shell"},
 	} {
 		if got, err := record.ParseArgs(bad); err == nil {
 			t.Errorf("%q was read as %+v", bad, got)
@@ -225,6 +229,7 @@ func TestWhatWasAnsweredIsProposed(t *testing.T) {
 			l.Name, l.Port, l.Answer, l.Source = "nas.lan", 445, "ask", "human"
 			l.LAN = true
 		}),
+		line("egress", func(l *record.Line) { l.Name, l.Port, l.Answer, l.Source = "intranet.example", 443, "ask", "human" }),
 		line("egress", func(l *record.Line) { l.Name, l.Port, l.Answer, l.Source = "evil.example", 443, "refuse", "human" }),
 		line("egress", func(l *record.Line) {
 			l.Address, l.Answer, l.Source, l.Reason = "203.0.113.9:443", "refuse", "hard", "not resolved by this session"
@@ -258,7 +263,7 @@ func TestWhatWasAnsweredIsProposed(t *testing.T) {
 		{"apps.ssh.hosts.server.allow", `"restart"`, false},
 		{"apps.ssh.hosts.server.ask", `"ls -la /srv"`, false},
 		{"network.allow", `"registry.npmjs.org"`, false},
-		{"network.allow", `"nas.lan"`, false},
+		{"network.allow", `"intranet.example"`, false},
 		{"seccomp.allow", `"ptrace"`, false},
 		{"seccomp.allow", `"io_uring_setup"`, false},
 		{"seccomp.allow", `"keyctl"`, true},
@@ -267,11 +272,11 @@ func TestWhatWasAnsweredIsProposed(t *testing.T) {
 		t.Errorf("proposed\n%v\nnot\n%v", got, want)
 	}
 	for v, needle := range map[string]string{
-		`"git/delete-ref"`: "loosens: the tier would refuse (path)",
-		`"restart"`:        "loosens: the tier would ask (systemctl restart *)",
-		`"nas.lan"`:        "a name cannot be asked about",
-		`"io_uring_setup"`: "high surface, io_uring",
-		`"keyctl"`:         "probable",
+		`"git/delete-ref"`:   "loosens: the tier would refuse (path)",
+		`"restart"`:          "loosens: the tier would ask (systemctl restart *)",
+		`"intranet.example"`: "a name cannot be asked about",
+		`"io_uring_setup"`:   "high surface, io_uring",
+		`"keyctl"`:           "probable",
 	} {
 		if !strings.Contains(notes[v], needle) {
 			t.Errorf("%s's note is %q, without %q", v, notes[v], needle)
@@ -292,20 +297,90 @@ func TestWhatWasAnsweredIsProposed(t *testing.T) {
 		"ssh rm -rf *: a command with a *",
 		"ssh show version: box is not a machine the grant names",
 		"egress evil.example: a name off the allowlist is refused already",
+		"egress nas.lan: a name on the local network stays refused outside a recording",
 	} {
 		if !slices.ContainsFunc(left, func(s string) bool { return strings.HasPrefix(s, needle) }) {
 			t.Errorf("%q was not left out: %q", needle, left)
 		}
 	}
-	if len(left) != 7 {
+	if len(left) != 8 {
 		t.Errorf("left out %q", left)
 	}
 
-	// A recording that refused everything proposes refusals, a syscall's
-	// in the grant's deny.
-	p = record.Propose(lines[:1], calls[:1], record.Options{Default: "refuse", Base: "tier"}, against)
-	if len(p.Entries) != 2 || strings.Join(p.Entries[1].Path, ".") != "seccomp.deny" || strings.Contains(p.Entries[1].Note, "loosens") {
+	// A recording that refused everything proposes refusals, and no
+	// syscall: its filter was the tier's, and logged none.
+	p = record.Propose(lines[:1], calls, record.Options{Default: "refuse", Base: "tier"}, against)
+	if len(p.Entries) != 1 || strings.Join(p.Entries[0].Path, ".") != "apps.github.allow" {
 		t.Errorf("%+v", p.Entries)
+	}
+}
+
+// What would not be the entry that was seen is not proposed: a command
+// frisket cut short, which no pattern of it matches; and what may carry a
+// secret, since a grant is committed with its checkout -- left out, said
+// why without the secret, and with no note in any entry that repeats it.
+func TestWhatCannotBeNamedExactlyOrSafelyIsLeftOut(t *testing.T) {
+	long := "echo " + strings.Repeat("x", 4096) + "..."
+	lines := []record.Line{
+		line("ssh", func(l *record.Line) { l.Route, l.Command = "server", long }),
+		line("ssh", func(l *record.Line) { l.Route, l.Command = "server", "echo fine..." }),
+		line("ssh", func(l *record.Line) { l.Route, l.Command = "server", "mysql --password=hunter2 -e show" }),
+		line("ssh", func(l *record.Line) { l.Route, l.Command = "server", "env DB_TOKEN=abc deploy" }),
+		line("ssh", func(l *record.Line) { l.Route, l.Command = "server", `curl -H "Authorization: Bearer x" localhost` }),
+		line("ssh", func(l *record.Line) { l.Route, l.Command = "server", "git clone https://me:pw@git.example/r" }),
+		line("ssh", func(l *record.Line) { l.Route, l.Command = "server", "deploy ghp_0123456789abcdefABCDEF0123" }),
+		line("ssh", func(l *record.Line) { l.Route, l.Command = "server", "unlock aZ3kP9qX2mR7tL5wB8nV1c" }),
+		line("ssh", func(l *record.Line) {
+			l.Route, l.Command, l.Operation = "server", "restart --token=s3cr3t", "restart"
+		}),
+		// Neither a digest nor a path's words are a token.
+		line("ssh", func(l *record.Line) {
+			l.Route, l.Command = "server", "git show 9fceb02d0ae598e95dc970b74767f19372d61af8"
+		}),
+		line("ssh", func(l *record.Line) { l.Route, l.Command = "server", "kubectl get secrets" }),
+		line("http", func(l *record.Line) { l.Route, l.Method, l.Path = "github", "GET", "/hooks/aZ3kP9qX2mR7tL5wB8nV1c/x" }),
+		line("http", func(l *record.Line) {
+			l.Route, l.Method, l.Path = "github", "GET", "/repos/o/r/commits/9fceb02d0ae598e95dc970b74767f19372d61af8"
+		}),
+	}
+	p := record.Propose(lines, nil, record.Options{Default: "allow", Base: "tier"}, record.Against{Hosts: map[string]bool{"server": true}})
+	var got []string
+	for _, e := range p.Entries {
+		v, _ := json.Marshal(e.Value)
+		got = append(got, string(v))
+		for _, secret := range []string{"hunter2", "s3cr3t", "aZ3kP9qX2mR7tL5wB8nV1c"} {
+			if strings.Contains(e.Note, secret) {
+				t.Errorf("%s's note repeats a secret: %q", v, e.Note)
+			}
+		}
+	}
+	want := []string{`"echo fine..."`, `"restart"`, `"git show 9fceb02d0ae598e95dc970b74767f19372d61af8"`, `"kubectl get secrets"`, `{"methods":["GET"],"path":"/repos/o/r/commits/9fceb02d0ae598e95dc970b74767f19372d61af8"}`}
+	if !slices.Equal(got, want) {
+		t.Errorf("proposed %q, not %q", got, want)
+	}
+	why := map[string]string{}
+	for _, l := range p.Left {
+		why[l.Line.Command+l.Line.Path] = l.Why
+		if strings.Contains(l.Why, "hunter2") || strings.Contains(l.Why, "aZ3kP9") {
+			t.Errorf("a reason repeats the secret: %q", l.Why)
+		}
+	}
+	for command, needle := range map[string]string{
+		long:                               "frisket cut the command short",
+		"mysql --password=hunter2 -e show": "a flag, variable or header named for one",
+		"env DB_TOKEN=abc deploy":          "a flag, variable or header named for one",
+		`curl -H "Authorization: Bearer x" localhost`: "named for one",
+		"git clone https://me:pw@git.example/r":       "a login in a URL",
+		"deploy ghp_0123456789abcdefABCDEF0123":       "a word shaped as a token",
+		"unlock aZ3kP9qX2mR7tL5wB8nV1c":               "a word shaped as a token",
+		"/hooks/aZ3kP9qX2mR7tL5wB8nV1c/x":             "its path may carry a secret",
+	} {
+		if !strings.Contains(why[command], needle) {
+			t.Errorf("%.40q was left out for %q, not %q", command, why[command], needle)
+		}
+	}
+	if len(p.Left) != 8 {
+		t.Errorf("left out %d", len(p.Left))
 	}
 }
 
@@ -573,6 +648,25 @@ func TestApplyAddsTheProposalToTheCheckout(t *testing.T) {
 	if rc := record.Apply(c, []string{"old"}, &out, &errb); rc != 0 || !strings.Contains(out.String(), `"old.example" added to network.allow`) {
 		t.Errorf("apply of a named recording: %d %s %s", rc, out.String(), errb.String())
 	}
+	// A chase.jsonc the session made a link or a pipe is no grant, and is
+	// neither followed nor waited on.
+	os.Remove(ws + "/chase.jsonc")
+	os.Symlink(root+"/elsewhere", ws+"/chase.jsonc")
+	os.WriteFile(root+"/elsewhere", []byte("{}"), 0o600)
+	if rc := record.Apply(c, []string{"old"}, &out, &errb); rc == 0 || !strings.Contains(errb.String(), "is a link") {
+		t.Errorf("apply through a link: %d %s", rc, errb.String())
+	}
+	if b, _ := os.ReadFile(root + "/elsewhere"); string(b) != "{}" {
+		t.Errorf("apply wrote through a link: %s", b)
+	}
+	os.Remove(ws + "/chase.jsonc")
+	if err := syscall.Mkfifo(ws+"/chase.jsonc", 0o600); err != nil {
+		t.Fatal(err)
+	}
+	errb.Reset()
+	if rc := record.Apply(c, []string{"old"}, &out, &errb); rc == 0 || !strings.Contains(errb.String(), "not a plain file") {
+		t.Errorf("apply of a pipe: %d %s", rc, errb.String())
+	}
 	for _, bad := range [][]string{{"../state"}, {"nope"}, {"a", "b"}, {".x"}} {
 		errb.Reset()
 		if rc := record.Apply(c, bad, &out, &errb); rc == 0 {
@@ -642,13 +736,29 @@ func TestTheReportSaysWhatWasFound(t *testing.T) {
 		t.Errorf("a control byte reached the terminal: %q", got)
 	}
 
-	// From scratch, every call the session made, the tier's said so.
+	// From scratch, every call the session made, the grant's and the
+	// tier's said so.
 	r.Meta.Options.Base = "none"
-	r.Calls = append(r.Calls, record.Syscall{Name: "openat", Count: 9})
+	r.Calls = append(r.Calls, record.Syscall{Name: "openat", Count: 9}, record.Syscall{Name: "membarrier", Count: 1})
+	r.Granted = map[string]bool{"membarrier": true}
 	b.Reset()
 	r.Write(&b)
-	if got := b.String(); !strings.Contains(got, "Syscalls the session made, but those every process makes\n  ptrace  2 times\n  keyctl  1 time   the tier's\n  openat  9 times  the tier's\n") {
+	if got := b.String(); !strings.Contains(got, "Syscalls the session made, but those every process makes\n  ptrace      2 times\n  keyctl      1 time   the tier's\n  openat      9 times  the tier's\n  membarrier  1 time   the grant's\n") {
 		t.Errorf("from scratch, the report is\n%s", got)
+	}
+
+	// A command the session sent with a line break in it is one row's
+	// field still: it adds no row or section of its own.
+	r.Lines = []record.Line{line("ssh", func(l *record.Line) {
+		l.Route, l.User, l.Address, l.Command = "server", "ops", "192.168.1.20:22", "true\n\nNothing to propose.\tfake"
+	})}
+	r.Proposal = record.Proposal{Left: []record.Left{{Line: r.Lines[0], Why: "why\nNotes"}}}
+	r.Notes = []string{"a note\nNothing to propose."}
+	b.Reset()
+	r.Write(&b)
+	if got := b.String(); strings.Contains(got, "\nNothing to propose.  ") || strings.Contains(got, "\nNotes\n  Notes") ||
+		!strings.Contains(got, "true  Nothing to propose. fake") || !strings.Contains(got, "a note Nothing to propose.") {
+		t.Errorf("a line break the session sent made rows of its own:\n%s", got)
 	}
 }
 

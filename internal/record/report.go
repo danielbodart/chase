@@ -3,6 +3,7 @@ package record
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -19,6 +20,9 @@ type Report struct {
 	Lines    []Line
 	Calls    []Syscall
 	Proposal Proposal
+	// Granted are the calls the checkout's grant allows already: from
+	// scratch, said as the grant's rather than the tier's.
+	Granted map[string]bool
 	// Elsewhere and Unsure are the logged calls put down to another
 	// process, and those placed nowhere.
 	Elsewhere, Unsure int
@@ -31,9 +35,23 @@ type Report struct {
 }
 
 // Write says r to w, every byte of it through term.Clean: a path, a
-// command and a name are what the session sent.
+// command and a name are what the session sent. Each of those is one
+// field of one row, its line breaks and tabs spaces (flat), so that none
+// adds a row, a section or a column of its own.
 func (r Report) Write(w io.Writer) {
 	var b strings.Builder
+	r.Lines = slices.Clone(r.Lines)
+	for i := range r.Lines {
+		r.Lines[i] = flat(r.Lines[i])
+	}
+	r.Proposal.Left = slices.Clone(r.Proposal.Left)
+	for i, l := range r.Proposal.Left {
+		r.Proposal.Left[i] = Left{flat(l.Line), flatten(l.Why)}
+	}
+	r.Notes = slices.Clone(r.Notes)
+	for i, n := range r.Notes {
+		r.Notes[i] = flatten(n)
+	}
 	m := r.Meta
 	how := "a person's answers"
 	if m.Options.Default != "" {
@@ -104,8 +122,10 @@ func (r Report) Write(w io.Writer) {
 		}
 	}
 	section("DNS names resolved off the allowlist", names)
-	// From scratch, every call is logged: those the tier allows already are
-	// the session's mould, said as the tier's, and not proposed.
+	// From scratch, every call is logged: those the grant or the tier
+	// allows already are the session's mould, said as whose, and not
+	// proposed. What either allows that the session never made is not
+	// said: a recording proposes widening alone.
 	proposed := map[string]bool{}
 	for _, e := range r.Proposal.Entries {
 		if n, ok := e.Value.(string); ok && e.Path[0] == "seccomp" {
@@ -117,6 +137,8 @@ func (r Report) Write(w io.Writer) {
 	for _, c := range r.Calls {
 		s := fmt.Sprintf("%s\t%d time%s", c.Name, c.Count, plural(c.Count))
 		switch {
+		case scratch && !proposed[c.Name] && r.Granted[c.Name]:
+			s += "\tthe grant's"
 		case scratch && !proposed[c.Name]:
 			s += "\tthe tier's"
 		case c.Probable:
@@ -167,6 +189,21 @@ func (r Report) Write(w io.Writer) {
 		fmt.Fprintf(&b, "Add it to %s/chase.jsonc with: chase record apply %s\n", m.Workspace, m.Machine)
 	}
 	io.WriteString(w, term.Clean(b.String()))
+}
+
+// flatten is s on one line of one column: its line breaks and tabs
+// spaces.
+func flatten(s string) string {
+	return strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ", "\t", " ", "\v", " ", "\f", " ").Replace(s)
+}
+
+// flat is l with every field the session could have written flattened.
+func flat(l Line) Line {
+	for _, f := range []*string{&l.Session, &l.Policy, &l.Kind, &l.Route, &l.Method, &l.Host, &l.Path, &l.Name, &l.Address,
+		&l.User, &l.Command, &l.Operation, &l.GraphQL, &l.Would, &l.Rule, &l.Answer, &l.Source, &l.Reason} {
+		*f = flatten(*f)
+	}
+	return l
 }
 
 // would is what the policy would have done with l, and by which rule.

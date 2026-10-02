@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/tailscale/hujson"
+	"golang.org/x/net/publicsuffix"
 
 	"github.com/danielbodart/frisket/docker"
 
@@ -382,8 +383,10 @@ const maxNetwork = 256
 
 // checkNetwork is what frisket's allowlist holds of a name, refused here
 // first: lower-case labels, "*." before one for every name below it, at
-// most 253 bytes; never "*", every name, which is the tier's to say, and
-// never an address, which a name is looked up to give.
+// most 253 bytes; never "*", every name, which is the tier's to say, nor
+// "*." before a public suffix -- *.com, *.co.uk, *.github.io -- which is
+// every name some registry hands out, and so near enough "*"; and never an
+// address, which a name is looked up to give.
 func checkNetwork(names []string) error {
 	if len(names) > maxNetwork {
 		return fmt.Errorf("network.allow: at most %d names, not %d", maxNetwork, len(names))
@@ -397,12 +400,27 @@ func checkNetwork(names []string) error {
 			return fmt.Errorf("network.allow: %q is not a name: lower-case letters, digits and hyphens, in labels joined by dots, or *. before them", n)
 		case isAddress(n):
 			return fmt.Errorf("network.allow: %q is an address: an allowlist holds names", n)
+		case publicWildcard(n):
+			return fmt.Errorf("network.allow: %q is every name under a public suffix, which only a tier allows: name the domain under it", n)
 		case seen[n]:
 			return fmt.Errorf("network.allow: %q is named twice", n)
 		}
 		seen[n] = true
 	}
 	return nil
+}
+
+// publicWildcard is whether n is "*." before a public suffix, as the
+// public suffix list has them, its private section's too: one anybody
+// registers names under. A suffix the list does not hold is taken, as the
+// list's own rule does, to be one when it is a single label: *.internal.
+func publicWildcard(n string) bool {
+	under, ok := strings.CutPrefix(n, "*.")
+	if !ok {
+		return false
+	}
+	suffix, _ := publicsuffix.PublicSuffix(under)
+	return suffix == under
 }
 
 // isAddress is whether n is an IPv4 address, which networkName would take

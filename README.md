@@ -254,7 +254,7 @@ data and never run.
 |---|---|
 | `secrets` | The checkout's sops file. Each `credential.secret` is a key in it. |
 | `apps.<app>` | The app's credential, its other settings, and `allow`, `ask` and `refuse` lists of operation ids or `category:<name>`. ssh's lists are each host's, and take command patterns too, `docker compose ps **` ([docs/apps/ssh.md](docs/apps/ssh.md)). |
-| `network` | Names to `allow` beyond the tier's and its apps', for connections no route serves: exact, or `*.suffix`. |
+| `network` | Names to `allow` beyond the tier's and its apps', for connections no route serves: exact, or `*.suffix` below a public suffix (never `*.com`). |
 | `seccomp` | Syscalls to `allow` or `deny` beyond the tier's filter. |
 
 `chase record` writes most of a grant for you: run the agent again under it,

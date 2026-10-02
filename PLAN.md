@@ -465,7 +465,12 @@ selects it, its guard is the tier's, and what it records comes from the
 environment of the person who ran it. A syscall is learnt from the kernel's
 audit, by flong's `log` lines, and put down to the session in `chase
 record` itself, by cgroup while the session lives: no hook runs while its
-processes do. See [docs/record.md](docs/record.md).
+processes do. A recording that refuses everything learns no syscall, since
+refused is what the filter does already. What a recording finds is widening
+alone: one from scratch shows every call made, but does not yet propose
+denying what the tier allows and the session never used; nor does a name on
+the local network, which only a recording dials, become an entry until a
+grant can admit one. See [docs/record.md](docs/record.md).
 
 ## Considered and rejected
 

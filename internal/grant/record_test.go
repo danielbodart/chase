@@ -84,6 +84,16 @@ func TestARecordingLearnsWhatTheFilterWouldRefuse(t *testing.T) {
 		t.Errorf("from scratch, it printed %q", r.Lines())
 	}
 
+	// A recording that refuses everything leaves the filter as the tier
+	// and the grant have it, from scratch or not: what it refuses is
+	// refused now, as its answer says, and nothing is logged.
+	for _, base := range []string{"tier", "none"} {
+		r, err = grant.ApproveRecording(context.Background(), h.cfg, ws, "m2", "trusted", grant.Recording{Default: "refuse", Base: base}, &errb)
+		if err != nil || r.Lines() != "allow io_uring_setup read\ndeny ptrace\n" {
+			t.Errorf("refusing everything, against %s, it printed %q, %v", base, r.Lines(), err)
+		}
+	}
+
 	// A checkout with no grant learns against the tier alone.
 	bare := h.root() + "/bare"
 	h.checkout(bare)
@@ -174,7 +184,8 @@ func TestARecordingsDocumentHasItsRecordBlock(t *testing.T) {
 
 // A GRANT'S NETWORK is names, as frisket's allowlist holds them, added to
 // the session's: exact names and *.suffix, never "*" -- every name, which
-// only a tier says -- nor an address, nor one twice. One that names nothing
+// only a tier says -- nor *. before a public suffix, near enough it, nor an
+// address, nor one twice. One that names nothing
 // is approved as none.
 func TestAGrantsNetworkIsNames(t *testing.T) {
 	for _, bad := range []string{
@@ -184,6 +195,10 @@ func TestAGrantsNetworkIsNames(t *testing.T) {
 		`{"network": {"allow": ["a..b"]}}`,
 		`{"network": {"allow": ["a.example", "a.example"]}}`,
 		`{"network": {"allow": ["*.*.example"]}}`,
+		`{"network": {"allow": ["*.com"]}}`,
+		`{"network": {"allow": ["*.co.uk"]}}`,
+		`{"network": {"allow": ["*.github.io"]}}`,
+		`{"network": {"allow": ["*.internal"]}}`,
 		`{"network": {"allow": ["host:443"]}}`,
 		`{"network": {"deny": ["a.example"]}}`,
 	} {
@@ -191,8 +206,8 @@ func TestAGrantsNetworkIsNames(t *testing.T) {
 			t.Errorf("%s was read", bad)
 		}
 	}
-	b, err := grant.ParseFile([]byte(`{"network": {"allow": ["registry.npmjs.org", "*.pythonhosted.org"]}}`))
-	if err != nil || string(b) != `{"apps":{},"network":{"allow":["registry.npmjs.org","*.pythonhosted.org"]}}` {
+	b, err := grant.ParseFile([]byte(`{"network": {"allow": ["registry.npmjs.org", "*.pythonhosted.org", "*.corp.internal", "com"]}}`))
+	if err != nil || string(b) != `{"apps":{},"network":{"allow":["registry.npmjs.org","*.pythonhosted.org","*.corp.internal","com"]}}` {
 		t.Errorf("%s, %v", b, err)
 	}
 	h := newHarness(t)

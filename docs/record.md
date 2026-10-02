@@ -34,6 +34,13 @@ is proposed:
 | `ask` | goes through | an entry in `ask` |
 | `refuse` | refused, as the tier would | an entry in `refuse` |
 
+A syscall is the one subject not put to you: the filter is fixed before
+the session starts. Answered `allow` or `ask`, or by a person, every call of
+`@known` the filter would refuse is allowed while recording, and proposed
+for `allow`. With `--default refuse` the filter is left as it is, refusing
+what it refuses, and no syscall is recorded or proposed; so `--default
+refuse` with `--base none` is refused.
+
 `--default` answers everything, with nobody asked. Without it, each subject
 is put to you through frisket's asker, whose question carries `record:
 true`; zenity's `--ok-label=Allow --cancel-label=Refuse --extra-button=Ask`
@@ -54,9 +61,9 @@ grant puts back.
 |---|---|
 | HTTP on a route | the operation's id, or the method and exact path where no operation matched; `apps.<app>.<answer>` for an app a grant has lists for (cloudflare, gcloud, git, github, huggingface) |
 | SSH | the catalogue's operation, or the command itself as a pattern; `apps.ssh.hosts.<machine>.<answer>` for a machine the grant names |
-| Other TCP | the name, `network.allow` |
+| Other TCP | the name, `network.allow`; a name on the local network, reported only |
 | DNS | the names resolved off the allowlist, reported |
-| Syscalls | the call's name, `seccomp.allow` (`seccomp.deny` with `--default refuse`) |
+| Syscalls | the call's name, `seccomp.allow`; nothing with `--default refuse` |
 
 Every connection goes through frisket while recording, whatever the tier's
 `egress`: the record launcher has no network of flong's, so a name off the
@@ -67,8 +74,22 @@ ports, and UDP.
 Entries are exactly what was seen, never generalised. Edit the proposal to
 widen one before applying it. What was answered and cannot be an entry --
 a route no grant has lists for, a machine that is the tier's own, a
-one-word command, a refusal of a name -- is left out, and the report says
-why.
+one-word command, a command frisket cut short at 4 KiB, a refusal of a
+name, a name on the local network -- is left out, and the report says why.
+
+A name whose address is on the local network is dialled while recording
+alone: outside one, frisket refuses a private address whatever the
+allowlist says, so a `network.allow` entry for it would do nothing, and none
+is proposed. Admitting one is for a later grant.
+
+A grant is committed with its checkout, so a command or path that looks as
+if it carries a secret is never proposed, nor repeated in a note: a flag,
+variable or header named for one (`--password`, `DB_TOKEN=`,
+`Authorization:`), a bearer token, a login in a URL, or a word shaped as a
+token -- a service's own prefix such as `ghp_`, or 20 or more letters and
+digits of both cases. The report names what it was taken for; write the
+entry yourself, with `*` in its place. What the check misses is yours to see
+in the proposal before applying it.
 
 A name answered `ask` is proposed for `allow`, as frisket cannot ask about
 a name, and a syscall answered by a person is proposed for `allow`, as the
@@ -102,8 +123,11 @@ poll ppoll epoll_wait epoll_pwait epoll_pwait2 epoll_ctl getpid gettid
 ```
 
 -- and every other call of systemd's `@known` is logged, so the report
-shows every call the session made. The proposal still holds only what the
-tier's filter does not allow. Calls outside `@known` stay `ENOSYS`, unlogged.
+shows every call the session made, each the grant allows already said as
+the grant's and each the tier allows as the tier's. The proposal still holds
+only what neither allows: it widens, and does not yet narrow -- a call the
+tier allows that the session never made is not proposed for `deny`. Calls
+outside `@known` stay `ENOSYS`, unlogged.
 
 Reading the audit takes a user who may read the system journal: one in
 `systemd-journal` (or `wheel`). The kernel's audit backlog can still
@@ -166,7 +190,9 @@ of its list -- on a line of its own where the list is on many, inline where
 it is on one -- with its note; one already in its list is left, and one in
 another of the same lists is moved, since a name in two lists is refused.
 What comes out must be a grant chase reads, or nothing is written. Applying
-twice adds nothing.
+twice adds nothing. The session could write `chase.jsonc`, so it is read as
+approve takes it: a plain file of at most 1 MiB, never through a link or
+from a pipe. Once the session ends, `^C` stops `chase record` itself.
 
 ## Setting it up
 

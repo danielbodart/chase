@@ -60,7 +60,11 @@ func execute(ctx context.Context, s session.Config, e *Config, registry map[stri
 	}
 	if e != nil {
 		given.Project = sessionProject(ctx, *e, tier, ws, given)
-		if t, ok := s.Tiers[tier]; ok && t.Forward && given.Project != "" {
+		// A recording session has no network of flong's, whatever the
+		// tier's -- frisket's "all" set takes every connection -- so no
+		// ports to publish: flong refuses a forward with no network to
+		// forward from.
+		if t, ok := s.Tiers[tier]; ok && t.Forward && rec == nil && given.Project != "" {
 			if p, err := dockerproject.Of(given.Project); err == nil {
 				given.Forward = p.Address
 			}

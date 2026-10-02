@@ -106,7 +106,17 @@ var Hot = []string{
 // a project's deny is its own word, and a recording that let it through
 // would propose to allow what the grant refuses. From scratch, the lines
 // apply to no names but Hot and the grant's own allow (`base none`).
+//
+// A recording that refuses everything learns nothing of syscalls: its
+// answer is what happens now, and a call the filter refuses is refused
+// already, so the filter is left as the tier and the grant have it, and
+// nothing it refuses is let through to be proposed as the deny it already
+// is. Nor is it from scratch, which with nothing logged would refuse every
+// call but Hot.
 func (r Recording) learning(res Result) Result {
+	if r.Default == "refuse" {
+		return res
+	}
 	if r.Base == "none" {
 		res.Base = "none"
 		res.Allow = append(slices.Clone(Hot), slices.DeleteFunc(slices.Clone(res.Allow), func(n string) bool { return slices.Contains(Hot, n) })...)
