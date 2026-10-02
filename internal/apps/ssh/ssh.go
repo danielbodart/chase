@@ -28,8 +28,14 @@ type Config struct {
 	// apps.ssh.enable -- by name. A tier not here has none: a binding in it
 	// is said, and adds nothing.
 	Tiers map[string]Tier `json:"tiers"`
-	// Catalogue is apps/ssh/operations.json in the store, read at launch.
+	// Catalogue is apps/ssh/operations.json in the store, read at launch:
+	// the Linux catalogue, which decides every machine that names none of
+	// Catalogues.
 	Catalogue string `json:"catalogue"`
+	// Catalogues are chase.apps.ssh.catalogues, each in the store, by the
+	// name a tier's machine's catalogue names it by: a device's own
+	// commands, in place of Linux's. A grant's machine names none.
+	Catalogues map[string]string `json:"catalogues,omitempty"`
 	// Agent is chase.apps.ssh.agentSocket and KeyFile chase.apps.ssh.keyFile,
 	// what frisket logs in to every machine with: exactly one, which the
 	// module asserts. Identity is the one key of the agent's to offer.
@@ -128,7 +134,7 @@ func (c Config) CheckBinding(tier string, b Binding) error {
 // for the credential it logs in with, which is the machine's. None is one
 // of the tier's own.
 func (c Config) routes(name string, b Binding) ([]policy.SSHRoute, error) {
-	routes, err := c.hostRoutes(name, "apps.ssh", b.Hosts)
+	routes, err := c.hostRoutes(name, "apps.ssh", b.Hosts, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -140,8 +146,10 @@ func (c Config) routes(name string, b Binding) ([]policy.SSHRoute, error) {
 
 // hostRoutes are hosts, which at names, in name order, each an SSH route
 // decided as tier name says but for the credential it logs in with: a
-// grant's machines and the tier's own alike.
-func (c Config) hostRoutes(name, at string, hosts map[string]Host) ([]policy.SSHRoute, error) {
+// grant's machines and the tier's own alike. catalogues are the names of
+// the catalogues the tier's own machines are decided by, by host; a
+// grant's have none, and are decided by the Linux catalogue.
+func (c Config) hostRoutes(name, at string, hosts map[string]Host, catalogues map[string]string) ([]policy.SSHRoute, error) {
 	tier := c.Tiers[name]
 	for _, s := range []struct{ field, answer string }{{"writes", tier.Writes}, {"guarded", tier.Guarded}, {"unmatched", tier.Unmatched}} {
 		if !slices.Contains(answers, s.answer) {
@@ -156,13 +164,18 @@ func (c Config) hostRoutes(name, at string, hosts map[string]Host) ([]policy.SSH
 	if err := (Binding{Hosts: hosts}).Check(at); err != nil {
 		return nil, err
 	}
-	ops, err := LoadCatalogue(c.Catalogue)
-	if err != nil {
-		return nil, err
-	}
+	loaded := map[string][]Operation{}
 	var routes []policy.SSHRoute
 	for _, host := range slices.Sorted(maps.Keys(hosts)) {
 		h := hosts[host]
+		named := catalogues[host]
+		if named != "" && !idPattern.MatchString(named) {
+			return nil, fmt.Errorf("%s.hosts.%s.catalogue: %q is not a catalogue's name, as chase.apps.ssh.catalogues has it: kebab-case, never a path", at, host, named)
+		}
+		ops, err := c.catalogue(named, loaded)
+		if err != nil {
+			return nil, fmt.Errorf("%s.hosts.%s.catalogue: %v", at, host, err)
+		}
 		exec, unmatched, err := rules(ops, tier, h)
 		if err != nil {
 			return nil, fmt.Errorf("%s.hosts.%s: %v", at, host, err)
@@ -191,6 +204,35 @@ func (c Config) hostRoutes(name, at string, hosts map[string]Host) ([]policy.SSH
 		routes = append(routes, r)
 	}
 	return routes, nil
+}
+
+// catalogue is the operations a machine is decided by: Linux's where it
+// names no catalogue, or else the one of the machine's Catalogues it names,
+// whose rules are the only ones there -- its secrets too, since the Linux
+// catalogue's paths are no device's. Each is read and checked once for
+// all the machines that name it, in loaded.
+func (c Config) catalogue(name string, loaded map[string][]Operation) ([]Operation, error) {
+	path, categories := c.Catalogue, linuxCategories
+	if name != "" {
+		p, ok := c.Catalogues[name]
+		if !ok {
+			offered := "none"
+			if len(c.Catalogues) > 0 {
+				offered = strings.Join(slices.Sorted(maps.Keys(c.Catalogues)), ", ")
+			}
+			return nil, fmt.Errorf("%q is no catalogue chase.apps.ssh.catalogues offers: it offers %s", name, offered)
+		}
+		path, categories = p, nil
+	}
+	if ops, ok := loaded[name]; ok {
+		return ops, nil
+	}
+	ops, err := LoadCatalogue(path, categories)
+	if err != nil {
+		return nil, err
+	}
+	loaded[name] = ops
+	return ops, nil
 }
 
 func credentialsSaid(c Config) string {

@@ -90,6 +90,9 @@ What the module runs, rather than a person:
   chase codex-refresh              systemd: keep Codex's login fresh
   chase codex-placeholder          activation: Codex's placeholder login
   chase gcloud-renew mint|loop RUN a session's Google Cloud token
+  chase ssh-check                  the system's build: its SSH catalogues
+                                   and each tier's own machines, as a
+                                   launch would check them
 
 Every command that needs the module's configuration reads
 /etc/chase/config.json, or the file given before the command as
@@ -163,6 +166,8 @@ func main() {
 			break
 		}
 		exit(gcloud.Run(ctx, args, os.Getenv, os.Stderr, cfg.GCloudRenew))
+	case "ssh-check":
+		err = runSSHCheck(cfgPath)
 	case "version":
 		fmt.Println(version)
 	case "-h", "--help", "help":
@@ -178,6 +183,19 @@ func main() {
 		fmt.Fprintf(os.Stderr, "chase %s: %v\n", command, err)
 		os.Exit(1)
 	}
+}
+
+// runSSHCheck is what every launch would refuse of the machine's own SSH
+// (apps/ssh.nix's system.checks): nothing, for a machine with none.
+func runSSHCheck(cfgPath string) error {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+	if cfg.Grant == nil || cfg.Grant.SSH == nil {
+		return nil
+	}
+	return cfg.Grant.SSH.Check()
 }
 
 // exit ends the process with a command's own status, which it has already

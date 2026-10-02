@@ -40,22 +40,27 @@ type Operation struct {
 	Description string `json:"description,omitempty"`
 }
 
-// The catalogue's classes, as every app's (lib/operations.nix), and its
-// categories, a closed list so that a grant's category:<name> is a name
-// the catalogue has rather than one misspelt.
+// The catalogue's classes, as every app's (lib/operations.nix), and the
+// Linux catalogue's categories, a closed list so that a grant's
+// category:<name> is a name the catalogue has rather than one misspelt. A
+// machine's own catalogue (chase.apps.ssh.catalogues) has topics of its
+// own -- a modem's are its WAN, its DSL line, its Wi-Fi -- each a
+// kebab-case name, which a grant's category:<name> is held to all the same.
 var (
-	classes    = []string{"read", "write", "guarded"}
-	categories = []string{"navigate", "read", "search", "status", "processes", "logs", "services", "network", "packages", "containers", "files", "admin", "secrets"}
+	classes         = []string{"read", "write", "guarded"}
+	linuxCategories = []string{"navigate", "read", "search", "status", "processes", "logs", "services", "network", "packages", "containers", "files", "admin", "secrets"}
 )
 
 // idPattern is an operation's id: kebab-case, so that it is never a
 // command pattern, which a grant tells apart by a space or a `*`.
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 
-// LoadCatalogue reads the catalogue strictly and checks it whole: a
+// LoadCatalogue reads a catalogue strictly and checks it whole: a
 // misspelt key is an operation that silently does nothing, and a pattern
-// or glob frisket would refuse is a session that does not start.
-func LoadCatalogue(path string) ([]Operation, error) {
+// or glob frisket would refuse is a session that does not start. Its
+// categories are of the closed list given, or, given none, any kebab-case
+// name: the Linux catalogue's are the first, a machine's own the second.
+func LoadCatalogue(path string, categories []string) ([]Operation, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -64,7 +69,7 @@ func LoadCatalogue(path string) ([]Operation, error) {
 	if err := policy.Decode(b, &ops); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	if err := CheckCatalogue(ops); err != nil {
+	if err := CheckCatalogue(ops, categories); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return ops, nil
@@ -73,8 +78,9 @@ func LoadCatalogue(path string) ([]Operation, error) {
 // CheckCatalogue is what the catalogue must be for every rule made of it to
 // be one frisket loads, and for a grant's names to mean one thing each:
 // each id once, each command pattern in one operation, each arg glob once
-// for each command it tightens.
-func CheckCatalogue(ops []Operation) error {
+// for each command it tightens, and each category one of categories, or,
+// where that is nil, a kebab-case name.
+func CheckCatalogue(ops []Operation, categories []string) error {
 	ids := map[string]bool{}
 	commands := map[string]string{}
 	args := map[string]string{}
@@ -89,8 +95,10 @@ func CheckCatalogue(ops []Operation) error {
 			return fmt.Errorf("%s: no summary", at)
 		case !slices.Contains(classes, o.Class):
 			return fmt.Errorf("%s: class %q is not one of %s", at, o.Class, strings.Join(classes, ", "))
-		case !slices.Contains(categories, o.Category):
+		case categories != nil && !slices.Contains(categories, o.Category):
 			return fmt.Errorf("%s: category %q is not one of %s", at, o.Category, strings.Join(categories, ", "))
+		case categories == nil && !idPattern.MatchString(o.Category):
+			return fmt.Errorf("%s: category %q is not kebab-case", at, o.Category)
 		case len(o.Commands) == 0 && len(o.Args) == 0:
 			return fmt.Errorf("%s: no commands and no args", at)
 		case len(o.Args) > 0 && o.Class == "read":

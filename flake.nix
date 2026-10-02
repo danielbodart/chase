@@ -674,6 +674,34 @@
               { chase.tiers.trusted.apps.ssh = { enable = true; hosts.M = { address = "10.0.0.9"; user = "u"; hostKeys = [ "k" ]; }; }; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; } "'M' is not a host's name";
             assert refused "a tier machine logging in with the machine's credential, which it has not"
               { chase.tiers.strict.apps.ssh = { enable = true; hosts.m = { address = "10.0.0.9"; user = "u"; hostKeys = [ "k" ]; }; }; } "a tier's that names none of its own";
+            # A MACHINE'S OWN CATALOGUE: a name the machine offers, each in
+            # the store, and the machine's build checks every one, and every
+            # tier's own machines, as a launch would.
+            assert
+              (let
+                key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHp6lanvRi86XJnpME3lUbtyAWnykpE7SwLQXBzaXa/F";
+                config = configWith {
+                  chase.apps.ssh.catalogues.zyxel = ./apps/ssh/operations.json;
+                  chase.tiers.strict.apps.ssh = {
+                    enable = true;
+                    hosts.modem = { address = "192.168.1.1"; user = "admin"; hostKeys = [ key ]; passwordFile = "/run/secrets/modem-password"; shell = true; catalogue = "zyxel"; expect."cat /etc/passwd" = "allow"; };
+                  };
+                };
+                c = config.chase.internal.config;
+                failed = map (a: a.message) (lib.filter (a: ! a.assertion) config.assertions);
+              in
+              failed == [ ]
+              && c.grant.ssh.tiers.strict.hosts.modem.catalogue == "zyxel"
+              && c.grant.ssh.tiers.strict.hosts.modem.expect == { "cat /etc/passwd" = "allow"; }
+              && lib.hasPrefix "${builtins.storeDir}/" c.grant.ssh.catalogues.zyxel
+              && lib.any (d: lib.getName d == "chase-ssh-check") config.system.checks)
+              || throw "assertions: a machine's own catalogue did not hold together";
+            assert refused "a tier machine naming a catalogue the machine does not offer"
+              { chase.apps.ssh.catalogues.draytek = ./apps/ssh/operations.json; chase.tiers.trusted.apps.ssh = { enable = true; hosts.m = { address = "10.0.0.9"; user = "u"; hostKeys = [ "k" ]; catalogue = "zyxel"; }; }; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; } "hosts.m.catalogue is 'zyxel', which is no catalogue chase.apps.ssh.catalogues offers: it offers draytek";
+            assert refused "a catalogue named as no machine could name it"
+              { chase.apps.ssh.catalogues.Zyxel = ./apps/ssh/operations.json; chase.tiers.trusted.apps.ssh.enable = true; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; } "chase.apps.ssh.catalogues.Zyxel: a catalogue is named in kebab-case";
+            assert refused "a catalogue outside the store"
+              { chase.apps.ssh.catalogues.zyxel = "/home/alice/zyxel.json"; chase.tiers.trusted.apps.ssh.enable = true; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; } "is a file in the store";
             # A CLASS IS ANSWERED AS THE TIER AND THE APP SAY (PLAN.md,
             # decision 18). By default a read is allowed, a write asks and a
             # guarded operation is refused; the tier's settings are every

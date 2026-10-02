@@ -13,8 +13,10 @@ forwarding. See frisket's docs/ssh.md for the route itself.
 | `agentSocket` | `null` | Your ssh-agent's socket, e.g. gcr's `/run/user/1000/gcr/ssh`. Not under `/tmp`: the frisket daemon has a `/tmp` of its own. |
 | `keyFile` | `null` | An unencrypted private key, in place of an agent. Exactly one of the two. |
 | `identity` | `null` | The one agent key to offer, `SHA256:…` as `ssh-keygen -l` prints it. |
+| `catalogues` | `{ }` | Catalogues of a device's own commands, by name: see [A machine's own catalogue](#a-machines-own-catalogue). |
 
-Each is a string, never a Nix path, which would copy a key into the store.
+Each credential is a string, never a Nix path, which would copy a key into
+the store. A catalogue is a Nix path, which does.
 
 | `chase.tiers.<name>.apps.ssh.…` | Default | |
 |---|---|---|
@@ -56,10 +58,11 @@ A tier can name machines of its own, which are in every session of it,
 whatever the checkout's grant says, and need no grant at all: a tier with
 `hosts` and `grants = false` is launched for them, and never reads a
 checkout's `chase.jsonc`. Each takes what a grant's host does --
-`address`, `user`, `hostKeys`, `allow`, `ask`, `refuse`, `unmatched` -- held
-to the same checks, when the system is built and again at every launch, and
-decided the same way, by the catalogue, the tier's answers and its own
-lists. And what it logs in with, which a grant never names:
+`address`, `user`, `hostKeys`, `allow`, `ask`, `refuse`, `unmatched` --
+held to the same checks, when the system is built and again at every
+launch, and decided the same way, by its catalogue, the tier's answers and
+its own lists. And what a grant never names: what it logs in with, and the
+catalogue it is decided by:
 
 | `chase.tiers.<name>.apps.ssh.hosts.<host>.…` | Default | |
 |---|---|---|
@@ -68,6 +71,8 @@ lists. And what it logs in with, which a grant never names:
 | `passwordFile` | `null` | A file holding the password, for a machine that takes no key: a sops-nix secret's path, say. |
 | `identity` | `null` | The one key of its own `agent` to offer. |
 | `shell` | `false` | For a device whose shell ignores the command an exec carries: see below. |
+| `catalogue` | `null` | One of `chase.apps.ssh.catalogues`, by its name: see [A machine's own catalogue](#a-machines-own-catalogue). |
+| `expect` | `{ }` | What its commands must be answered, by command -- `{ "sys atcr" = "refuse"; }` -- checked when the system is built: a catalogue edit that changes one fails the build. |
 
 At most one of `agent`, `keyFile` and `passwordFile`; naming none, it logs in
 with `chase.apps.ssh`'s, which is then needed. Each is a string, never a Nix
@@ -106,10 +111,47 @@ grammar of -- the tier's `env` is not taken off it, and none of its stdin is
 sent. Anything else is refused there, whatever `unmatched` says, and never
 asked about: it would be typed into the device byte for byte, where a
 carriage return in it types a second command the person asked could not
-see. A command the catalogue reads on Linux -- `uptime`, `ls` -- is decided
-there as it would be on Linux; the device's own commands are mostly no
-catalogue's, so they are `unmatched`, and asked about unless its lists say
-otherwise: `allow = [ "xdslctl info **" ]`.
+see. Decided by the Linux catalogue, a command it reads on Linux --
+`uptime`, `ls` -- is decided there as it would be on Linux, and the device's
+own commands are no catalogue's, so they are `unmatched`, and asked about
+unless its lists say otherwise: `allow = [ "xdslctl info **" ]`. A device
+is better named a catalogue of its own.
+
+## A machine's own catalogue
+
+A tier's machine whose commands are no Linux machine's -- a modem's CLI, a
+switch's -- names a catalogue of its own by `catalogue`, which decides it in
+place of the Linux one: its operations alone, read, write and guarded,
+answered as the tier says, its own arg operations its only secrets, and
+anything it does not name `unmatched`, `cat /etc/passwd` and `uptime` too.
+The machine offers each by a name, which a tier's machine names it by. A
+grant's machine names none, and a grant that does is refused as it is read:
+one naming a device's catalogue for a Linux machine would take every Linux
+secret, write and guarded rule off it -- `cat ~/.ssh/id_ed25519` and
+`rm -rf ~` with them -- on one line its approver would have to know the
+meaning of. A machine naming none is decided by the Linux catalogue.
+
+```nix
+chase.apps.ssh.catalogues.zyxel-vmg4005 = ./zyxel-vmg4005.json;
+chase.tiers.ops.apps.ssh.hosts.modem = {
+  # address, user, hostKeys, passwordFile and shell as above
+  catalogue = "zyxel-vmg4005";
+};
+```
+
+A catalogue is a JSON list of operations in the shape of
+[apps/ssh/operations.json](../../apps/ssh/operations.json) -- `id`,
+`summary`, `class`, `category`, `commands` and/or `args`, `description` --
+held to every check the Linux one is: each id once and kebab-case, each
+pattern and glob one frisket loads. Its categories are its own topics, kebab-case -- `wan`, `dsl`,
+`wifi` -- which its machine's lists name as `category:<name>`, and the
+Linux catalogue's are not there: a machine's lists name the operations and
+categories of its own catalogue. Each is copied into the store, and checked
+with every tier's own machines when the system is built, by the binary that
+launches them (`chase ssh-check`, a `system.checks` derivation), so a
+catalogue that would not load fails the build rather than a session; and
+again at every launch and approval, by the store's copy the system was built
+with.
 
 ## Commands
 

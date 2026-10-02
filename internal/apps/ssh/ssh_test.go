@@ -601,7 +601,7 @@ func TestTheCatalogueAnswersCommandsAsTheirClassesSay(t *testing.T) {
 // tier that refuses what is guarded.
 func TestASecretNamedAnywhereIsRefused(t *testing.T) {
 	r := route(t, config(), "")
-	ops, err := LoadCatalogue(catalogue)
+	ops, err := LoadCatalogue(catalogue, linuxCategories)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -656,7 +656,7 @@ func TestASecretNamedAnywhereIsRefused(t *testing.T) {
 // or reserved another would otherwise leave every test here green and the
 // secrets unrefused.
 func TestTheMatcherTheTestsUseDecidesAsTheFrisketSessionsRun(t *testing.T) {
-	ops, err := LoadCatalogue(catalogue)
+	ops, err := LoadCatalogue(catalogue, linuxCategories)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -726,7 +726,7 @@ func TestFrisketLoadsTheCatalogueAsEveryTierAnswersIt(t *testing.T) {
 
 // The catalogue is what CheckCatalogue holds it to, and has every class.
 func TestTheCatalogueIsWellFormed(t *testing.T) {
-	ops, err := LoadCatalogue(catalogue)
+	ops, err := LoadCatalogue(catalogue, linuxCategories)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -777,12 +777,12 @@ func TestACatalogueThatCouldNotBeLoadedIsRefused(t *testing.T) {
 		{"a glob of stars", []Operation{{ID: "a", Summary: "s", Class: "guarded", Category: "read", Args: []string{"*"}}}, "every word"},
 		{"a glob no readable word holds", []Operation{{ID: "a", Summary: "s", Class: "guarded", Category: "read", Args: []string{"x!"}}}, "printable ASCII"},
 	} {
-		err := CheckCatalogue(tc.ops)
+		err := CheckCatalogue(tc.ops, linuxCategories)
 		if err == nil || !strings.Contains(err.Error(), tc.said) {
 			t.Errorf("%s: %v", tc.name, err)
 		}
 	}
-	if err := CheckCatalogue([]Operation{ok}); err != nil {
+	if err := CheckCatalogue([]Operation{ok}, linuxCategories); err != nil {
 		t.Errorf("one operation was refused: %v", err)
 	}
 }

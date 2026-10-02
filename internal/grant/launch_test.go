@@ -456,6 +456,9 @@ func TestSSHIsLaunchedAsTheGrantNamesIt(t *testing.T) {
 	for _, tc := range []struct{ grant, said string }{
 		{`{"allow": ["restart-everything"]}`, `apps.ssh.hosts.server: "restart-everything" is no operation of the catalogue's`},
 		{`{"allow": ["systemctl restart *"]}`, `is as literal as the catalogue's "systemctl restart **" (service-restart)`},
+		// Nor does a grant name a catalogue: its machine is the Linux
+		// catalogue's, whose secrets a device's would take off it.
+		{`{"catalogue": "zyxel-vmg4005", "unmatched": "allow"}`, `unknown field "catalogue"`},
 	} {
 		if h.approve(ws, "m4", "trusted", ops(tc.grant)) == 0 {
 			t.Errorf("%s was approved", tc.grant)

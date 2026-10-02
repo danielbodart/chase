@@ -1,4 +1,4 @@
-{ config, lib, ... }:
+{ config, lib, pkgs, ... }:
 
 # SSH through frisket (docs/apps/ssh.md): commands on the machines a
 # project's grant names, each an SSH route frisket terminates, logging in
@@ -9,7 +9,9 @@
 # signed by, in /etc/frisket; what is here points ssh at them. The
 # machines are a project's grant's to name and a person's to approve, or
 # the tier's own (`hosts`), in every session of it, each logging in with
-# its own credential or the machine's.
+# its own credential or the machine's. A machine that is no Linux machine --
+# a modem's CLI -- names a catalogue of its own the machine offers
+# (`catalogues`), which decides it in place of Linux's.
 
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
@@ -39,9 +41,17 @@ let
 
   # A tier's machine as internal/apps/ssh reads it: what it leaves out is
   # the default there.
-  hostConfig = h: lib.filterAttrs (n: v: v != null && v != [ ] && v != false) {
-    inherit (h) address user hostKeys allow ask refuse unmatched shell agent keyFile passwordFile identity;
+  hostConfig = h: lib.filterAttrs (n: v: v != null && v != [ ] && v != false && v != { }) {
+    inherit (h) address user hostKeys allow ask refuse unmatched shell catalogue expect agent keyFile passwordFile identity;
   };
+
+  # A catalogue's name, as a tier's machine names one: kebab-case, never a
+  # path. A grant's machine names none, and is decided by the Linux one.
+  catalogueName = "[a-z][a-z0-9]*(-[a-z0-9]+)*";
+  # Each in the store, the one the system was built with and checked
+  # against (system.checks, below), never a file a launch reads as it is
+  # then.
+  catalogues = lib.mapAttrs (_: p: "${p}") machine.catalogues;
 
   answer = types.enum [ "allow" "ask" "refuse" ];
   fingerprint = types.strMatching "SHA256:[A-Za-z0-9+/]{43}";
@@ -73,6 +83,33 @@ let
         type = types.nullOr answer;
         default = null;
         description = "What a command no rule matches is answered with, in place of the tier's `unmatched`.";
+      };
+      catalogue = mkOption {
+        type = types.nullOr (types.strMatching catalogueName);
+        default = null;
+        example = "zyxel-vmg4005";
+        description = ''
+          The catalogue this machine's commands are decided by, by its name
+          in `chase.apps.ssh.catalogues`, in place of the Linux one: its
+          operations, its secrets and its topics alone, answered as the
+          tier says. For a device whose CLI is no Linux shell, where `cat`
+          and `uptime` are no command of its own. The tier's alone: a
+          grant's machine names none, since one naming a device's catalogue
+          for a Linux machine would take every Linux secret, write and
+          guarded rule off it.
+        '';
+      };
+      expect = mkOption {
+        type = types.attrsOf (types.enum [ "allow" "ask" "refuse" ]);
+        default = { };
+        example = { "cat /etc/passwd" = "ask"; "sys atcr" = "refuse"; };
+        description = ''
+          What this machine's commands must be answered, by command,
+          checked when the system is built: its catalogue's and the tier's
+          answers pinned where they matter, so that an edit changing one
+          fails the build rather than reaching a session. Every command
+          answered otherwise is said together.
+        '';
       };
       shell = mkOption {
         type = types.bool;
@@ -116,6 +153,20 @@ let
 in
 {
   options.chase.apps.ssh = {
+    catalogues = mkOption {
+      type = types.attrsOf types.path;
+      default = { };
+      example = lib.literalExpression "{ zyxel-vmg4005 = ./zyxel-vmg4005.json; }";
+      description = ''
+        Catalogues of a device's own commands, by the name a tier's
+        machine's `catalogue` names each by; a grant's machine names none,
+        and is decided by the Linux catalogue. Each is a list of
+        operations in the shape of chase's apps/ssh/operations.json, its
+        categories its own, kebab-case, held to the checks the Linux one
+        is when the system is built and at every launch. Copied into the
+        store.
+      '';
+    };
     agentSocket = mkOption {
       type = types.nullOr types.str;
       default = null;
@@ -238,6 +289,10 @@ in
         assertion = m.identity == null || m.agent != null;
         message = "${at}.identity names a key of the host's own agent, and it names no agent.";
       }
+      {
+        assertion = m.catalogue == null || machine.catalogues ? ${m.catalogue};
+        message = "${at}.catalogue is '${toString m.catalogue}', which is no catalogue chase.apps.ssh.catalogues offers: it offers ${if machine.catalogues == { } then "none" else lib.concatStringsSep ", " (lib.attrNames machine.catalogues)}.";
+      }
     ] ++ lib.mapAttrsToList (n: p: {
       assertion = pathProblem p == null;
       message = "${at}.${n} is '${p}', which ${toString (pathProblem p)}.";
@@ -246,6 +301,10 @@ in
       assertion = tier.apps.ssh.enable;
       message = "chase.tiers.${name}.apps.ssh.hosts names machines, and apps.ssh is not enabled.";
     }) cfg.tiers)
+    ++ lib.mapAttrsToList (n: p: {
+      assertion = builtins.match catalogueName n != null && lib.hasPrefix "${builtins.storeDir}/" p;
+      message = "chase.apps.ssh.catalogues.${n}: a catalogue is named in kebab-case, as a machine's `catalogue` names it, and is a file in the store, as a Nix path is: '${p}'.";
+    }) catalogues
     ++ lib.optionals wanted ([
       {
         assertion = lib.length (lib.attrNames credentials) <= 1;
@@ -280,6 +339,15 @@ in
       '';
     })) cfg.tiers;
 
+    # What a launch would refuse of the machine's own -- each catalogue,
+    # the Linux one too, and each tier's machines -- refused by the
+    # system's build instead, by the binary that launches it, rather than
+    # by a session that does not start.
+    system.checks = lib.optional (enabled != { }) (pkgs.runCommand "chase-ssh-check" { } ''
+      ${lib.getExe cfg.package} -config ${config.environment.etc."chase/config.json".source} ssh-check
+      touch $out
+    '');
+
     # Made at launch, from each machine the grant names (internal/apps/ssh).
     chase.internal.projectApps = mkIf (enabled != { }) { ssh.credential = false; };
     # A tier with machines of its own and no grant is still launched as one
@@ -290,7 +358,8 @@ in
         tiers = lib.mapAttrs (_: tier: ops.answers tier.apps.ssh // { inherit (tier.apps.ssh) env; }
           // lib.optionalAttrs (tier.apps.ssh.hosts != { }) { hosts = lib.mapAttrs (_: hostConfig) tier.apps.ssh.hosts; }) enabled;
         catalogue = "${./ssh/operations.json}";
-      } // lib.optionalAttrs (machine.agentSocket != null) { agent = machine.agentSocket; }
+      } // lib.optionalAttrs (catalogues != { }) { inherit catalogues; }
+      // lib.optionalAttrs (machine.agentSocket != null) { agent = machine.agentSocket; }
       // lib.optionalAttrs (machine.keyFile != null) { inherit (machine) keyFile; }
       // lib.optionalAttrs (machine.identity != null) { inherit (machine) identity; };
     };
