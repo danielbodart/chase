@@ -83,7 +83,11 @@ func Exec(ctx context.Context, s session.Config, e *Config, registry map[string]
 //     them;
 //   - ~/.local/state/agents/cloudflare, where each tier's copy of the
 //     Cloudflare account id was made to be bound in, which is read on the
-//     host at each launch now.
+//     host at each launch now;
+//   - ~/.local/state/agents itself, once it is empty: codex's homes, the
+//     one thing of chase's kept there that is still wanted, are moved to
+//     ~/.local/state/chase/codex by codex (internal/apps/codex), and
+//     whatever else is there is the user's.
 //
 // Removing a directory that is not there is nothing, so it is done at
 // every launch rather than tracked. What cannot be removed is said, and
@@ -97,11 +101,14 @@ func forget(s session.Config, e *Config, stderr io.Writer) {
 	if e != nil {
 		state = e.state()
 	}
-	for _, dir := range []string{state + "/env", s.Home + "/.local/state/agents/cloudflare"} {
+	agents := s.Home + "/.local/state/agents"
+	for _, dir := range []string{state + "/env", agents + "/cloudflare"} {
 		if err := os.RemoveAll(dir); err != nil {
 			term.Say(stderr, "%s is left from an earlier chase, and could not be removed: %v", dir, err)
 		}
 	}
+	// Removes only an empty directory, and says nothing of one that is not.
+	os.Remove(agents)
 }
 
 // sessionProject is the project the session is of: the approved Docker

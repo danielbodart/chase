@@ -92,7 +92,7 @@ func newFixture(t *testing.T) fixture {
 			"strict": {
 				Claude: &Claude{Scope: "workspace", Settings: f.settings},
 				Codex:  &Codex{Scope: "workspace", Placeholder: "/x"},
-				Stores: map[string]Store{"codex": {Scope: "workspace", Root: filepath.Join(f.home, ".local/state/agents/codex"), Env: map[string]string{"CODEX_HOME": ""}}},
+				Stores: map[string]Store{"codex": {Scope: "workspace", Root: filepath.Join(f.home, ".local/state/chase/codex"), Env: map[string]string{"CODEX_HOME": ""}}},
 			},
 			"plain": {},
 		},
@@ -145,12 +145,12 @@ func TestClaudeIsRunWithTheTiersSettingsAndItsWritableBinds(t *testing.T) {
 		"/home/alice/Projects/api:rw",
 		"/home/alice/Projects/docs:ro",
 		f.home + "/.claude/projects/-w-shop:rw",
-		f.home + "/.local/state/agents/codex/-w-shop:rw",
+		f.home + "/.local/state/chase/codex/-w-shop:rw",
 		"/home/alice/Projects/web:rw",
 	}, "\n")
 	p, said := f.run(t, "trusted", "/w/shop", binds, Given{}, "claude", "--resume", "a b")
 	settings := []string{"--settings", "/nix/store/0000-claude-trusted-settings.json", "--allow-dangerously-skip-permissions"}
-	dirs := []string{"--add-dir", "/home/alice/Projects/api", "--add-dir", f.home + "/.local/state/agents/codex/-w-shop", "--add-dir", "/home/alice/Projects/web"}
+	dirs := []string{"--add-dir", "/home/alice/Projects/api", "--add-dir", f.home + "/.local/state/chase/codex/-w-shop", "--add-dir", "/home/alice/Projects/web"}
 	want := slices.Concat([]string{"claude"}, dirs, settings, []string{"--resume", "a b"})
 	if !slices.Equal(p.argv, want) {
 		t.Errorf("argv is %q, not %q", p.argv, want)
@@ -215,7 +215,7 @@ func TestAWorkspacesClaudeTrustsItsWorkspaceWhereTheTierSays(t *testing.T) {
 func TestCodexIsTrustedInItsWorkspace(t *testing.T) {
 	f := newFixture(t)
 	ws := `/w/a "b" \c`
-	home := filepath.Join(f.home, ".local/state/agents/codex", "strict", Munge(ws))
+	home := filepath.Join(f.home, ".local/state/chase/codex", "strict", Munge(ws))
 	p, _ := f.run(t, "strict", ws, "", Given{}, "codex")
 	if slices.ContainsFunc(p.argv, func(a string) bool { return strings.Contains(a, "trust_level") }) {
 		t.Errorf("a tier that does not trust told codex to: %q", p.argv)

@@ -1,6 +1,7 @@
 package files
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -81,4 +82,71 @@ func TestLockIsExclusive(t *testing.T) {
 	}
 	unlock()
 	<-got
+}
+
+// A directory chase keeps elsewhere now is moved there once, whole, and
+// asking again finds nothing to move.
+func TestMoveDirMovesTheDirectoryOnce(t *testing.T) {
+	home := t.TempDir()
+	from, to := filepath.Join(home, "agents", "codex"), filepath.Join(home, "chase", "codex")
+	if err := os.MkdirAll(filepath.Join(from, "strict"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(from, "strict", "auth.json"), []byte("login"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if moved, err := MoveDir(from, to); !moved || err != nil {
+		t.Fatalf("not moved: %v %v", moved, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(to, "strict", "auth.json")); err != nil || string(b) != "login" {
+		t.Errorf("what was kept is not at the new place: %q %v", b, err)
+	}
+	if _, err := os.Lstat(from); !os.IsNotExist(err) {
+		t.Errorf("the old place is still there: %v", err)
+	}
+	if moved, err := MoveDir(from, to); moved || err != nil {
+		t.Errorf("a second move did something: %v %v", moved, err)
+	}
+}
+
+// Something at both places is left as it is, both of them: neither is
+// merged into the other, and neither is removed -- not even an empty one.
+func TestMoveDirLeavesBothWhereBothExist(t *testing.T) {
+	home := t.TempDir()
+	from, to := filepath.Join(home, "agents", "codex"), filepath.Join(home, "chase", "codex")
+	for _, d := range []string{from, to} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(from, "kept"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := MoveDir(from, to)
+	if moved || !errors.Is(err, ErrBothExist) {
+		t.Fatalf("both were not left: %v %v", moved, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(from, "kept")); string(b) != "old" {
+		t.Errorf("the old place was changed: %q", b)
+	}
+	if entries, _ := os.ReadDir(to); len(entries) != 0 {
+		t.Errorf("something was merged into the new place: %v", entries)
+	}
+}
+
+func TestMoveDirMovesNothingThatIsNotADirectory(t *testing.T) {
+	home := t.TempDir()
+	from, to := filepath.Join(home, "codex"), filepath.Join(home, "chase", "codex")
+	if err := os.Symlink(home, from); err != nil {
+		t.Fatal(err)
+	}
+	if moved, err := MoveDir(from, to); moved || err == nil {
+		t.Errorf("a link was moved: %v %v", moved, err)
+	}
+	if moved, err := MoveDir(filepath.Join(home, "absent"), to); moved || err != nil {
+		t.Errorf("nothing was something: %v %v", moved, err)
+	}
+	if _, err := os.Lstat(to); !os.IsNotExist(err) {
+		t.Errorf("the new place was made: %v", err)
+	}
 }

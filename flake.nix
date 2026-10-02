@@ -64,12 +64,13 @@
         # Excluded, not subPackages, so every package's tests still run here.
         excludedPackages = [ "cmd/chase-generate" ];
 
-        # Pinned rather than null, because there is a dependency: frisket's
+        # Pinned rather than null, because there are dependencies: frisket's
         # public packages, the address and names a project is known by and the
         # policy document's types, so chase builds what frisket reads with
-        # frisket's own code. The frisket-pin check holds go.mod's frisket to
-        # the one flake.lock pins.
-        vendorHash = "sha256-7J/fjRh+BOX7OPCqWOkgYyafNdKEjxNt2lkXXWWbgYo=";
+        # frisket's own code; and golang.org/x/crypto's ssh, which reads an SSH
+        # grant's host keys as frisket does. The frisket-pin check holds
+        # go.mod's frisket to the one flake.lock pins.
+        vendorHash = "sha256-NBjuvLHx8zpHzm9A5Iy1XdQIHWMJ0YgV2wkdeNmeKcM=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -81,12 +82,13 @@
         # every VM test and every check that runs the binary waits on this
         # derivation, and buildGoModule's checkPhase tests one package after
         # another. What they need stays here for the checks that turn them
-        # on: real git for the checkouts they build, protoc for the gcloud
+        # on: real git for the checkouts they build, sqlite3 for the codex
+        # thread indexes a move repoints, protoc for the gcloud
         # generator's fixtures, and frisket's `check` for the documents chase
         # writes, required rather than skipped. With doCheck off, none of it
         # is an input of the binary.
         doCheck = false;
-        nativeCheckInputs = [ pkgs.git pkgs.protobuf frisket.packages.${pkgs.stdenv.hostPlatform.system}.default ];
+        nativeCheckInputs = [ pkgs.git pkgs.protobuf (nixpkgs.lib.getBin pkgs.sqlite) frisket.packages.${pkgs.stdenv.hostPlatform.system}.default ];
         env.CHASE_REQUIRE_FRISKET = "1";
 
         meta = {
@@ -216,7 +218,7 @@
               [[ $settings == /nix/store/*-claude-strict-settings.json ]] || fail "strict's settings are $settings"
               want=$(printf 'arg:%s\n' claude --add-dir /p --settings "$settings" --allow-dangerously-skip-permissions -p hi)
               [ "$(grep '^arg:' fields)" = "$want" ] || fail "strict runs $(grep '^arg:' fields)"
-              grep -qx 'env:CODEX_HOME=/home/alice/.local/state/agents/codex/strict/-w' fields || fail "strict's codex has no home: $(cat fields)"
+              grep -qx 'env:CODEX_HOME=/home/alice/.local/state/chase/codex/strict/-w' fields || fail "strict's codex has no home: $(cat fields)"
               ! grep -q '^env:XDG_CACHE_HOME=' fields || fail "strict keeps caches: $(cat fields)"
               # trusted keeps them, for the tier, its tools pointed there.
               jq -e '.session.tiers.trusted.stores.caches | .scope == "tier" and .root == "/home/alice/.cache/chase/caches" and .env.XDG_CACHE_HOME == "cache"' ${file} > /dev/null \
@@ -358,12 +360,22 @@
               && ! c.selector.tiers.trusted ? trust
               && ! c.session.tiers ? host)
               || throw "assertions: trust was not where the tiers say";
+            # Codex's homes are chase's state, and the codex commands move
+            # them from where an earlier chase kept them, with sqlite3 to
+            # repoint their thread indexes.
+            assert
+              (let c = (configWith { }).chase.internal.config.codex; in
+              c.stateDir == "/home/alice/.local/state/chase/codex"
+              && c.placeholder == "/home/alice/.local/state/chase/codex/auth-placeholder.json"
+              && c.formerStateDir == "/home/alice/.local/state/agents/codex"
+              && nixpkgs.lib.hasSuffix "/bin/sqlite3" c.sqlite)
+              || throw "assertions: codex's state is not chase's";
             # A bare tier is no container, launcher or policy; every other is.
             assert
               (let config = configWith { }; in
-              ! config.containers ? agent-host && ! config.flong ? agent-host
+              ! config.containers ? chase-host && ! config.flong ? chase-host
               && ! config.services.frisket.policies ? host
-              && config.containers ? agent-strict && config.flong ? agent-trusted
+              && config.containers ? chase-strict && config.flong ? chase-trusted
               && config.services.frisket.policies ? strict)
               || throw "assertions: a bare tier was given a sandbox, or a sandbox was not";
             # The old selector options say where their replacement is.
@@ -476,9 +488,9 @@
               in
               session.trusted.stores.huggingface.scope == "tier"
               && ! session.strict.stores ? huggingface
-              && config.containers.agent-strict.config.environment.variables.HF_HUB_CACHE == "/home/alice/.cache/huggingface/hub"
-              && ! config.containers.agent-trusted.config.environment.variables ? HF_HUB_CACHE
-              && hostScope.containers.agent-trusted.bindMounts ? "/home/alice/.cache/huggingface/hub"
+              && config.containers.chase-strict.config.environment.variables.HF_HUB_CACHE == "/home/alice/.cache/huggingface/hub"
+              && ! config.containers.chase-trusted.config.environment.variables ? HF_HUB_CACHE
+              && hostScope.containers.chase-trusted.bindMounts ? "/home/alice/.cache/huggingface/hub"
               && ! hostScope.chase.internal.config.session.tiers.trusted.stores ? huggingface)
               || throw "assertions: huggingface's downloads were not kept where its scope says";
             # mise's installs follow the tier's caches as Hugging Face's do:
@@ -493,19 +505,19 @@
                 };
                 hostScope = configWith { chase.tiers.trusted.apps.mise = { enable = true; scope = "host"; }; };
                 session = config.chase.internal.config.session.tiers;
-                trusted = config.containers.agent-trusted.config.environment;
+                trusted = config.containers.chase-trusted.config.environment;
               in
               lib.all (a: a.assertion) config.assertions
               && session.trusted.stores.mise.env.MISE_DATA_DIR == "data"
               && lib.hasInfix "/home/alice/.cache/chase/mise/trusted/all/data/shims" trusted.extraInit
               && ! trusted.variables ? MISE_DATA_DIR
               && trusted.variables.MISE_STATE_DIR == "/home/alice/.local/state/mise"
-              && config.flong.agent-trusted.overlays ? "/home/alice/.local/state/mise"
-              && ! config.flong.agent-trusted.overlays ? "/home/alice/.local/share/mise"
-              && config.flong.agent-strict.overlays ? "/home/alice/.local/share/mise"
-              && config.containers.agent-strict.config.environment.variables.MISE_DATA_DIR == "/home/alice/.local/share/mise"
-              && hostScope.containers.agent-trusted.bindMounts ? "/home/alice/.local/share/mise"
-              && ! hostScope.containers.agent-trusted.bindMounts ? "/home/alice/.local/state/mise")
+              && config.flong.chase-trusted.overlays ? "/home/alice/.local/state/mise"
+              && ! config.flong.chase-trusted.overlays ? "/home/alice/.local/share/mise"
+              && config.flong.chase-strict.overlays ? "/home/alice/.local/share/mise"
+              && config.containers.chase-strict.config.environment.variables.MISE_DATA_DIR == "/home/alice/.local/share/mise"
+              && hostScope.containers.chase-trusted.bindMounts ? "/home/alice/.local/share/mise"
+              && ! hostScope.containers.chase-trusted.bindMounts ? "/home/alice/.local/state/mise")
               || throw "assertions: mise was not kept where its scope says";
             # Claude Code's managed settings are each sandbox container's,
             # never the host's: the container the only boundary, a key a
@@ -515,14 +527,14 @@
               (let
                 managed = config: name:
                   builtins.fromJSON (builtins.readFile
-                    config.containers."agent-${name}".config.environment.etc."claude-code/managed-settings.json".source);
+                    config.containers."chase-${name}".config.environment.etc."claude-code/managed-settings.json".source);
                 config = configWith { chase.tiers.strict.apps.claude.managedSettings.permissions.defaultMode = "plan"; };
                 none = configWith { chase.tiers.trusted.apps.claude.managedSettings = lib.mkForce { }; };
               in
               managed config "trusted" == { allowManagedPermissionRulesOnly = true; permissions.defaultMode = "auto"; }
               && managed config "strict" == { allowManagedPermissionRulesOnly = true; permissions.defaultMode = "plan"; }
               && ! config.environment.etc ? "claude-code/managed-settings.json"
-              && ! none.containers.agent-trusted.config.environment.etc ? "claude-code/managed-settings.json")
+              && ! none.containers.chase-trusted.config.environment.etc ? "claude-code/managed-settings.json")
               || throw "assertions: Claude Code's managed settings were not each container's";
             # Google Cloud is only ever a project's (PLAN.md, decision 9): a
             # tier that takes no grant cannot enable it, an API it names
@@ -535,7 +547,7 @@
             assert
               (let
                 config = configWith { chase.tiers.trusted.apps.gcloud = { enable = true; apis = [ "bigquery" ]; }; };
-                env = config.containers.agent-trusted.config.environment;
+                env = config.containers.chase-trusted.config.environment;
                 policy = config.services.frisket.policies.trusted;
               in
               lib.all (a: a.assertion) config.assertions
@@ -545,7 +557,7 @@
               && env.variables.GRPC_DEFAULT_SSL_ROOTS_FILE_PATH == "/etc/frisket/ca-bundle.crt"
               && ! lib.any (lib.hasPrefix "gcloud") (lib.attrNames policy.routes)
               && ! lib.elem "*.googleapis.com" policy.allow
-              && ! config.containers.agent-strict.config.environment.variables ? CLOUDSDK_CONFIG)
+              && ! config.containers.chase-strict.config.environment.variables ? CLOUDSDK_CONFIG)
               || throw "assertions: gcloud in trusted did not hold together";
             # Docker is only ever a project's, and only where a session has
             # the network a container on the host's daemon has anyway.
@@ -561,7 +573,7 @@
             assert
               (let
                 config = configWith { chase.tiers.trusted.apps.docker.enable = true; };
-                env = config.containers.agent-trusted.config.environment;
+                env = config.containers.chase-trusted.config.environment;
                 policy = config.services.frisket.policies.trusted;
                 failed = map (a: a.message) (lib.filter (a: ! a.assertion) config.assertions);
               in
@@ -571,9 +583,59 @@
               && env.etc."chase/docker/ca.pem".source == "/etc/frisket/ca.crt"
               && ! policy.routes ? docker
               && ! lib.elem "docker.frisket.internal" policy.allow
-              && ! lib.any (p: lib.getName p == "docker") config.containers.agent-strict.config.environment.systemPackages
-              && ! config.containers.agent-strict.config.environment.etc ? "chase/docker/ca.pem")
+              && ! lib.any (p: lib.getName p == "docker") config.containers.chase-strict.config.environment.systemPackages
+              && ! config.containers.chase-strict.config.environment.etc ? "chase/docker/ca.pem")
               || throw "assertions: Docker in trusted did not hold together";
+            # SSH is only ever a project's, through frisket, which holds the
+            # one credential the machine names: an agent's socket or a key
+            # file, by a path the daemon reaches, never the store's.
+            assert refused "SSH in a tier that takes no grant"
+              { chase.tiers.strict.apps.ssh.enable = true; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; } "chase.tiers.strict.apps.ssh is enabled, but the tier takes no grant";
+            assert refused "SSH in a bare tier"
+              { chase.tiers.host.apps.ssh.enable = true; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; } "chase.tiers.host.apps.ssh is enabled, but the tier is bare";
+            assert refused "SSH with nothing to log in with"
+              { chase.tiers.trusted.apps.ssh.enable = true; } "chase.apps.ssh needs exactly one of agentSocket and keyFile";
+            assert refused "SSH with two things to log in with"
+              { chase.tiers.trusted.apps.ssh.enable = true; chase.apps.ssh = { agentSocket = "/run/user/1000/gcr/ssh"; keyFile = "/home/alice/.ssh/k"; }; } "exactly one of agentSocket and keyFile";
+            assert refused "an agent under /tmp, which the daemon's PrivateTmp hides"
+              { chase.tiers.trusted.apps.ssh.enable = true; chase.apps.ssh.agentSocket = "/tmp/ssh-XXXX/agent.1"; } "chase.apps.ssh.agentSocket is '/tmp/ssh-XXXX/agent.1', which is under a /tmp";
+            assert refused "a key file in the store"
+              { chase.tiers.trusted.apps.ssh.enable = true; chase.apps.ssh.keyFile = "${pkgs.hello}/key"; } "is in the store";
+            assert refused "a relative key file"
+              { chase.tiers.trusted.apps.ssh.enable = true; chase.apps.ssh.keyFile = "home/alice/k"; } "is not an absolute path";
+            assert refused "a key file that is not clean"
+              { chase.tiers.trusted.apps.ssh.enable = true; chase.apps.ssh.keyFile = "/home/alice/../bob/k"; } "is not a clean path";
+            assert refused "an identity with no agent"
+              { chase.tiers.trusted.apps.ssh.enable = true; chase.apps.ssh = { keyFile = "/home/alice/.ssh/k"; identity = "SHA256:${lib.fixedWidthString 43 "A" ""}"; }; } "identity names a key of an agent's";
+            # A Nix path is no string: it would copy the key into the store.
+            assert ! (builtins.tryEval (configWith { chase.apps.ssh.keyFile = ./flake.nix; }).chase.apps.ssh.keyFile).success
+              || throw "assertions: a key file given as a Nix path was taken";
+            # An env name is a name, or the start of one and a *: never a
+            # lone *, which would be every name.
+            assert ! (builtins.tryEval (builtins.deepSeq (configWith { chase.tiers.trusted.apps.ssh = { enable = true; env = [ "*" ]; }; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; }).chase.tiers.trusted.apps.ssh.env true)).success
+              || throw "assertions: a lone * was taken as an env name";
+            # trusted's sessions point ssh at what frisket mounts, ahead of
+            # NixOS's own settings and with no store path included; their
+            # machines and rules are made per launch, from the grant, so
+            # nothing of them is in the tier's document.
+            assert
+              (let
+                config = configWith { chase.tiers.trusted.apps.ssh.enable = true; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; };
+                env = config.containers.chase-trusted.config.environment;
+                text = env.etc."ssh/ssh_config".text;
+                c = config.chase.internal.config.grant;
+                failed = map (a: a.message) (lib.filter (a: ! a.assertion) config.assertions);
+              in
+              failed == [ ]
+              && lib.hasPrefix "Include /etc/frisket/ssh_config\nGlobalKnownHostsFile /etc/frisket/ssh_known_hosts /etc/ssh/ssh_known_hosts\n" text
+              && ! lib.hasInfix "Include ${builtins.storeDir}" text
+              && ! lib.hasInfix "/etc/frisket/ssh_config" config.containers.chase-strict.config.environment.etc."ssh/ssh_config".text
+              && c.ssh.tiers == { trusted = { writes = "ask"; guarded = "refuse"; unmatched = "ask"; env = [ "LANG" "LC_*" "TZ" "COLUMNS" "LINES" "NO_COLOR" "SYSTEMD_COLORS" ]; }; }
+              && c.ssh.agent == "/run/user/1000/gcr/ssh" && ! c.ssh ? keyFile && ! c.ssh ? identity
+              && lib.hasPrefix builtins.storeDir c.ssh.catalogue
+              && c.apps.ssh.credential == false
+              && ! config.services.frisket.policies.trusted ? ssh)
+              || throw "assertions: SSH in trusted did not hold together";
             # A CLASS IS ANSWERED AS THE TIER AND THE APP SAY (PLAN.md,
             # decision 18). By default a read is allowed, a write asks and a
             # guarded operation is refused; the tier's settings are every
@@ -614,10 +676,10 @@
             assert
               (let
                 config = configWith { };
-                agents = lib.filterAttrs (n: _: lib.hasPrefix "agent-" n) config.flong;
+                sandboxes = lib.filterAttrs (n: _: lib.hasPrefix "chase-" n) config.flong;
                 failed = map (a: a.message) (lib.filter (a: ! a.assertion) config.assertions);
               in
-              agents != { }
+              sandboxes != { }
               && ! lib.any (r: lib.elem "alice" (r.users or [ ])) config.security.sudo.extraRules
               && failed == [ ]
                 || throw "assertions: a session is granted sudo, or flong refused them: ${builtins.toJSON failed}");
@@ -625,11 +687,11 @@
             # only a tier that takes grants asks the checkout for more.
             assert
               (let config = configWith { }; in
-              config.flong.agent-trusted.seccomp.debug
-              && config.flong.agent-trusted.seccompPolicy != [ ]
-              && config.flong.agent-strict.seccomp.tier == "strict"
-              && ! config.flong.agent-strict.seccomp.debug
-              && config.flong.agent-strict.seccompPolicy == [ ])
+              config.flong.chase-trusted.seccomp.debug
+              && config.flong.chase-trusted.seccompPolicy != [ ]
+              && config.flong.chase-strict.seccomp.tier == "strict"
+              && ! config.flong.chase-strict.seccomp.debug
+              && config.flong.chase-strict.seccompPolicy == [ ])
               || throw "assertions: the tiers' seccomp is not what they say";
             pkgs.runCommand "assertions" { } "touch $out";
 
@@ -802,19 +864,21 @@
             '';
 
           gcloud-session = pkgs.testers.runNixOSTest (import ./tests/gcloud-session.nix { inherit self home-manager; });
+          ssh-session = pkgs.testers.runNixOSTest (import ./tests/ssh-session.nix { inherit self home-manager; });
         } // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
           # Only where the pinned postgres:18 runs: the image is amd64's.
           docker-session = pkgs.testers.runNixOSTest (import ./tests/docker-session.nix { inherit self home-manager; });
         });
 
       # Go for the binary, built as the flake builds it; chase-generate, and
-      # the git and protoc `chase-generate gcloud` runs; frisket, whose
+      # the git and protoc `chase-generate gcloud` runs; sqlite3, which the
+      # codex tests hold a thread index in; frisket, whose
       # `check` some tests hold what chase writes to.
       devShells = forAllSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system}; in
         {
           default = pkgs.mkShell {
-            packages = [ pkgs.go pkgs.gopls pkgs.git pkgs.protobuf frisket.packages.${system}.default self.packages.${system}.chase-generate ];
+            packages = [ pkgs.go pkgs.gopls pkgs.git pkgs.protobuf (nixpkgs.lib.getBin pkgs.sqlite) frisket.packages.${system}.default self.packages.${system}.chase-generate ];
             CHASE_REQUIRE_FRISKET = "1";
             # The setting the package builds with, so a `go build` here gives
             # the binary the flake does.

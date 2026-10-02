@@ -22,14 +22,12 @@ let
     printf '[core]\n\trepositoryformatversion = 1\n\tbare = true\n[extensions]\n\tobjectFormat = %s\n' ${format} > $out/config
   '';
 
-  # `chase`, and `agent-tier`, which is `chase tier`: the one binary under
-  # each name it answers to. A link, not a wrapper script: the binary picks
-  # what to be from the name it was run as. The agents' own names are
-  # their apps' (apps/claude.nix, apps/codex.nix).
+  # `chase` itself. A link, not a wrapper script: the binary picks what to
+  # be from the name it was run as. The agents' own names are their apps'
+  # (apps/claude.nix, apps/codex.nix).
   links = pkgs.runCommand "chase-links" { } ''
     mkdir -p $out/bin
     ln -s ${chase} $out/bin/chase
-    ln -s ${chase} $out/bin/agent-tier
   '';
 in
 {
@@ -42,13 +40,13 @@ in
       tiers = lib.mapAttrs (name: t: {
         inherit (t) bare match;
       } // lib.optionalAttrs (!t.bare) {
-        launcher = lib.getExe config.flong."agent-${name}".launcher;
+        launcher = lib.getExe config.flong."chase-${name}".launcher;
       }) cfg.tiers;
     };
 
     # A consistency check and, for every sandbox, one gate: see
     # internal/selector's Guard. A command, never shell.
-    flong = lib.mapAttrs' (name: _: lib.nameValuePair "agent-${name}" {
+    flong = lib.mapAttrs' (name: _: lib.nameValuePair "chase-${name}" {
       guard = [ [ chase "guard" name ] ];
     }) sandboxes;
 

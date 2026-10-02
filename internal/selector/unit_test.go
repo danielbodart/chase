@@ -154,7 +154,7 @@ func TestDryRunIsATableAndIfGoneNeedsADirectory(t *testing.T) {
 		},
 	})
 	var out, errb bytes.Buffer
-	if rc := selector.RunAgentTier(context.Background(), s, []string{"--dry-run", r + "/home/", r + "/é-plain"}, &out, &errb); rc != 0 {
+	if rc := selector.RunTier(context.Background(), s, []string{"--dry-run", r + "/home/", r + "/é-plain"}, &out, &errb); rc != 0 {
 		t.Fatal(errb.String())
 	}
 	want := "DIRECTORY" + strings.Repeat(" ", 18) + "TIER" + strings.Repeat(" ", 6) + "REASON\n" +
@@ -165,16 +165,16 @@ func TestDryRunIsATableAndIfGoneNeedsADirectory(t *testing.T) {
 		t.Errorf("--dry-run:\n%q\nwant\n%q", out.String(), want)
 	}
 	out.Reset()
-	if rc := selector.RunAgentTier(context.Background(), s, []string{"--dry-run"}, &out, &errb); rc != 0 || out.String() != "DIRECTORY                  TIER      REASON\n" {
+	if rc := selector.RunTier(context.Background(), s, []string{"--dry-run"}, &out, &errb); rc != 0 || out.String() != "DIRECTORY                  TIER      REASON\n" {
 		t.Errorf("--dry-run of nothing: %q", out.String())
 	}
-	if rc := selector.RunAgentTier(context.Background(), s, []string{"--if-gone"}, &out, &errb); rc != 1 {
+	if rc := selector.RunTier(context.Background(), s, []string{"--if-gone"}, &out, &errb); rc != 1 {
 		t.Errorf("--if-gone with no directory: %d", rc)
 	}
 	out.Reset()
 	t.Chdir(r + "/home")
-	if rc := selector.RunAgentTier(context.Background(), s, nil, &out, &errb); rc != 0 || out.String() != "host\n" {
-		t.Errorf("agent-tier in the working directory: %q", out.String())
+	if rc := selector.RunTier(context.Background(), s, nil, &out, &errb); rc != 0 || out.String() != "host\n" {
+		t.Errorf("chase tier in the working directory: %q", out.String())
 	}
 }
 

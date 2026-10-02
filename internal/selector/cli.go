@@ -11,7 +11,7 @@ import (
 	"github.com/danielbodart/chase/internal/term"
 )
 
-// Output is what `agent-tier [--if-gone] DIR` printed: the decision's line,
+// Output is what `chase tier [--if-gone] DIR` prints: the decision's line,
 // TIER<TAB>REASON, cut to its first field -- the tier alone, unless the reason
 // had a newline in it, when each line after it is cut too, as `cut -f1` cut
 // it. Nothing that reads the tier matches such a line, so a checkout that
@@ -26,33 +26,33 @@ func (s *Selector) Output(ctx context.Context, dir, ignoring string) string {
 	return b.String()
 }
 
-// Tier is `$(agent-tier DIR)`: the tier of dir, as a caller had it.
+// Tier is `$(chase tier DIR)`: the tier of dir, as a caller had it.
 func (s *Selector) Tier(ctx context.Context, dir string) string {
 	return gitsafe.Output([]byte(s.Output(ctx, dir, "")))
 }
 
-// IfGone is `$(agent-tier --if-gone DIR)`: dir's tier were its own .git
+// IfGone is `$(chase tier --if-gone DIR)`: dir's tier were its own .git
 // deleted, as a session working in it could. The guard asks it of a
 // sandbox's workspace.
 func (s *Selector) IfGone(ctx context.Context, dir string) string {
 	return gitsafe.Output([]byte(s.Output(ctx, dir, dir)))
 }
 
-// RunAgentTier is agent-tier:
+// RunTier is `chase tier`:
 //
-//	agent-tier [DIR]            DIR's tier (the working directory's without one)
-//	agent-tier --if-gone DIR    DIR's tier were its own .git deleted
-//	agent-tier --dry-run DIR... a table of each DIR, its tier and why
+//	chase tier [DIR]            DIR's tier (the working directory's without one)
+//	chase tier --if-gone DIR    DIR's tier were its own .git deleted
+//	chase tier --dry-run DIR... a table of each DIR, its tier and why
 //
 // It prints and exits as the script did; what it prints for a person is
 // cleaned of control characters first (term.Clean), which the script's was
 // not. It closes s before it returns: see gitsafe.Git.Close.
-func RunAgentTier(ctx context.Context, s *Selector, args []string, stdout, stderr io.Writer) int {
+func RunTier(ctx context.Context, s *Selector, args []string, stdout, stderr io.Writer) int {
 	defer s.Close()
 	switch {
 	case len(args) > 0 && args[0] == "--if-gone":
 		if len(args) < 2 {
-			term.Say(stderr, "agent-tier: --if-gone needs a directory")
+			term.Say(stderr, "tier: --if-gone needs a directory")
 			return 1
 		}
 		fmt.Fprint(stdout, term.Clean(s.Output(ctx, args[1], args[1])))
@@ -72,7 +72,7 @@ func RunAgentTier(ctx context.Context, s *Selector, args []string, stdout, stder
 		} else {
 			wd, err := os.Getwd()
 			if err != nil {
-				term.Say(stderr, "agent-tier: %v", err)
+				term.Say(stderr, "tier: %v", err)
 				return 1
 			}
 			dir = wd

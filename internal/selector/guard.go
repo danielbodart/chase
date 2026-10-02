@@ -31,7 +31,7 @@ func (r *Refused) Error() string { return r.Message }
 // takes any checkout. The one refusal after it is everyone's.
 func (s *Selector) Guard(ctx context.Context, tier, workspace, binds string, stderr io.Writer) error {
 	if tier != s.cfg.Fallback {
-		// `$(agent-tier "$workspace") || tier=unknown`: agent-tier has no
+		// `$(chase tier "$workspace") || tier=unknown`: chase tier has no
 		// failure of its own left to fall back from.
 		now := s.Tier(ctx, workspace)
 		if now != tier {

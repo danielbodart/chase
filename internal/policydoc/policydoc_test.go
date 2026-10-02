@@ -274,6 +274,35 @@ func TestAnAppsRoutesAndNamesAreMerged(t *testing.T) {
 	}
 }
 
+// An app's SSH routes are merged as its routes are, in their own list: in
+// place of the tier's of the same names, after the tier's own, and nothing
+// of them in the routes or the allowlist.
+func TestAnAppsSSHRoutesAreMerged(t *testing.T) {
+	doc := &policy.Document{Name: "t", Policy: policy.Policy{
+		Allow:  []string{"a"},
+		Routes: []policy.Route{{Name: "server", Host: "x"}},
+		SSH:    []policy.SSHRoute{{Name: "server", Address: "10.0.0.1"}, {Name: "gateway", Address: "10.0.0.2"}},
+	}}
+	Merge(doc, apps.Patch{SSH: []policy.SSHRoute{{Name: "server", Address: "10.0.0.9"}, {Name: "nas", Address: "10.0.0.3"}}})
+	var names []string
+	for _, r := range doc.SSH {
+		names = append(names, r.Name+"="+r.Address)
+	}
+	if !slices.Equal(names, []string{"gateway=10.0.0.2", "server=10.0.0.9", "nas=10.0.0.3"}) {
+		t.Errorf("the SSH routes were not merged: %q", names)
+	}
+	if len(doc.Routes) != 1 || doc.Routes[0].Host != "x" || !slices.Equal(doc.Allow, []string{"a"}) {
+		t.Errorf("an SSH route was merged as more than one: %+v", doc)
+	}
+
+	// None, and none added, is no list in the document.
+	doc = &policy.Document{Name: "closed"}
+	Merge(doc, apps.Patch{})
+	if b, _ := json.Marshal(doc); string(b) != `{"name":"closed","allow":[]}` {
+		t.Errorf("%s", b)
+	}
+}
+
 func normal(t *testing.T, s string) string {
 	t.Helper()
 	b, err := Normal([]byte(s))

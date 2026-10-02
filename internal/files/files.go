@@ -10,6 +10,7 @@
 package files
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -80,4 +81,47 @@ func Lock(dir string) (func(), error) {
 		return nil, fmt.Errorf("lock %s: %w", dir, err)
 	}
 	return func() { f.Close() }, nil
+}
+
+// ErrBothExist is MoveDir finding something at both places: neither is
+// merged into the other, nor removed, since which holds what is wanted is a
+// person's to say.
+var ErrBothExist = errors.New("both exist")
+
+// MoveDir renames the directory from to to, for what chase kept at one
+// place and keeps at another now: true when it moved it, false when there
+// is nothing at from. Once, and never over anything: renamed with
+// RENAME_NOREPLACE, so that two processes moving it at once, or something
+// that made to meanwhile, leave both as they are, ErrBothExist, rather than
+// one replacing the other. A rename is one step on one filesystem, so a
+// directory a session has bound keeps its mount, now at to; across two it
+// is refused, and nothing is copied. to's parent is made if missing.
+func MoveDir(from, to string) (bool, error) {
+	fi, err := os.Lstat(from)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return false, nil
+	case err != nil:
+		return false, err
+	case !fi.IsDir():
+		return false, fmt.Errorf("%s is not a directory, and is left as it is", from)
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
+		return false, err
+	}
+	err = unix.Renameat2(unix.AT_FDCWD, from, unix.AT_FDCWD, to, unix.RENAME_NOREPLACE)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, unix.EEXIST), errors.Is(err, unix.ENOTEMPTY):
+		return false, fmt.Errorf("%s and %s: %w", from, to, ErrBothExist)
+	case errors.Is(err, unix.ENOENT):
+		// Moved by another process since the Lstat: nothing left to move.
+		if _, err := os.Lstat(from); errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+	case errors.Is(err, unix.EXDEV):
+		return false, fmt.Errorf("%s and %s are on two filesystems, so %s is left where it is: move it yourself", from, to, from)
+	}
+	return false, &os.LinkError{Op: "rename", Old: from, New: to, Err: err}
 }

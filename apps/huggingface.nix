@@ -120,7 +120,7 @@ in
       ([ "d ${cfg.home}/.cache/huggingface 0700 ${cfg.user} ${toString cfg.gid} -" ]
         ++ map (p: "d ${p} 0755 ${cfg.user} ${toString cfg.gid} -") cache);
 
-    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf tier.apps.huggingface.enable {
+    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" (mkIf tier.apps.huggingface.enable {
       bindMounts = mkIf (tier.apps.huggingface.scope == "host")
         (lib.genAttrs cache (p: { hostPath = p; isReadOnly = false; }));
       config = mkMerge [

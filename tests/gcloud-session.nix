@@ -389,12 +389,12 @@ in
       };
     };
 
-    containers.agent-trusted.config = { pkgs, ... }: {
+    containers.chase-trusted.config = { pkgs, ... }: {
       environment.systemPackages = [ (pkgs.python3.withPackages (p: [ p.grpcio ])) pkgs.openssl ];
     };
 
     # Ahead of chase's steps: where the test finds the session.
-    flong.agent-trusted.postStart = lib.mkOrder 100 [ [ "${pkgs.writeShellScript "mark" ''
+    flong.chase-trusted.postStart = lib.mkOrder 100 [ [ "${pkgs.writeShellScript "mark" ''
       echo "$machine" > /tmp/last-session
       echo "$leader" > /tmp/last-leader
     ''}" ] ];
@@ -402,7 +402,7 @@ in
 
   testScript = { nodes, ... }:
     let
-      launcher = lib.getExe nodes.machine.flong.agent-trusted.launcher;
+      launcher = lib.getExe nodes.machine.flong.chase-trusted.launcher;
     in
     ''
       import json

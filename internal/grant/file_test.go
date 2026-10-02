@@ -1,6 +1,7 @@
 package grant_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -67,6 +68,54 @@ func TestWhatAGrantMayNameForDocker(t *testing.T) {
 		if _, err := grant.ParseFile([]byte(g)); err != nil {
 			t.Errorf("%s was refused: %v", g, err)
 		}
+	}
+}
+
+// WHAT A GRANT MAY NAME FOR SSH (docs/apps/ssh.md): each machine by an
+// address, a user and its own keys, and its rules its own. What a machine
+// may be is internal/apps/ssh's to test; this is that it is held to it when
+// the grant is read, before anyone is asked, and approved as it is read.
+func TestWhatAGrantMayNameForSSH(t *testing.T) {
+	key := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl server"
+	// host is server with members merged over its own, never after them:
+	// a member named twice is refused for that before any rule of the
+	// machine's is reached.
+	host := func(members string) string {
+		h := map[string]any{"address": "192.168.1.10", "user": "ops", "hostKeys": []string{key}}
+		if err := json.Unmarshal([]byte(members), &h); err != nil {
+			t.Fatal(err)
+		}
+		b, err := json.Marshal(map[string]any{"apps": map[string]any{"ssh": map[string]any{"hosts": map[string]any{"server": h}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	for _, tc := range []struct{ grant, said string }{
+		{host(`{"address": "server.lan"}`), "apps.ssh.hosts.server.address"},
+		{host(`{"address": "server.lan"}`), "a literal IP"},
+		{host(`{"hostKeys": []}`), "hostKeys: none"},
+		{host(`{"allow": ["rm **"], "refuse": ["rm **"]}`), "rm **"},
+		{host(`{"allow": ["time **"]}`), "reserved"},
+		{host(`{"unmatched": "never"}`), "unmatched"},
+		{host(`{"rules": []}`), "rules"},
+		{`{"apps": {"ssh": {"allow": ["remove"]}}}`, "allow"},
+		{`{"apps": {"ssh": {"hosts": {"Server": {}}}}}`, "Server"},
+	} {
+		_, err := grant.ParseFile([]byte(tc.grant))
+		if err == nil {
+			t.Errorf("%s was accepted", tc.grant)
+		} else if strings.Contains(err.Error(), "given twice") || !strings.Contains(err.Error(), tc.said) {
+			t.Errorf("%s was refused, but not for %q: %v", tc.grant, tc.said, err)
+		}
+	}
+	got, err := grant.ParseFile([]byte(host(`{"refuse": ["category:packages"], "allow": ["service-restart", "docker compose ps **"]}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"apps":{"ssh":{"hosts":{"server":{"address":"192.168.1.10","allow":["service-restart","docker compose ps **"],"hostKeys":["` + key + `"],"refuse":["category:packages"],"user":"ops"}}}}}`
+	if string(got) != want {
+		t.Errorf("read as %s, not %s", got, want)
 	}
 }
 

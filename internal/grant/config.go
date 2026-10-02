@@ -41,6 +41,7 @@ import (
 	"github.com/danielbodart/chase/internal/apps"
 	"github.com/danielbodart/chase/internal/apps/docker"
 	appsgcloud "github.com/danielbodart/chase/internal/apps/gcloud"
+	appsssh "github.com/danielbodart/chase/internal/apps/ssh"
 	"github.com/danielbodart/chase/internal/gitsafe"
 )
 
@@ -82,7 +83,7 @@ type Config struct {
 	Checkouts map[string][]string `json:"checkouts"`
 	// Apps is chase.internal.projectApps, what an app becomes when a
 	// project binds it, by name. An app whose routes are made at launch --
-	// Docker, Google Cloud -- is also in the registry the launch is given,
+	// Docker, Google Cloud, SSH -- is also in the registry the launch is given,
 	// which is what its `prepare` was; its entry here says only whether it
 	// has a credential, and may be left out when it does.
 	Apps map[string]App `json:"apps"`
@@ -96,11 +97,12 @@ type Config struct {
 	Sops string `json:"sops"`
 	Diff string `json:"diff"`
 
-	// Docker and Gcloud are the apps whose routes are made at launch, as
-	// their own packages take them. Nil is an app the module does not
+	// Docker, Gcloud and SSH are the apps whose routes are made at launch,
+	// as their own packages take them. Nil is an app the module does not
 	// have.
 	Docker *docker.Config     `json:"docker,omitempty"`
 	Gcloud *appsgcloud.Config `json:"gcloud,omitempty"`
+	SSH    *appsssh.Config    `json:"ssh,omitempty"`
 }
 
 // App is one of chase.internal.projectApps whose routes the module writes:
@@ -181,7 +183,7 @@ func Validate(c Config, registry map[string]apps.App) error {
 }
 
 // DefaultApps is the registry of apps whose routes are made at launch, as
-// the module has them: Docker and Google Cloud, each from its own Config,
+// the module has them: Docker, Google Cloud and SSH, each from its own Config,
 // saying what it says to stderr.
 func DefaultApps(c Config, stderr io.Writer) map[string]apps.App {
 	r := map[string]apps.App{}
@@ -190,6 +192,9 @@ func DefaultApps(c Config, stderr io.Writer) map[string]apps.App {
 	}
 	if c.Gcloud != nil {
 		r["gcloud"] = appsgcloud.New(*c.Gcloud, stderr)
+	}
+	if c.SSH != nil {
+		r["ssh"] = &appsssh.App{Config: *c.SSH, Stderr: stderr}
 	}
 	return r
 }

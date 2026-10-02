@@ -36,7 +36,7 @@ func (s *Selector) For(tier string, w Wrapper, args []string) []string {
 // Launch is what the wrapper execs for a session started in dir with args:
 // the host command for a bare tier, its launcher and the agent for a sandbox
 // tier, and the fallback's launcher for anything unexpected -- a tier with no
-// entry, or one agent-tier could not give. Argv[0] is an absolute path, or,
+// entry, or one `chase tier` could not give. Argv[0] is an absolute path, or,
 // for a bare tier's HostCommand, what exec looks up on PATH. It closes s
 // before it returns, since what it returns is exec'd and no deferred call
 // of the caller's would run.
@@ -56,8 +56,8 @@ func (s *Selector) launch(tier string, w Wrapper, args []string) []string {
 	return append([]string{t.Launcher, w.Agent}, args...)
 }
 
-// TierOrFallback is `$(agent-tier DIR 2>/dev/null) || tier=FALLBACK`, as
-// `chase docker` asks it: dir's tier. agent-tier no longer fails, so it is
+// TierOrFallback is `$(chase tier DIR 2>/dev/null) || tier=FALLBACK`, as
+// `chase docker` asks it: dir's tier. `chase tier` no longer fails, so it is
 // always the tier; the name says what the caller may rely on.
 func (s *Selector) TierOrFallback(ctx context.Context, dir string) string {
 	return s.Tier(ctx, dir)

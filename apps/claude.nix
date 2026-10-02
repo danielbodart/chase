@@ -183,7 +183,7 @@ in
       };
     };
 
-    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}"
+    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}"
       (mkIf tier.apps.claude.enable (mkMerge [
         {
           # ~/.claude is the session's own, with only the entries below bound
@@ -217,7 +217,7 @@ in
       ]))) cfg.tiers;
 
     # Host plugins readable; writes are discarded with the session.
-    flong = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}"
+    flong = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}"
       (mkIf (!tier.bare && tier.apps.claude.enable && tier.apps.claude.scope != "host") {
         overlays."${claudeDir}/plugins" = "${claudeDir}/plugins";
       })) cfg.tiers;

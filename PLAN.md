@@ -36,7 +36,7 @@ of the machine's either.
 **The machine never enumerates projects.** It knows the *shape* of what it will
 find, not which projects exist. This is the distinction between an eval-time
 dependency (nix-config lists the project in `flake.lock`) and a runtime one
-(the launcher reads whatever directory it was started in). `agent-tier`
+(the launcher reads whatever directory it was started in). `chase tier`
 already works the second way: it reads the checkout's origin at launch
 rather than holding a list.
 
@@ -387,6 +387,41 @@ refusal, and nothing on its route ever asks
 operation cannot be allowed by name or category, since images are global and
 one project's `ImageTag` would change what another's container runs.
 
+**SSH is classed by a hand-written catalogue.** No machine publishes a
+description of its commands, so `apps/ssh/operations.json` is written and
+reviewed as Docker's admit.json is ([docs/apps/ssh.md](docs/apps/ssh.md)).
+Its operations are answered by class and the tier's three answers, as here,
+but a project's lists differ in four ways, each for a reason:
+
+- **They are each machine's**, `apps.ssh.hosts.<name>.allow`, not
+  `apps.ssh.allow`: one grant names several machines, and what may run on a
+  gateway is not what may run on a build box.
+- **They take command patterns** as well as ids, `docker compose ps **`: a
+  machine's own commands are no catalogue's to name. A pattern has a space
+  or a `*`, so it is never read as an id, nor an id as a pattern.
+- **Some operations are an argument's**, not a command's: `find -exec`,
+  `grep -r`, `apt -o`, every argument naming a secret. They only make a
+  command stricter, never allow one, since a rule that allowed by an
+  argument would allow whatever else the command said.
+- **Allowing a category allows none of its guarded operations.** A category
+  of commands is a topic -- `search`, `packages` -- not a danger, and what it
+  guards runs something of the arguments' choosing (`find -exec`, `apt -o`):
+  a project allowing `category:search` has asked for more searching, not for
+  `find -exec`. Only its id allows a guarded operation, and asked or
+  refused, a category is all of it. An HTTP app's category, the provider's
+  own grouping, still allows all of it.
+
+What a command is, chase reads by frisket's own matcher, its public
+`execrule` package: the catalogue's tests decide commands with it, and what
+a project's pattern ties or an argument operation overrules is put to it as
+a command made to test it, rather than worked out by a copy that could
+drift. So a grant's lists are checked against the catalogue when it is
+approved, and again at launch, for one approved under an older catalogue.
+Which variables a command may set in front of itself -- `LANG=C sort x` --
+is the tier's `apps.ssh.env`, never a grant's: a name one program reads as
+code makes every rule for it say less than it seems to, and that is the
+machine owner's to weigh.
+
 **19. Every app is configured the same way.** `chase.apps.<app>` is the
 machine's: what an app runs, the credential it would use, the host files it
 binds. `chase.tiers.<tier>.apps.<app>` turns it on with `enable` and may say
@@ -464,7 +499,7 @@ app is off or on, and a credential is bound or not.
 | | |
 |---|---|
 | `modules/agents/options.nix` | moves |
-| `modules/agents/selector.nix` | moves — `agent-tier`, its predicates, the wrappers |
+| `modules/agents/selector.nix` | moves — the selector (now `chase tier`), its predicates, the wrappers |
 | `modules/agents/tiers/` | **stays**: which tiers a machine has, and what sorts a checkout into each, is its own (decision 12) |
 | `modules/agents/apps/` | moves — claude, codex, github, dragoman, mise, audio |
 | `modules/agents/default.nix` | **stays**: it is the instance, not the module |

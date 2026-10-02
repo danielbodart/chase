@@ -1,7 +1,8 @@
 // Package apps is what an app becomes when a project binds it, for the apps
 // whose routes are made at launch rather than written by the module: Docker,
-// whose route names the project's own address and images, and Google Cloud,
-// whose route carries a session key minted for the checkout.
+// whose route names the project's own address and images, Google Cloud,
+// whose route carries a session key minted for the checkout, and SSH, whose
+// routes are the machines the project's grant names.
 //
 // Each such app is Go, called in the launch's own process: it was a program
 // of its own only because each app module built a script, and nothing about
@@ -46,10 +47,11 @@ type Request struct {
 }
 
 // Patch is what an app adds to the session's policy document, its
-// environment and its home. Its routes replace any of the same name the tier
-// had.
+// environment and its home. Its routes, and its SSH routes, replace any of
+// the same name the tier had.
 type Patch struct {
 	Routes []policy.Route    `json:"routes,omitempty"`
+	SSH    []policy.SSHRoute `json:"ssh,omitempty"`
 	Allow  []string          `json:"allow,omitempty"`
 	Env    map[string]string `json:"env,omitempty"`
 	// Files are seeded into the session's home (see session.File).

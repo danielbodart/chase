@@ -1,4 +1,4 @@
-// Package selector is agent-tier: which tier a directory's checkout is
+// Package selector is `chase tier`: which tier a directory's checkout is
 // sorted into, by the rules chase.tiers.<name>.match declares, asked in
 // chase.order, and chase.fallback for whatever none of them claims or the
 // selector cannot sort. It is also the two things that act on its answer:
@@ -50,7 +50,7 @@ func New(c Config) (*Selector, error) {
 	return &Selector{cfg: c, rules: compile(c), git: g}, nil
 }
 
-// Close releases what the selector's git made. RunAgentTier, RunGuard and
+// Close releases what the selector's git made. RunTier, RunGuard and
 // Launch close it themselves; any other caller closes it before it exits or
 // execs, as gitsafe.Git.Close says.
 func (s *Selector) Close() error { return s.git.Close() }

@@ -101,7 +101,7 @@ in
       (p: "d ${p} 0755 ${cfg.user} ${toString cfg.gid} -")
       (lib.unique (lib.attrValues dirs ++ lib.concatMap (t: t.apps.mise.config) (lib.attrValues enabled))));
 
-    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf tier.apps.mise.enable {
+    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" (mkIf tier.apps.mise.enable {
       bindMounts = lib.listToAttrs (map
         (p: lib.nameValuePair p { hostPath = p; isReadOnly = true; })
         tier.apps.mise.config)
@@ -156,7 +156,7 @@ in
     # Overlays: the host's state in every scope, and its installs in a
     # session's, readable, and whatever a session writes there discarded
     # with it. Safe only because mise keeps no sqlite.
-    flong = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" {
+    flong = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" {
       overlays = {
         ${dirs.MISE_STATE_DIR} = dirs.MISE_STATE_DIR;
       } // lib.optionalAttrs (tier.apps.mise.scope == "session") {

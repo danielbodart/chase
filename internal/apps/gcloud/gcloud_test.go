@@ -192,7 +192,7 @@ var credentials = []string{
 
 func TestTheRouteCarriesTheTiersAPIsWithTheProjectsChanges(t *testing.T) {
 	l := newLaunch(t)
-	run := l.session("agent-trusted-1-2", sa)
+	run := l.session("chase-trusted-1-2", sa)
 	patch := l.prepared("trusted", run, binding(`{"add": ["pubsub"], "remove": ["storage"]}`))
 	r := route(t, patch, "gcloud")
 
@@ -253,7 +253,7 @@ func TestTheRouteCarriesTheTiersAPIsWithTheProjectsChanges(t *testing.T) {
 // API's "*" does not decide them.
 func TestTheFloorIsEveryAPIsGuardedOperations(t *testing.T) {
 	l := newLaunch(t)
-	patch := l.prepared("trusted", l.session("agent-trusted-1-2", sa), binding(`{"add": ["pubsub"], "remove": ["storage"]}`))
+	patch := l.prepared("trusted", l.session("chase-trusted-1-2", sa), binding(`{"add": ["pubsub"], "remove": ["storage"]}`))
 	for _, id := range append(slices.Clone(credentials), "storage.buckets.delete", "compute.instances.delete") {
 		if got := answer(t, patch, id); got != "refuse" {
 			t.Errorf("%s is %s, not refused by default", id, got)
@@ -279,7 +279,7 @@ func TestTheFloorIsEveryAPIsGuardedOperations(t *testing.T) {
 
 func TestTheSessionsKeyIsTheCheckoutsAndNeverTheRealOne(t *testing.T) {
 	l := newLaunch(t)
-	run := l.session("agent-trusted-1-2", sa)
+	run := l.session("chase-trusted-1-2", sa)
 	patch := l.prepared("trusted", run, binding(`{}`))
 	// The session is given a copy of the checkout's key, seeded into its
 	// home under the key's own name, and pointed at it.
@@ -324,13 +324,13 @@ func TestTheSessionsKeyIsTheCheckoutsAndNeverTheRealOne(t *testing.T) {
 	if !slices.Contains(l.minted, sa+" mint "+run) {
 		t.Errorf("no first token was minted: %q", l.minted)
 	}
-	if !slices.Contains(l.units.log, "start chase-gcloud-renew@agent-trusted-1-2.service") {
+	if !slices.Contains(l.units.log, "start chase-gcloud-renew@chase-trusted-1-2.service") {
 		t.Errorf("the renewer was not started: %q", l.units.log)
 	}
 
 	// Another account, launched from the same checkout, has a key of its
 	// own and leaves this one's for the session that has it.
-	other := l.session("agent-trusted-3-4", "other@p.iam.gserviceaccount.com")
+	other := l.session("chase-trusted-3-4", "other@p.iam.gserviceaccount.com")
 	theirs := l.prepared("trusted", other, json.RawMessage(`{"serviceAccount": "other@p.iam.gserviceaccount.com", "credential": {"secret": "gcloud-key"}}`)).
 		Env["GOOGLE_APPLICATION_CREDENTIALS"]
 	tb, _ := os.ReadFile(filepath.Join(l.dir, "checkout", filepath.Base(theirs)))
@@ -431,7 +431,7 @@ func TestConcurrentLaunchesMakeOneKey(t *testing.T) {
 // operation, what returns a credential too, is allowed where guarded is.
 func TestALooseTierAllowsWhatItSays(t *testing.T) {
 	l := newLaunch(t)
-	loose := l.prepared("loose", l.session("agent-loose-1", sa), binding(`{}`))
+	loose := l.prepared("loose", l.session("chase-loose-1", sa), binding(`{}`))
 	r := route(t, loose, "gcloud")
 	last := r.Paths[len(r.Paths)-1]
 	if !slices.Equal(last.Methods, every) || last.Prefix != "/" || last.Path != "" || last.Ask || last.Refuse || last.Operation != nil ||
@@ -449,7 +449,7 @@ func TestALooseTierAllowsWhatItSays(t *testing.T) {
 // refuses what returns a credential.
 func TestAClosedTierRefusesTheFloor(t *testing.T) {
 	l := newLaunch(t)
-	closed := l.prepared("closed", l.session("agent-closed-1", sa), binding(`{}`))
+	closed := l.prepared("closed", l.session("chase-closed-1", sa), binding(`{}`))
 	r := route(t, closed, "gcloud")
 	if len(r.Paths) == 0 || r.Unmatched != "refuse" {
 		t.Fatalf("the closed route has %d rules, unmatched %q", len(r.Paths), r.Unmatched)
@@ -496,7 +496,7 @@ func TestWhatEndsTheLaunch(t *testing.T) {
 	} {
 		l := newLaunch(t)
 		l.rc = c.rc
-		_, err := l.prepare(c.tier, l.session("agent-trusted-1-2", sa), c.binding)
+		_, err := l.prepare(c.tier, l.session("chase-trusted-1-2", sa), c.binding)
 		if err == nil {
 			t.Errorf("%s was not refused", c.what)
 		} else if !strings.Contains(err.Error(), c.needle) {
@@ -509,20 +509,20 @@ func TestWhatEndsTheLaunch(t *testing.T) {
 
 	l := newLaunch(t)
 	l.rc = renew.Transient
-	if _, err := l.prepare("trusted", l.session("agent-trusted-1-2", sa), binding(`{}`)); err != nil {
+	if _, err := l.prepare("trusted", l.session("chase-trusted-1-2", sa), binding(`{}`)); err != nil {
 		t.Errorf("Google out of reach ended the launch: %v", err)
 	}
 	if want := "chase: /ws: gcloud: no token yet, Google did not answer; the renewer keeps trying\n"; l.stderr.String() != want {
 		t.Errorf("Google out of reach was said as %q", l.stderr.String())
 	}
-	if !slices.Contains(l.units.log, "start chase-gcloud-renew@agent-trusted-1-2.service") {
+	if !slices.Contains(l.units.log, "start chase-gcloud-renew@chase-trusted-1-2.service") {
 		t.Error("the renewer was not started to keep trying")
 	}
 
 	l = newLaunch(t)
 	l.units.err = fmt.Errorf("no manager")
-	if _, err := l.prepare("trusted", l.session("agent-trusted-1-2", sa), binding(`{}`)); err == nil ||
-		err.Error() != "/ws: gcloud: could not start chase-gcloud-renew@agent-trusted-1-2" {
+	if _, err := l.prepare("trusted", l.session("chase-trusted-1-2", sa), binding(`{}`)); err == nil ||
+		err.Error() != "/ws: gcloud: could not start chase-gcloud-renew@chase-trusted-1-2" {
 		t.Errorf("a renewer that did not start: %v", err)
 	}
 }
@@ -552,7 +552,7 @@ func TestTheSecretMustBeAServiceAccountKey(t *testing.T) {
 // A tier without gcloud says so, and keeps no secret.
 func TestATierWithoutGcloudIgnoresIt(t *testing.T) {
 	l := newLaunch(t)
-	run := l.session("agent-strict-1", sa)
+	run := l.session("chase-strict-1", sa)
 	p, err := l.prepare("strict", run, binding(`{}`))
 	if err != nil {
 		t.Fatal(err)
@@ -575,15 +575,15 @@ func TestATierWithoutGcloudIgnoresIt(t *testing.T) {
 func TestStopStopsTheRenewerOfASessionWithASecret(t *testing.T) {
 	l := newLaunch(t)
 	l.app.Config.RuntimeDir = t.TempDir()
-	os.MkdirAll(filepath.Join(l.app.Config.RuntimeDir, "chase", "agent-trusted-1-2", "secrets"), 0o700)
-	os.WriteFile(filepath.Join(l.app.Config.RuntimeDir, "chase", "agent-trusted-1-2", "secrets", "gcloud"), []byte("{}"), 0o600)
-	if err := l.app.Stop(context.Background(), "agent-trusted-1-2"); err != nil {
+	os.MkdirAll(filepath.Join(l.app.Config.RuntimeDir, "chase", "chase-trusted-1-2", "secrets"), 0o700)
+	os.WriteFile(filepath.Join(l.app.Config.RuntimeDir, "chase", "chase-trusted-1-2", "secrets", "gcloud"), []byte("{}"), 0o600)
+	if err := l.app.Stop(context.Background(), "chase-trusted-1-2"); err != nil {
 		t.Fatal(err)
 	}
-	if err := l.app.Stop(context.Background(), "agent-trusted-3-4"); err != nil {
+	if err := l.app.Stop(context.Background(), "chase-trusted-3-4"); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(l.units.log, []string{"stop chase-gcloud-renew@agent-trusted-1-2.service"}) {
+	if !slices.Equal(l.units.log, []string{"stop chase-gcloud-renew@chase-trusted-1-2.service"}) {
 		t.Errorf("stopped %q", l.units.log)
 	}
 }
@@ -599,15 +599,15 @@ func TestSystemctlIsReachedWithTheRuntimeDir(t *testing.T) {
 	}
 	var out bytes.Buffer
 	s := Systemctl{Path: bin, RuntimeDir: "/run/user/1000", Output: &out}
-	if err := s.Start(context.Background(), "chase-gcloud-renew@agent-trusted-1-2.service"); err != nil {
+	if err := s.Start(context.Background(), "chase-gcloud-renew@chase-trusted-1-2.service"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Stop(context.Background(), "chase-gcloud-renew@agent-trusted-1-2.service"); err == nil {
+	if err := s.Stop(context.Background(), "chase-gcloud-renew@chase-trusted-1-2.service"); err == nil {
 		t.Error("a failed stop was not said")
 	}
 	b, _ := os.ReadFile(log)
-	if string(b) != "/run/user/1000 --user start chase-gcloud-renew@agent-trusted-1-2.service\n"+
-		"/run/user/1000 --user stop chase-gcloud-renew@agent-trusted-1-2.service\n" {
+	if string(b) != "/run/user/1000 --user start chase-gcloud-renew@chase-trusted-1-2.service\n"+
+		"/run/user/1000 --user stop chase-gcloud-renew@chase-trusted-1-2.service\n" {
 		t.Errorf("systemctl was asked %q", b)
 	}
 }
@@ -621,7 +621,7 @@ func TestAPrepareMintsTheFirstTokenFromGoogle(t *testing.T) {
 	defer google.Close()
 	l.app.Mint = nil
 	l.app.Config.TokenURL = google.TokenURL()
-	run := l.session("agent-trusted-1-2", sa)
+	run := l.session("chase-trusted-1-2", sa)
 	if _, err := l.prepare("trusted", run, binding(`{}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -696,20 +696,20 @@ func TestAPrepareStartsTheRenewerWithTheConfiguredSystemctl(t *testing.T) {
 	l.app.Units = nil
 	l.app.Config.Systemctl = bin
 	l.app.Config.RuntimeDir = "/run/user/1000"
-	l.prepared("trusted", l.session("agent-trusted-1-2", sa), binding(`{}`))
+	l.prepared("trusted", l.session("chase-trusted-1-2", sa), binding(`{}`))
 	b, _ := os.ReadFile(log)
-	if string(b) != "/run/user/1000 --user start chase-gcloud-renew@agent-trusted-1-2.service\n" {
+	if string(b) != "/run/user/1000 --user start chase-gcloud-renew@chase-trusted-1-2.service\n" {
 		t.Errorf("systemctl was asked %q", b)
 	}
 
 	// A Config the module did not fill is said to be one, and ends the
 	// launch as a failed start did.
 	l.app.Config.Systemctl = ""
-	if _, err := l.prepare("trusted", l.session("agent-trusted-1-2", sa), binding(`{}`)); err == nil ||
-		!strings.Contains(err.Error(), "could not start chase-gcloud-renew@agent-trusted-1-2") {
+	if _, err := l.prepare("trusted", l.session("chase-trusted-1-2", sa), binding(`{}`)); err == nil ||
+		!strings.Contains(err.Error(), "could not start chase-gcloud-renew@chase-trusted-1-2") {
 		t.Errorf("a launch with no systemctl: %v", err)
 	}
-	if !strings.Contains(l.stderr.String(), "chase: gcloud: no systemctl, or no runtime directory, to start chase-gcloud-renew@agent-trusted-1-2.service with") {
+	if !strings.Contains(l.stderr.String(), "chase: gcloud: no systemctl, or no runtime directory, to start chase-gcloud-renew@chase-trusted-1-2.service with") {
 		t.Errorf("said %q", l.stderr.String())
 	}
 }

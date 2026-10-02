@@ -22,7 +22,7 @@ func TestMain(m *testing.M) {
 }
 
 // world is the selector check's: its rules are the example's shape at paths
-// under the test's own directory, since agent-tier compares resolved paths.
+// under the test's own directory, since `chase tier` compares resolved paths.
 type world struct {
 	t   *testing.T
 	r   string
@@ -42,10 +42,10 @@ func newWorld(t *testing.T) *world {
 				{Checkouts: map[string]string{"alice/nix-config": r + "/p/nix-config"}},
 				{Checkouts: map[string]string{"alice/bare": r + "/p/bare"}},
 			}},
-			"strict": {Launcher: "/launchers/agent-strict", Match: []selector.Rule{
+			"strict": {Launcher: "/launchers/chase-strict", Match: []selector.Rule{
 				{Repos: []string{"alice/nix-config"}},
 			}},
-			"trusted": {Launcher: "/launchers/agent-trusted", Match: []selector.Rule{
+			"trusted": {Launcher: "/launchers/chase-trusted", Match: []selector.Rule{
 				{Owners: []string{"alice"}, RootAuthorDomains: []string{"example.com"}},
 			}},
 		},
@@ -76,12 +76,12 @@ func (w *world) write(path, content string) {
 	}
 }
 
-// agentTier is agent-tier ARGS, as it prints.
-func (w *world) agentTier(args ...string) string {
+// tier is `chase tier ARGS`, as it prints.
+func (w *world) tier(args ...string) string {
 	w.t.Helper()
 	var out, errb bytes.Buffer
-	if rc := selector.RunAgentTier(context.Background(), w.s, args, &out, &errb); rc != 0 {
-		w.t.Fatalf("agent-tier %q: %d %s", args, rc, errb.String())
+	if rc := selector.RunTier(context.Background(), w.s, args, &out, &errb); rc != 0 {
+		w.t.Fatalf("chase tier %q: %d %s", args, rc, errb.String())
 	}
 	return out.String()
 }
@@ -89,9 +89,9 @@ func (w *world) agentTier(args ...string) string {
 // expect is the check's: DIR's tier, and a substring of --dry-run's reason.
 func (w *world) expect(dir, tier, reason string) {
 	w.t.Helper()
-	lines := strings.Split(strings.TrimSuffix(w.agentTier("--dry-run", dir), "\n"), "\n")
+	lines := strings.Split(strings.TrimSuffix(w.tier("--dry-run", dir), "\n"), "\n")
 	got := lines[len(lines)-1]
-	if have := strings.TrimSuffix(w.agentTier(dir), "\n"); have != tier {
+	if have := strings.TrimSuffix(w.tier(dir), "\n"); have != tier {
 		w.t.Errorf("%s is '%s', not '%s': %s", dir, have, tier, got)
 	}
 	if !strings.Contains(got, reason) {
@@ -101,7 +101,7 @@ func (w *world) expect(dir, tier, reason string) {
 
 func (w *world) ifGone(dir string) string {
 	w.t.Helper()
-	return strings.TrimSuffix(w.agentTier("--if-gone", dir), "\n")
+	return strings.TrimSuffix(w.tier("--if-gone", dir), "\n")
 }
 
 // workspace is the module's workspace snippet, run in dir.
@@ -120,7 +120,7 @@ func (w *world) guard(ws string) (string, error) {
 }
 
 // THE SELECTOR, run against real repositories, as the flake's selector check
-// ran agent-tier.
+// ran `chase tier`.
 func TestTheSelectorAgainstRealRepositories(t *testing.T) {
 	w := newWorld(t)
 	r := w.r
@@ -555,7 +555,7 @@ func (w *world) boundedFiles() {
 	cyclicPack(t, a, strings.Repeat("2", 40), r+"/p/cyclic/.git/objects/pack")
 	w.write(r+"/p/cyclic/.git/"+strings.TrimSpace(git("-C", r+"/p/cyclic", "symbolic-ref", "HEAD")), a+"\n")
 	start := time.Now()
-	w.agentTier(r + "/p/cyclic")
+	w.tier(r + "/p/cyclic")
 	if d := time.Since(start); d > 60*time.Second {
 		t.Errorf("a cyclic pack was not given up on: %s", d)
 	}

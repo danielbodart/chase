@@ -16,6 +16,7 @@ import (
 
 	"github.com/danielbodart/chase/internal/apps"
 	"github.com/danielbodart/chase/internal/apps/docker"
+	appsssh "github.com/danielbodart/chase/internal/apps/ssh"
 	"github.com/danielbodart/chase/internal/grant"
 	"github.com/danielbodart/chase/internal/session"
 )
@@ -366,6 +367,125 @@ func frisketCheck(t *testing.T, path string) {
 	if out, err := exec.Command(bin, "check", path).CombinedOutput(); err != nil {
 		t.Errorf("frisket refused %s: %v: %s", path, err, out)
 	}
+}
+
+// SSH, LAUNCHED (docs/apps/ssh.md): each machine a grant names is an SSH
+// route in the session's document, logging in with the machine's
+// credential and answering commands by the catalogue, the tier and the
+// project's lists, which frisket loads. A tier without SSH says so and adds
+// none; a grant frisket would refuse, or the catalogue, is refused before
+// anyone is asked, and one naming an operation the catalogue has since
+// lost ends the launch.
+func TestSSHIsLaunchedAsTheGrantNamesIt(t *testing.T) {
+	h := newHarness(t)
+	ws := h.root() + "/p/ops"
+	h.repo(ws, "git@github.com:Example/Ops.git")
+	h.cfg.Apps["ssh"] = grant.App{Credential: no()}
+	h.cfg.SSH = &appsssh.Config{
+		Tiers:     map[string]appsssh.Tier{"trusted": {Writes: "ask", Guarded: "refuse", Unmatched: "ask", Env: []string{"LANG", "LC_*"}}},
+		Catalogue: "../../apps/ssh/operations.json",
+		Agent:     "/run/user/1000/gcr/ssh",
+	}
+	for _, tier := range []string{"trusted", "plain"} {
+		write(t, h.cfg.Policies+"/"+tier+".json", `{"name": "`+tier+`", "allow": ["github.com"], "routes": []}`)
+	}
+	key := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl server"
+	// ops is server with members merged over its own, so that none is
+	// named twice, which is refused before any rule of the machine's.
+	ops := func(members string) string {
+		h := map[string]any{"address": "192.168.1.10", "user": "ops", "hostKeys": []string{key}}
+		if members != "" {
+			if err := json.Unmarshal([]byte(members), &h); err != nil {
+				t.Fatal(err)
+			}
+		}
+		b, err := json.Marshal(map[string]any{"apps": map[string]any{"ssh": map[string]any{"hosts": map[string]any{"server": h}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+
+	h.launched(ws, "m1", "trusted", ops(`{"refuse": ["category:packages"]}`))
+	d := h.policyDoc("m1")
+	if len(d.SSH) != 1 {
+		t.Fatalf("there is not one SSH route: %+v", d.SSH)
+	}
+	r := d.SSH[0]
+	if r.Name != "server" || r.Address != "192.168.1.10" || r.User != "ops" || !slices.Equal(r.HostKeys, []string{key}) ||
+		r.Agent != "/run/user/1000/gcr/ssh" || r.KeyFile != "" || r.Unmatched != "ask" || !slices.Equal(r.Env, []string{"LANG", "LC_*"}) {
+		t.Errorf("the route is not the grant's and the machine's: %+v", r)
+	}
+	answers := map[string]string{}
+	for _, e := range r.Exec {
+		if e.Arg == "" {
+			answers[e.Command] = map[bool]string{true: "ask", false: "allow"}[e.Ask]
+			if e.Refuse {
+				answers[e.Command] = "refuse"
+			}
+		}
+	}
+	for command, want := range map[string]string{"ls **": "allow", "apt list **": "refuse", "systemctl restart **": "ask", "rm **": "refuse"} {
+		if answers[command] != want {
+			t.Errorf("%s is %q, not %s", command, answers[command], want)
+		}
+	}
+	if !slices.Equal(d.Allow, []string{"github.com"}) || len(d.Routes) != 0 || len(h.env()) != 0 {
+		t.Errorf("SSH added more than its route: %+v %q", d, h.env())
+	}
+	frisketCheck(t, h.dir+"/run/chase/m1/policy.json")
+
+	h.launched(ws, "m2", "plain", ops(""))
+	if d := h.policyDoc("m2"); len(d.SSH) != 0 {
+		t.Errorf("a tier without SSH has a route: %+v", d.SSH)
+	}
+	h.mustSay("chase: " + ws + ": ssh ignored: plain has no ssh")
+
+	asked := len(h.approvals())
+	if h.approve(ws, "m3", "trusted", ops(`{"address": "server.lan"}`)) == 0 {
+		t.Error("a machine named by a name was approved")
+	}
+	h.mustSay("apps.ssh.hosts.server.address")
+	h.mustSay("a literal IP")
+	if len(h.approvals()) != asked {
+		t.Error("a grant frisket would refuse was put to a person")
+	}
+
+	// An operation the catalogue does not have, or a pattern it overrules,
+	// is refused before anyone is asked, as a launch would refuse it.
+	for _, tc := range []struct{ grant, said string }{
+		{`{"allow": ["restart-everything"]}`, `apps.ssh.hosts.server: "restart-everything" is no operation of the catalogue's`},
+		{`{"allow": ["systemctl restart *"]}`, `is as literal as the catalogue's "systemctl restart **" (service-restart)`},
+	} {
+		if h.approve(ws, "m4", "trusted", ops(tc.grant)) == 0 {
+			t.Errorf("%s was approved", tc.grant)
+		}
+		h.mustSay(tc.said)
+		if len(h.approvals()) != asked {
+			t.Errorf("%s was put to a person", tc.grant)
+		}
+	}
+	// In a tier without SSH it says nothing of the catalogue's: its
+	// launches add no route.
+	h.approved(ws, "m5", "plain", ops(`{"allow": ["restart-everything"]}`))
+
+	// A grant approved under a catalogue that had an operation still ends
+	// the launch once the catalogue has it no longer.
+	ops0, err := os.ReadFile(h.cfg.SSH.Catalogue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wider := filepath.Join(t.TempDir(), "operations.json")
+	write(t, wider, strings.Replace(string(ops0), "[", `[{"id": "restart-everything", "summary": "Restart everything", "class": "guarded", "category": "services", "commands": ["restart-everything"]},`, 1))
+	narrower := h.cfg.SSH.Catalogue
+	h.cfg.SSH.Catalogue = wider
+	h.approved(ws, "m6", "trusted", ops(`{"allow": ["restart-everything"]}`))
+	h.cfg.SSH.Catalogue = narrower
+	if h.launch("trusted", ws, "m6") == 0 {
+		t.Error("an operation the catalogue no longer has was launched")
+	}
+	h.mustSay(`chase: ` + ws + `: ssh: apps.ssh.hosts.server: "restart-everything" is no operation of the catalogue's`)
+	h.mustSay("chase: " + ws + ": ssh could not be prepared")
 }
 
 // The ported docker-launch check, as far as the launch goes (the prepare's

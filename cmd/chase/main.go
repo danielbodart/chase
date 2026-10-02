@@ -7,8 +7,7 @@
 //
 // It is one binary with many names. Run as `claude` or `codex` (the links
 // the module puts on the person's PATH), it is that agent's wrapper; run as
-// `agent-tier`, it is `chase tier`; run as anything else, the first argument
-// names the command.
+// anything else, the first argument names the command.
 package main
 
 import (
@@ -50,9 +49,9 @@ const usage = `chase -- which sandbox a checkout gets, and which credential each
         sandbox, or on the host for a bare tier.
 
   chase tier [DIR] | --if-gone DIR | --dry-run DIR...
-        The tier a checkout is sorted into (also run as agent-tier):
-        --if-gone, the tier it would be without its own .git; --dry-run, a
-        table of each directory's tier and why.
+        The tier a checkout is sorted into; --if-gone, the tier it would be
+        without its own .git; --dry-run, a table of each directory's tier
+        and why.
 
   chase docker [DIR]
         Where a checkout's Docker containers are reached from the host, as
@@ -112,8 +111,6 @@ func main() {
 	switch name {
 	case "claude", "codex":
 		exit(wrap(ctx, cfgPath, name, args))
-	case "agent-tier":
-		exit(runTier(ctx, cfgPath, args))
 	}
 
 	if len(args) >= 2 && args[0] == "-config" {
@@ -207,7 +204,7 @@ func runTier(ctx context.Context, cfgPath string, args []string) int {
 		fmt.Fprintf(os.Stderr, "chase tier: %v\n", err)
 		return 1
 	}
-	return selector.RunAgentTier(ctx, s, args, os.Stdout, os.Stderr)
+	return selector.RunTier(ctx, s, args, os.Stdout, os.Stderr)
 }
 
 func runGuard(ctx context.Context, cfgPath string, args []string) int {
@@ -427,6 +424,7 @@ func runCodex(ctx context.Context, cfgPath, command string) error {
 	if cfg.Codex == nil {
 		return errors.New("the module configures no codex")
 	}
+	codex.MoveState(*cfg.Codex, os.Stderr)
 	if command == "codex-placeholder" {
 		return codex.WritePlaceholder(*cfg.Codex)
 	}

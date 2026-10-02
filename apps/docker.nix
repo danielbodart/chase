@@ -95,7 +95,7 @@ in
       }
     ]) cfg.tiers);
 
-    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf tier.apps.docker.enable {
+    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" (mkIf tier.apps.docker.enable {
       config.environment = {
         systemPackages = [ tier.apps.docker.package ];
         # The session's CA, which frisket mounts in its namespace, is what

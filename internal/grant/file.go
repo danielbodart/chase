@@ -12,6 +12,8 @@ import (
 	"github.com/tailscale/hujson"
 
 	"github.com/danielbodart/frisket/docker"
+
+	appsssh "github.com/danielbodart/chase/internal/apps/ssh"
 )
 
 // FileName is the grant's file, at the checkout's root.
@@ -69,6 +71,9 @@ type Apps struct {
 	Git         *Lists      `json:"git,omitempty"`
 	Github      *Lists      `json:"github,omitempty"`
 	Huggingface *Lists      `json:"huggingface,omitempty"`
+	// SSH is the machines the project's sessions run commands on, each
+	// with its own lists (internal/apps/ssh).
+	SSH *appsssh.Binding `json:"ssh,omitempty"`
 }
 
 // Lists is an app's lists (PLAN.md, decision 18). What a project names
@@ -330,6 +335,11 @@ func (f File) check() error {
 					}
 				}
 			}
+		}
+	}
+	if s := b.SSH; s != nil {
+		if err := s.Check("apps.ssh"); err != nil {
+			return err
 		}
 	}
 	for _, a := range []struct {

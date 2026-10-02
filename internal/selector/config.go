@@ -12,7 +12,7 @@ import (
 )
 
 // Config is what the NixOS module tells the selector: chase.order,
-// chase.fallback and chase.tiers, as they were spliced into agent-tier's text,
+// chase.fallback and chase.tiers, as they were spliced into the selector script's text,
 // and the paths of what it runs. The module writes it as JSON.
 type Config struct {
 	// Git is the absolute path of the git binary every git call runs.
@@ -43,7 +43,7 @@ type Tier struct {
 	Match []Rule `json:"match"`
 
 	// Launcher is the absolute path of a sandbox tier's launcher, `lib.getExe
-	// config.flong."agent-<name>".launcher`, which a wrapper execs with the
+	// config.flong."chase-<name>".launcher`, which a wrapper execs with the
 	// agent's name and its arguments. Empty for a bare tier.
 	Launcher string `json:"launcher,omitempty"`
 

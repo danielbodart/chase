@@ -115,7 +115,7 @@ in
   config = {
     assertions = apps.credentialAssertions cfg.tiers "git";
 
-    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf tier.apps.git.enable {
+    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" (mkIf tier.apps.git.enable {
       # Read-only: a session uses the user's configuration and cannot change
       # it.
       bindMounts = mkIf tier.apps.git.authenticated (lib.listToAttrs (map

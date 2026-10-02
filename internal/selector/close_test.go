@@ -39,12 +39,12 @@ func TestEntryPointsLeaveNoEmptyRepositoryBehind(t *testing.T) {
 		}
 	}
 	var out, errb bytes.Buffer
-	if code := selector.RunAgentTier(ctx, s, []string{r + "/c"}, &out, &errb); code != 0 || out.String() != "host\n" {
-		t.Fatalf("agent-tier: %d %q %q", code, out.String(), errb.String())
+	if code := selector.RunTier(ctx, s, []string{r + "/c"}, &out, &errb); code != 0 || out.String() != "host\n" {
+		t.Fatalf("chase tier: %d %q %q", code, out.String(), errb.String())
 	}
-	left("agent-tier")
-	selector.RunAgentTier(ctx, s, []string{"--dry-run", r + "/c"}, &out, &errb)
-	left("agent-tier --dry-run")
+	left("chase tier")
+	selector.RunTier(ctx, s, []string{"--dry-run", r + "/c"}, &out, &errb)
+	left("chase tier --dry-run")
 	env := map[string]string{"workspace": r + "/c", "binds": ""}
 	selector.RunGuard(ctx, s, []string{"strict"}, func(k string) (string, bool) { v, ok := env[k]; return v, ok }, &errb)
 	left("the guard")

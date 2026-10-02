@@ -165,8 +165,10 @@ func TestAnExecHookWithNoGrantAppliesNone(t *testing.T) {
 // What the script and its postStart left on the host, and nothing reads
 // now -- each checkout's old environment directory, Google Cloud's old
 // session keys among it, and each tier's copy of the Cloudflare account id
-// -- is gone once a launch has run, with or without a grant; what is
-// kept now is not touched.
+// -- is gone once a launch has run, with or without a grant, and
+// ~/.local/state/agents with it once nothing else is in it; what is kept
+// now is not touched, nor codex's homes where an earlier chase kept them,
+// which are codex's to move (internal/apps/codex).
 func TestTheExecHookRemovesWhatEarlierVersionsLeft(t *testing.T) {
 	for _, takes := range []bool{true, false} {
 		h := newHarness(t)
@@ -180,7 +182,8 @@ func TestTheExecHookRemovesWhatEarlierVersionsLeft(t *testing.T) {
 		for _, f := range []string{state + "/env/0123/gcloud-key-0.json", state + "/env/0123/env", cloudflare + "/trusted/account-id"} {
 			write(t, f, "x")
 		}
-		kept := []string{state + "/checkouts/0123/gcloud-key-0.json", h.cfg.Home + "/.local/state/agents/codex/-w/auth.json"}
+		former := h.cfg.Home + "/.local/state/agents/codex"
+		kept := []string{state + "/checkouts/0123/gcloud-key-0.json", h.cfg.Home + "/.local/state/chase/codex/-w/auth.json", former + "/-w/auth.json"}
 		for _, f := range kept {
 			write(t, f, "x")
 		}
@@ -196,8 +199,15 @@ func TestTheExecHookRemovesWhatEarlierVersionsLeft(t *testing.T) {
 		}
 		for _, f := range kept {
 			if _, err := os.Stat(f); err != nil {
-				t.Errorf("takes=%v: %s was removed: %v", takes, filepath.Base(f), err)
+				t.Errorf("takes=%v: %s was removed: %v", takes, f, err)
 			}
+		}
+		if err := os.RemoveAll(former); err != nil {
+			t.Fatal(err)
+		}
+		h.exec(sessionConfig(h), takes, "trusted", "/w", "m2", "shell")
+		if _, err := os.Lstat(filepath.Dir(former)); !os.IsNotExist(err) {
+			t.Errorf("takes=%v: the empty agents directory was left: %v", takes, err)
 		}
 	}
 }

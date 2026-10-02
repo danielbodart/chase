@@ -74,7 +74,7 @@ in
   config = {
     assertions = apps.credentialAssertions cfg.tiers "github";
 
-    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf (tier.apps.github.enable && tier.apps.github.authenticated) {
+    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" (mkIf (tier.apps.github.enable && tier.apps.github.authenticated) {
       config = {
         environment.systemPackages = [ tier.apps.github.package ];
         # gh makes no request until it thinks it is logged in.

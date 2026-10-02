@@ -29,7 +29,7 @@ func sameJSON(t *testing.T, a, b string) bool {
 
 func config(t *testing.T) Config {
 	home := t.TempDir()
-	state := filepath.Join(home, ".local", "state", "agents", "codex")
+	state := filepath.Join(home, ".local", "state", "chase", "codex")
 	return Config{
 		Auth:        filepath.Join(home, ".codex", "auth.json"),
 		StateDir:    state,

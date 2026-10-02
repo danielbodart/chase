@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -125,6 +126,20 @@ func Approve(ctx context.Context, c Config, ws, machine, tier string, stderr io.
 	out, err := ParseFile(b)
 	if err != nil {
 		return Result{}, refuse("%s: %s: %v", ws, FileName, err)
+	}
+	// SSH's lists are the catalogue's ids and categories, and patterns it
+	// may overrule, which only the catalogue says: refused here, before
+	// anyone is asked, as Prepare would refuse them at every launch.
+	if c.SSH != nil {
+		var f File
+		if err := json.Unmarshal(out, &f); err != nil {
+			return Result{}, err
+		}
+		if f.Apps.SSH != nil {
+			if err := c.SSH.CheckBinding(tier, *f.Apps.SSH); err != nil {
+				return Result{}, refuse("%s: %s: %v", ws, FileName, err)
+			}
+		}
 	}
 	normal, err := policydoc.Normal(out)
 	if err != nil {

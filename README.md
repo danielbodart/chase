@@ -93,11 +93,11 @@ for each choice.
 |---|---|
 | `claude`, `codex` | Run the agent in the current directory's tier. |
 | `chase shell` | A login shell in that tier's sandbox, as an agent gets it. |
-| `agent-tier --dry-run DIR…` | Show each directory's tier and why. |
+| `chase tier --dry-run DIR…` | Show each directory's tier and why. |
 | `chase docker [DIR]` | Show a checkout's Docker project, address and ports. |
 
 ```
-$ agent-tier --dry-run ~ ~/Projects/thing ~/Projects/a-fork
+$ chase tier --dry-run ~ ~/Projects/thing ~/Projects/a-fork
 DIRECTORY                  TIER      REASON
 alice                      host      path /home/alice
 thing                      trusted   owner alice, first commit by alice@example.com
@@ -164,6 +164,7 @@ lives.
 | [huggingface](docs/apps/huggingface.md) | `hf` | ✓ | `session` `workspace` `tier` `host` | | ✓ |
 | [gcloud](docs/apps/gcloud.md) | gcloud, as a project's service account | grant only | | | ✓ |
 | [docker](docs/apps/docker.md) | Docker and Compose, on your rootless daemon | | | | |
+| [ssh](docs/apps/ssh.md) | commands on a project's machines, by SSH through frisket | | | | ✓ |
 | [mise](docs/apps/mise.md) | mise toolchains | | `session` `tier` `host` | ✓ | |
 
 Every app takes the same settings, where they apply:
@@ -249,7 +250,7 @@ data and never run.
 | Key | |
 |---|---|
 | `secrets` | The checkout's sops file. Each `credential.secret` is a key in it. |
-| `apps.<app>` | The app's credential, its other settings, and `allow`, `ask` and `refuse` lists of operation ids or `category:<name>`. |
+| `apps.<app>` | The app's credential, its other settings, and `allow`, `ask` and `refuse` lists of operation ids or `category:<name>`. ssh's lists are each host's, and take command patterns too, `docker compose ps **` ([docs/apps/ssh.md](docs/apps/ssh.md)). |
 | `seccomp` | Syscalls to `allow` or `deny` beyond the tier's filter. |
 
 A grant applies only in a tier with `grants = true`. An agent can write to its

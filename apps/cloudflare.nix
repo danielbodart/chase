@@ -112,7 +112,7 @@ in
   config = {
     assertions = apps.credentialAssertions cfg.tiers "cloudflare";
 
-    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" (mkIf tier.apps.cloudflare.enable {
+    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" (mkIf tier.apps.cloudflare.enable {
       config = {
         environment.systemPackages = [ tier.apps.cloudflare.package ];
         environment.variables.CLOUDFLARE_API_TOKEN = cfg.placeholder;

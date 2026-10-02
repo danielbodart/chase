@@ -74,7 +74,7 @@ in
         one but for `credentialFile`; the names it adds to `allow`; the
         session's `env`; and `envFromBinding`, variables taken from the
         binding's other fields. An app whose routes are made at launch
-        (Docker, Google Cloud) is Go instead (internal/apps), and needs an
+        (Docker, Google Cloud, SSH) is Go instead (internal/apps), and needs an
         entry here only to say `credential = false`.
 
         `credential`, true by default, says the app is bound only with the
@@ -99,7 +99,7 @@ in
       diff = "${pkgs.diffutils}/bin/diff";
     };
 
-    flong = lib.mapAttrs' (name: _: lib.nameValuePair "agent-${name}" {
+    flong = lib.mapAttrs' (name: _: lib.nameValuePair "chase-${name}" {
       # After the guard, before bwrap: the filter is fixed before anything in
       # the session runs, so this is where the grant is approved. It is
       # applied in the tier's exec, module.nix's, which runs next.
@@ -110,7 +110,7 @@ in
     # The session's own document, which exec writes for every launch, the
     # tier's own when the checkout has no grant: one path, so frisket has
     # nothing to choose, and {machine} is frisket's own to fill in.
-    services.frisket.flong = lib.mapAttrs' (name: _: lib.nameValuePair "agent-${name}" {
+    services.frisket.flong = lib.mapAttrs' (name: _: lib.nameValuePair "chase-${name}" {
       policyFile = "/run/user/${toString cfg.uid}/chase/{machine}/policy.json";
     }) tiers;
 

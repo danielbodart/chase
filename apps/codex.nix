@@ -11,9 +11,12 @@ let
 
   codexDir = "${cfg.home}/.codex";
   authFile = "${codexDir}/auth.json";
-  # The placeholder login, and each tier's own CODEX_HOME. Under the host's
+  # The placeholder login, and each tier's own CODEX_HOME. Under chase's
   # state directory: neither is the host's own login or state.
-  stateDir = "${cfg.home}/.local/state/agents/codex";
+  stateDir = "${cfg.home}/.local/state/chase/codex";
+  # Where an earlier chase kept it, moved from by the first `chase
+  # codex-placeholder` or `codex-refresh` to run (internal/apps/codex).
+  formerStateDir = "${cfg.home}/.local/state/agents/codex";
   placeholderFile = "${stateDir}/auth-placeholder.json";
 
   # What the container holds in place of the access token. cfg.placeholder
@@ -125,7 +128,9 @@ in
       wrappers.codex.hostCommand = [ "${base}/bin/codex" ];
       codex = {
         auth = authFile;
-        inherit stateDir;
+        inherit stateDir formerStateDir;
+        # To repoint each moved home's thread index (internal/apps/codex).
+        sqlite = lib.getExe' pkgs.sqlite "sqlite3";
         placeholder = placeholderFile;
       };
     };
@@ -149,7 +154,7 @@ in
       };
     };
 
-    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}"
+    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}"
       (mkIf tier.apps.codex.enable (mkMerge [
         { config.environment.systemPackages = [ tier.apps.codex.package ]; }
         (mkIf (tier.apps.codex.scope == "host") {

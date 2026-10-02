@@ -257,6 +257,7 @@ in
     ./apps/huggingface.nix
     ./apps/gcloud.nix
     ./apps/docker.nix
+    ./apps/ssh.nix
     ./apps/mise.nix
     ./apps/gcloud-renew.nix
     ./grant.nix
@@ -427,8 +428,8 @@ in
         }
         {
           assertion = !tier.bare || !(tier.grants
-            || config.containers ? "agent-${name}"
-            || config.flong ? "agent-${name}"
+            || config.containers ? "chase-${name}"
+            || config.flong ? "chase-${name}"
             || config.services.frisket.policies ? ${name});
           message = "chase.tiers.${name} is bare, and something gives it a sandbox's settings: an app enabled in it, or `grants`. A bare tier runs with none.";
         }
@@ -457,7 +458,7 @@ in
       runtime = "/run/user/${toString cfg.uid}";
       tiers = lib.mapAttrs (name: tier: {
         environment = lib.listToAttrs
-          config.environment.etc."flong/agent-${name}.zon".source.declaration.environment;
+          config.environment.etc."flong/chase-${name}.zon".source.declaration.environment;
         # A tier with a network publishes its ports on its project's own
         # address, which exec gives flong per launch (internal/grant's
         # Exec): 127.0.0.1 is only where a checkout with no project's go.
@@ -478,13 +479,13 @@ in
       enable = true;
       user = cfg.user;
       policies = lib.mapAttrs (_: tier: { allow = tier.allow; }) sandboxes;
-      flong = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" {
+      flong = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" {
         policy = name;
         set = if tier.egress == "direct" then "service" else "all";
       }) sandboxes;
     };
 
-    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" {
+    containers = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" {
       autoStart = false;
       privateNetwork = true;
       config = { pkgs, ... }: {
@@ -508,7 +509,7 @@ in
       };
     }) sandboxes;
 
-    flong = lib.mapAttrs' (name: tier: lib.nameValuePair "agent-${name}" ({
+    flong = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" ({
       inherit (tier) seccomp;
       user = cfg.user;
       # The payload, worked out on the host after seccompPolicy, from the
