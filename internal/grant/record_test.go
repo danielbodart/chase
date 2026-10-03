@@ -225,3 +225,54 @@ func TestAGrantsNetworkIsNames(t *testing.T) {
 		t.Errorf("every name became %q", d.Allow)
 	}
 }
+
+// A GRANT'S LAN is frisket's lan list: each name exact, lower-case and
+// once, never an address, a project's name or frisket's own; its ports
+// TCP's, each once, and none for every port. At launch each is put in the
+// session's document's lan and on its allowlist, as frisket requires, and
+// one that is a route's host is refused before frisket would refuse it.
+// The approval shows it as it shows the rest of the grant.
+func TestAGrantsLANIsFrisketsLANList(t *testing.T) {
+	for _, bad := range []string{
+		`{"network": {"lan": [{"name": "*.lan"}]}}`,
+		`{"network": {"lan": [{"name": "NAS.lan"}]}}`,
+		`{"network": {"lan": [{"name": "nas.lan."}]}}`,
+		`{"network": {"lan": [{"name": "192.168.1.10"}]}}`,
+		`{"network": {"lan": [{"name": "shop.example.internal"}]}}`,
+		`{"network": {"lan": [{"name": "docker.frisket.internal"}]}}`,
+		`{"network": {"lan": [{"name": "nas.lan"}, {"name": "nas.lan", "ports": [445]}]}}`,
+		`{"network": {"lan": [{"name": "nas.lan", "ports": [0]}]}}`,
+		`{"network": {"lan": [{"name": "nas.lan", "ports": [65536]}]}}`,
+		`{"network": {"lan": [{"name": "nas.lan", "ports": [445, 445]}]}}`,
+		`{"network": {"lan": [{"name": "nas.lan", "address": "192.168.1.10"}]}}`,
+		`{"network": {"lan": ["nas.lan"]}}`,
+	} {
+		if _, err := grant.ParseFile([]byte(bad)); err == nil {
+			t.Errorf("%s was read", bad)
+		}
+	}
+	h := newHarness(t)
+	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["api.github.com"], "routes": []}`)
+	ws := h.root() + "/w"
+	h.checkout(ws)
+	h.launched(ws, "m1", "trusted", `{"network": {"lan": [{"name": "nas.home.arpa", "ports": [445]}, {"name": "printer.lan"}]}}`)
+	d := h.policyDoc("m1")
+	if !slices.Equal(d.Allow, []string{"api.github.com", "nas.home.arpa", "printer.lan"}) {
+		t.Errorf("the LAN's names were not allowed: %q", d.Allow)
+	}
+	if got, _ := json.Marshal(d.LAN); string(got) != `[{"name":"nas.home.arpa","ports":[445]},{"name":"printer.lan"}]` {
+		t.Errorf("the document's lan is %s", got)
+	}
+	frisketCheck(t, h.dir+"/run/chase/m1/policy.json")
+	if asked := h.approvals(); len(asked) != 1 || !strings.Contains(asked[0].Diff, `"nas.home.arpa"`) || !strings.Contains(asked[0].Diff, `"lan"`) {
+		t.Errorf("the approval did not show the LAN: %+v", asked)
+	}
+
+	// A route's host is frisket's own address in the session's DNS.
+	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["*.nas.lan"], "routes": [{"name": "nas", "host": "*.nas.lan", "upstream": "https://nas.lan"}]}`)
+	h.approved(ws, "m2", "trusted", `{"network": {"lan": [{"name": "files.nas.lan"}]}}`)
+	if rc := h.launch("trusted", ws, "m2"); rc == 0 {
+		t.Error("a route's host was launched as a name on the LAN")
+	}
+	h.mustSay("network.lan files.nas.lan is the nas route's host")
+}

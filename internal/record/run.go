@@ -37,9 +37,9 @@ type Config struct {
 	// its audit arch and number.
 	Seccomp string `json:"seccomp"`
 	// Names are each recording tier's names file, flong's seccompProject
-	// names: the calls its filter allows, one a line, and its deny entries
-	// as -X lines. A recording from scratch, which logs every call, does
-	// not propose these.
+	// names: the calls its filter allows, one a line, its seccomp.deny
+	// already taken out. A recording from scratch, which logs every call,
+	// does not propose these.
 	Names map[string]string `json:"names,omitempty"`
 }
 
@@ -563,6 +563,9 @@ func Apply(c grant.Config, args []string, stdout, stderr io.Writer) int {
 		case ch.From != "":
 			added++
 			fmt.Fprintf(&b, "  %s moved to %s from %s\n", ch.Value, where, ch.From)
+		case ch.Widened:
+			added++
+			fmt.Fprintf(&b, "  %s widened in %s\n", ch.Value, where)
 		default:
 			added++
 			fmt.Fprintf(&b, "  %s added to %s\n", ch.Value, where)

@@ -458,9 +458,12 @@ that would give it, each in the list its answer says: `allow`, `ask` or
 was seen, never generalised, and a proposal changes nothing until `chase
 record apply` adds it to `chase.jsonc` and the changed grant is approved as
 any change is (decision 17). Recording is manual mode, guarded operations
-included; what no rule decides -- frisket's structural refusals, flong's
-fixed filters, the tier's own `seccomp.deny` -- stays refused, and is
-reported. The record launcher is never a wrapper's, nothing in a checkout
+included, and a call the tier's own `seccomp.deny` takes too: the tier is
+the ready-made fit and the grant the tailored one, so a grant's `allow`
+puts such a call back, as flong reads a project's lines over its
+declaration. What no rule decides -- frisket's structural refusals, but
+for a name on the local network, and flong's fixed filters -- stays
+refused, and is reported. The record launcher is never a wrapper's, nothing in a checkout
 selects it, its guard is the tier's, and what it records comes from the
 environment of the person who ran it. A syscall is learnt from the kernel's
 audit, by flong's `log` lines, and put down to the session in `chase
@@ -468,9 +471,10 @@ record` itself, by cgroup while the session lives: no hook runs while its
 processes do. A recording that refuses everything learns no syscall, since
 refused is what the filter does already. What a recording finds is widening
 alone: one from scratch shows every call made, but does not yet propose
-denying what the tier allows and the session never used; nor does a name on
-the local network, which only a recording dials, become an entry until a
-grant can admit one. See [docs/record.md](docs/record.md).
+denying what the tier allows and the session never used. A name on the
+local network, which frisket dials outside a recording only for a name in
+its document's `lan`, is proposed for the grant's `network.lan` with the
+ports it was dialled at. See [docs/record.md](docs/record.md).
 
 ## Considered and rejected
 

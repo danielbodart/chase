@@ -70,7 +70,7 @@
         # frisket's own code; and golang.org/x/crypto's ssh, which reads an SSH
         # grant's host keys as frisket does. The frisket-pin check holds
         # go.mod's frisket to the one flake.lock pins.
-        vendorHash = "sha256-vSNXEoQh2bSnBxhm0SsRgsBtW+OB0j00XqNmv8iS+ak=";
+        vendorHash = "sha256-sH8UVLTjliTC5xoYDMTVgtHBy5hr2AW5qFKbS+pkJmc=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -813,7 +813,7 @@
           # reaches chase with the input.
           #
           # Last, frisket itself loads a session's document built from the
-          # files, with the address and names `chase docker-address` gives, so
+          # files, with the address and names `chase project-address` gives, so
           # a table weaker than frisket's floor, or names frisket would not
           # derive, fails here rather than when a session will not start.
           docker-fields =
@@ -870,7 +870,7 @@
               # each body admit.json names.
               sample() {
                 local who
-                who=$(chase docker-address example/shop) || fail "shop was given no address"
+                who=$(chase project-address example/shop) || fail "shop was given no address"
                 jq -n --argjson who "$who" \
                   --slurpfile ops $app/operations.json --slurpfile admit $app/admit.json \
                   --slurpfile fields $app/fields.json --slurpfile source $app/source.json '{

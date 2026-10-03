@@ -1,4 +1,4 @@
-package dockerproject
+package projectaddr
 
 import (
 	"slices"

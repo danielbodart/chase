@@ -28,10 +28,10 @@ import (
 	"github.com/danielbodart/chase/internal/apps/codex"
 	"github.com/danielbodart/chase/internal/checkout"
 	"github.com/danielbodart/chase/internal/config"
-	"github.com/danielbodart/chase/internal/dockerproject"
 	"github.com/danielbodart/chase/internal/gcloud"
 	"github.com/danielbodart/chase/internal/gitsafe"
 	"github.com/danielbodart/chase/internal/grant"
+	"github.com/danielbodart/chase/internal/projectaddr"
 	"github.com/danielbodart/chase/internal/record"
 	"github.com/danielbodart/chase/internal/selector"
 	"github.com/danielbodart/chase/internal/session"
@@ -70,10 +70,10 @@ const usage = `chase -- which sandbox a checkout gets, and which credential each
         A recording's proposal, the last one's by default, added to its
         checkout's chase.jsonc.
 
-  chase docker-address OWNER/REPO
-        A project's Docker identity, as one line of JSON: its owner/repo
-        lower-cased, the loopback address everything it publishes is bound
-        to, and the .internal names that address is known by.
+  chase project-address OWNER/REPO
+        A project's address, as one line of JSON: its owner/repo
+        lower-cased, the loopback address its dev servers and containers
+        are published at, and the .internal names that address is known by.
 
   chase version
         The version this binary was built as.
@@ -173,8 +173,8 @@ func main() {
 		exit(runCheckout(ctx, cfgPath, command, args))
 	case "copy-tracked":
 		exit(snapshot.Run(args, os.Stdin, os.Stdout, os.Stderr))
-	case "docker-address":
-		err = runDockerAddress(args, os.Stdout)
+	case "project-address":
+		err = runProjectAddress(args, os.Stdout)
 	case "claude-refresh":
 		err = runClaude(ctx, cfgPath)
 	case "codex-refresh", "codex-placeholder":
@@ -538,15 +538,15 @@ func runCodex(ctx context.Context, cfgPath, command string) error {
 	return codex.RunRefresh(ctx, *cfg.Codex, os.Stderr)
 }
 
-func runDockerAddress(argv []string, out io.Writer) error {
-	fs := flag.NewFlagSet("docker-address", flag.ContinueOnError)
+func runProjectAddress(argv []string, out io.Writer) error {
+	fs := flag.NewFlagSet("project-address", flag.ContinueOnError)
 	if err := fs.Parse(argv); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: chase docker-address OWNER/REPO")
+		return errors.New("usage: chase project-address OWNER/REPO")
 	}
-	p, err := dockerproject.Of(fs.Arg(0))
+	p, err := projectaddr.Of(fs.Arg(0))
 	if err != nil {
 		return err
 	}

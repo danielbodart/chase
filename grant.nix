@@ -44,7 +44,7 @@ let
 
   # Every tier's pinned checkouts, as the selector holds them: each
   # owner/repo, lower-cased, and every path any tier pins it at. What names a
-  # checkout's Docker project is held to these both ways.
+  # checkout's project is held to these both ways.
   checkouts = lib.zipAttrsWith (_: paths: lib.unique (lib.sort lib.lessThan paths))
     (lib.concatMap (t: lib.concatMap (rule: lib.mapAttrsToList (s: p: { ${lib.toLower s} = p; }) rule.checkouts) t.match)
       (lib.attrValues cfg.tiers));

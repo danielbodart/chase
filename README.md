@@ -94,7 +94,7 @@ for each choice.
 | `claude`, `codex` | Run the agent in the current directory's tier. |
 | `chase shell` | A login shell in that tier's sandbox, as an agent gets it. |
 | `chase tier --dry-run DIR…` | Show each directory's tier and why. |
-| `chase docker [DIR]` | Show a checkout's Docker project, address and ports. |
+| `chase docker [DIR]` | Show a checkout's project, its address and name, and its approved Docker ports. |
 | `chase record [--default allow\|ask\|refuse] [--base tier\|none] AGENT` | Run the agent in its tier as a recording: what the tier would refuse or ask about is answered, by you or `--default`, and written down; at the end, a report and a proposal of the grant entries it needed. See [docs/record.md](docs/record.md). |
 | `chase record apply [--last\|MACHINE]` | Add a recording's proposal to its checkout's `chase.jsonc`. |
 
@@ -128,7 +128,7 @@ a-fork                     strict    first commit by someone@upstream.org
 | `bare` | `false` | Run on the host, with no sandbox. Takes no other setting but app `trust`. |
 | `egress` | — | `direct`: its own network. `frisket`: frisket only. Required for a sandbox. |
 | `allow` | `[]` | Names frisket resolves for it, beyond its apps' own. `"*"` for any. |
-| `forwardPorts` | `[]` | Ports published on the host. `"auto"`: whatever a session listens on. |
+| `forwardPorts` | `[]` | Ports published on the host, at the [project's address](#project-addresses). `"auto"`: whatever a session listens on. |
 | `seccomp` | `{}` | flong's syscall filter. `{}` is `strict`. |
 | `grants` | `false` | Apply a checkout's grant, once approved. |
 | `caches` | `session` | Where tools keep downloads: `session`, `workspace` or `tier`. |
@@ -254,8 +254,8 @@ data and never run.
 |---|---|
 | `secrets` | The checkout's sops file. Each `credential.secret` is a key in it. |
 | `apps.<app>` | The app's credential, its other settings, and `allow`, `ask` and `refuse` lists of operation ids or `category:<name>`. ssh's lists are each host's, and take command patterns too, `docker compose ps **` ([docs/apps/ssh.md](docs/apps/ssh.md)). |
-| `network` | Names to `allow` beyond the tier's and its apps', for connections no route serves: exact, or `*.suffix` below a public suffix (never `*.com`). |
-| `seccomp` | Syscalls to `allow` or `deny` beyond the tier's filter. |
+| `network` | Names to `allow` beyond the tier's and its apps', for connections no route serves: exact, or `*.suffix` below a public suffix (never `*.com`). And `lan`, hosts on your own network, `{"name": "nas.home.arpa", "ports": [445]}`: each an exact name, reached at the private address its DNS gives, at those ports (every port when none are given), and put on the allowlist with it. Not a route's host or a project's name. |
+| `seccomp` | Syscalls to `allow` or `deny` beyond the tier's filter. A grant's `allow` overrides the tier's `seccomp.deny`: the tier is the ready-made fit, the grant the tailored one. |
 
 `chase record` writes most of a grant for you: run the agent again under it,
 do what was refused, and apply the proposal it leaves
@@ -267,6 +267,36 @@ differs from the one last approved, `chase.approver` shows you the diff and
 the launch waits. Unknown keys and invalid values are refused before you're
 asked. A change to comments or order isn't a difference; a changed secrets
 file or `origin` is.
+
+## Project addresses
+
+Every checkout with a GitHub `origin` is a project, `owner/repo`, and has
+an address of its own on the host's loopback, so one project's servers
+never meet another's on the same port:
+
+- **The name** is `<repo>.<owner>.internal`: `example/shop` is
+  `shop.example.internal`.
+- **The address** is `127.b1.b2.b3`, from the SHA-256 of `owner/repo`:
+  `example/shop` is `127.101.170.171`. The same on every machine, with
+  nothing to hand out or register.
+- **Dev servers** are published there. In a tier that takes grants and has
+  its own network, `forwardPorts` binds at the project's address rather
+  than `127.0.0.1`, so a dev server on 3000 in one project is not
+  another's 3000. A tier with `egress = "frisket"` has no network of its
+  own, so nothing is forwarded.
+- **Docker** publishes there too: the [docker](docs/apps/docker.md) app's
+  containers bind their ports at the project's address, and a session
+  reaches them as `localhost`.
+- **`chase docker [DIR]`** shows a checkout's project, address and name,
+  in any tier.
+
+The project is read from the checkout's `origin`, never from anything in
+it a session could write, and a checkout a tier pins is held to its path.
+The name and address are frisket's feature, and chase calls frisket's own
+functions for them: frisket's host DNS answers every project's name, with
+no list to keep, and a session with Docker has its own project's answered
+by the session's DNS. See frisket's
+[Project addresses](https://github.com/danielbodart/frisket#project-addresses).
 
 ## Development
 

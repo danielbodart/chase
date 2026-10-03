@@ -51,8 +51,9 @@ func TestWhereAProjectsDockerIsIsSaid(t *testing.T) {
 	h.shown(ws, "trusted", block(ports))
 	h.shown(ws+"/sub", "trusted", block(ports))
 
-	// A tier without Docker still has the address, and says so.
-	h.shown(ws, "plain", "example/shop\n  address  127.101.170.171\n  (no Docker on plain)\n")
+	// A tier without Docker still has the address and the name, which are
+	// the project's, and says it has no Docker.
+	h.shown(ws, "plain", "example/shop\n  address  127.101.170.171\n  names    shop.example.internal\n  (no Docker on plain)\n")
 
 	// An approval of the checkout as another project approved none of this
 	// one's ports.
@@ -73,7 +74,7 @@ func TestWhereAProjectsDockerIsIsSaid(t *testing.T) {
 	if h.run("docker", none, "trusted") == 0 {
 		t.Errorf("a checkout with no origin was shown: %s", h.out)
 	}
-	h.mustSay("chase: " + none + ": Docker needs exactly one origin URL")
+	h.mustSay("chase: " + none + ": a project needs exactly one origin URL")
 	if h.out != "" {
 		t.Errorf("a checkout with no origin printed: %q", h.out)
 	}

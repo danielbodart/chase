@@ -1,10 +1,11 @@
 # A recording end to end: `chase record --default allow` in a checkout of
 # a tier that refuses what the session is about to do, on one machine, and
 # an upstream on another standing in for GitHub's API and for a host no
-# route serves. The session deletes a ref -- a write the tier refuses --
-# fetches from a name off the allowlist, and runs strace, whose ptrace the
-# tier's filter refuses; each goes through while recording, and is written
-# down: the request and the connection by frisket, in its sink; the call
+# route serves, and, at a private address, for a host on the local
+# network. The session deletes a ref -- a write the tier refuses --
+# fetches from a name off the allowlist and from the host on the local
+# network, and runs strace, whose ptrace the tier's filter refuses; each
+# goes through while recording, and is written down: the request and the connection by frisket, in its sink; the call
 # by the kernel's audit, which `chase record` follows and puts down to the
 # session by its cgroup. What is left is a report and a proposal, which
 # `chase record apply` adds to the checkout's chase.jsonc; approved at the
@@ -17,6 +18,9 @@ let
   pkgs = hostPkgs;
   upstream4 = "203.0.113.20";
   upstream6 = "2001:db8:113::20";
+  # The same machine on the local network: a private address, which
+  # frisket dials only for a name in a document's lan.
+  lan4 = "192.168.1.20";
   ws = "/home/alice/proj";
   token = "ghp_the-real-token";
 
@@ -33,7 +37,8 @@ let
   '';
 
   # GitHub's API as far as a ref's deletion goes, saying what it was sent;
-  # and a plain page on 80, for a name no route serves.
+  # and a plain page on 80, for a name no route serves and for the host on
+  # the local network.
   upstream = pkgs.writeText "upstream.py" ''
     import json, socket, ssl, sys, threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -74,6 +79,7 @@ let
     curl -sS -m 20 -o /dev/null -w '%{http_code}' -X DELETE -H 'Authorization: Bearer proxy-injected' \
       https://api.github.com/repos/o/r/git/refs/heads/x > "$out/delete" 2>&1
     curl -sS -m 20 http://plain.test/ > "$out/plain" 2>&1
+    curl -sS -m 20 http://nas.test/ > "$out/nas" 2>&1
     strace -f -o /dev/null sleep 1 > "$out/strace" 2>&1
     echo $? >> "$out/strace"
   '';
@@ -93,7 +99,7 @@ in
   name = "chase-record-session";
 
   nodes.upstream = { pkgs, ... }: {
-    networking.interfaces.eth1.ipv4.addresses = [{ address = upstream4; prefixLength = 24; }];
+    networking.interfaces.eth1.ipv4.addresses = [{ address = upstream4; prefixLength = 24; } { address = lan4; prefixLength = 24; }];
     networking.interfaces.eth1.ipv6.addresses = [{ address = upstream6; prefixLength = 64; }];
     networking.firewall.enable = false;
     services.dnsmasq = {
@@ -110,6 +116,7 @@ in
           "/api.github.com/${upstream6}"
           "/plain.test/${upstream4}"
           "/plain.test/${upstream6}"
+          "/nas.test/${lan4}"
         ];
       };
     };
@@ -131,7 +138,7 @@ in
     virtualisation.diskSize = 8192;
     virtualisation.cores = 2;
 
-    networking.interfaces.eth1.ipv4.addresses = [{ address = "203.0.113.10"; prefixLength = 24; }];
+    networking.interfaces.eth1.ipv4.addresses = [{ address = "203.0.113.10"; prefixLength = 24; } { address = "192.168.1.10"; prefixLength = 24; }];
     networking.interfaces.eth1.ipv6.addresses = [{ address = "2001:db8:113::10"; prefixLength = 64; }];
     networking.nameservers = [ upstream4 ];
     security.pki.certificateFiles = [ "${certs}/ca.crt" ];
@@ -223,14 +230,16 @@ in
       machine.wait_for_unit("home-manager-alice.service")
       machine.wait_until_succeeds("curl -sS -m 2 -o /dev/null http://plain.test/")
       machine.wait_until_succeeds("curl -sS -m 2 -6 -o /dev/null http://plain.test/")
+      machine.wait_until_succeeds("curl -sS -m 2 -o /dev/null http://nas.test/")
       machine.wait_until_succeeds("curl -sS -m 2 -o /dev/null -X DELETE https://api.github.com/")
       machine.succeed("printf '%s' '${token}' > /home/alice/gh-token && chown alice:users /home/alice/gh-token && chmod 0600 /home/alice/gh-token")
       machine.succeed("runuser -l alice -c ${mkProject}")
 
-      with subtest("the tier refuses all three, with nothing recording"):
+      with subtest("the tier refuses all four, with nothing recording"):
           machine.succeed(as_user(f"cd ${ws} && ${launcher} shell -c {shlex.quote('bash ${session} before')}"), timeout=300)
           assert result("before", "delete").strip() == "403", result("before", "delete")
           assert "plain page" not in result("before", "plain"), result("before", "plain")
+          assert "plain page" not in result("before", "nas"), result("before", "nas")
           assert result("before", "strace").splitlines()[-1] != "0", result("before", "strace")
           assert not [l for l in upstream_saw() if l["path"].startswith("/repos/")], upstream_saw()
 
@@ -239,10 +248,11 @@ in
           print(report)
           assert result("recording", "delete").strip() == "204", result("recording", "delete")
           assert result("recording", "plain") == "plain page\n", result("recording", "plain")
+          assert result("recording", "nas") == "plain page\n", result("recording", "nas")
           assert result("recording", "strace").splitlines()[-1] == "0", result("recording", "strace")
           deletes = [l for l in upstream_saw() if l["path"].startswith("/repos/")]
           assert len(deletes) == 1 and deletes[0]["auth"] == "Bearer ${token}", deletes
-          for needle in ["HTTP on routes", "git/delete-ref", "plain.test:80", "ptrace", "chase record apply"]:
+          for needle in ["HTTP on routes", "git/delete-ref", "plain.test:80", "nas.test:80", "(local network)", "ptrace", "chase record apply"]:
               assert needle in report, (needle, report)
 
           [kept] = machine.succeed("ls /home/alice/.local/state/chase/records").split()
@@ -253,8 +263,8 @@ in
           http = [l for l in lines if l["kind"] == "http"]
           assert [(l["route"], l["method"], l.get("operation"), l["answer"], l["source"]) for l in http] == \
               [("github", "DELETE", "git/delete-ref", "allow", "default")], http
-          egress = {(l["name"], l["port"], l["answer"]) for l in lines if l["kind"] == "egress" and l["source"] == "default"}
-          assert egress == {("plain.test", 80, "allow")}, egress
+          egress = {(l["name"], l["port"], l.get("lan", False), l["answer"]) for l in lines if l["kind"] == "egress" and l["source"] == "default"}
+          assert egress == {("plain.test", 80, False, "allow"), ("nas.test", 80, True, "allow")}, egress
           calls = {l["name"]: l for l in lines if l["kind"] == "syscall"}
           assert "ptrace" in calls and not calls["ptrace"].get("probable"), calls
           # frisket's copy is the user's own record now, and goes.
@@ -263,7 +273,7 @@ in
 
           proposal = machine.succeed(f"cat {at}/proposal.jsonc")
           print(proposal)
-          for needle in ['"git/delete-ref"', '"plain.test"', '"ptrace"', "loosens"]:
+          for needle in ['"git/delete-ref"', '"plain.test"', '{"name":"nas.test","ports":[80]}', '"ptrace"', "loosens"]:
               assert needle in proposal, (needle, proposal)
           machine.fail("test -e ${ws}/chase.jsonc")
 
@@ -284,7 +294,7 @@ in
           print(out)
           grant = machine.succeed("cat ${ws}/chase.jsonc")
           print(grant)
-          for needle in ['"git/delete-ref"', '"plain.test"', '"ptrace"']:
+          for needle in ['"git/delete-ref"', '"plain.test"', '"nas.test"', '"lan"', '"ptrace"']:
               assert needle in grant, (needle, grant)
           assert "nothing to add" in machine.succeed(as_user(f"cd ${ws} && ${chase} record apply {kept}"))
 
@@ -292,9 +302,11 @@ in
           machine.succeed("runuser -l alice -c 'cd ${ws} && git add chase.jsonc && git -c user.name=alice -c user.email=alice@example.com commit -qm grant'")
           machine.succeed(as_user(f"cd ${ws} && ${launcher} shell -c {shlex.quote('bash ${session} after')}"), timeout=300)
           approvals = machine.succeed("journalctl -t chase-test-approver -o cat --no-pager")
-          assert "git/delete-ref" in approvals and "ptrace" in approvals and "plain.test" in approvals, approvals
+          for needle in ["git/delete-ref", "ptrace", "plain.test", "nas.test"]:
+              assert needle in approvals, (needle, approvals)
           assert result("after", "delete").strip() == "204", result("after", "delete")
           assert result("after", "plain") == "plain page\n", result("after", "plain")
+          assert result("after", "nas") == "plain page\n", result("after", "nas")
           assert result("after", "strace").splitlines()[-1] == "0", result("after", "strace")
           name = machine.succeed("cat /tmp/last-session").strip()
           machine.wait_until_succeeds(f"test ! -e /run/user/1000/chase/{name}", timeout=60)

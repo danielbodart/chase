@@ -23,7 +23,7 @@ import (
 	"strings"
 
 	"github.com/danielbodart/chase/internal/apps"
-	"github.com/danielbodart/chase/internal/dockerproject"
+	"github.com/danielbodart/chase/internal/projectaddr"
 	"github.com/danielbodart/chase/internal/term"
 	"github.com/danielbodart/frisket/policy"
 )
@@ -113,7 +113,7 @@ func (a *App) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
 			return die("an image named by its ID: name it by its repository and a tag or digest")
 		}
 	}
-	who, err := dockerproject.Of(r.Project)
+	who, err := projectaddr.Of(r.Project)
 	if err != nil {
 		return die("%s has no address", r.Project)
 	}
@@ -160,13 +160,13 @@ func (a *App) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
 		Routes: []policy.Route{route},
 		Allow:  []string{Host},
 		Env: map[string]string{
-			"DOCKER_HOST":          "tcp://" + Host + ":2376",
-			"DOCKER_TLS_VERIFY":    "1",
-			"DOCKER_CERT_PATH":     "/etc/chase/docker",
-			"CHASE_DOCKER_PROJECT": who.Project,
-			"CHASE_DOCKER_ADDRESS": who.Address,
-			"CHASE_DOCKER_NAMES":   strings.Join(who.Names, " "),
-			"CHASE_DOCKER_PORTS":   strings.Join(said, " "),
+			"DOCKER_HOST":           "tcp://" + Host + ":2376",
+			"DOCKER_TLS_VERIFY":     "1",
+			"DOCKER_CERT_PATH":      "/etc/chase/docker",
+			"CHASE_PROJECT":         who.Project,
+			"CHASE_PROJECT_ADDRESS": who.Address,
+			"CHASE_PROJECT_NAMES":   strings.Join(who.Names, " "),
+			"CHASE_DOCKER_PORTS":    strings.Join(said, " "),
 		},
 	}, nil
 }

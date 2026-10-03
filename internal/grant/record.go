@@ -102,10 +102,13 @@ var Hot = []string{
 
 // learning is r with flong's lines for learning what the session calls:
 // every call of @known the filter would refuse is allowed and logged
-// (`log @known`), but what the grant denies, which stays denied (`nolog`):
-// a project's deny is its own word, and a recording that let it through
-// would propose to allow what the grant refuses. From scratch, the lines
-// apply to no names but Hot and the grant's own allow (`base none`).
+// (`log @known`) -- one the tier's seccomp.deny takes among them, since
+// flong reads a project's lines over its declaration, and a grant's allow
+// would put it back -- but what the grant denies, which stays denied
+// (`nolog`): a project's deny is its own word, and a recording that let it
+// through would propose to allow what the grant refuses. From scratch, the
+// lines start from no names at all, the tier's and its deny's alike, but
+// Hot and the grant's own allow (`base none`).
 //
 // A recording that refuses everything learns nothing of syscalls: its
 // answer is what happens now, and a call the filter refuses is refused
@@ -165,27 +168,11 @@ func announce(c Config, tok, machine string) error {
 	return files.WriteAtomic(dir+"/"+tok+".machine", []byte(machine+"\n"), 0o600)
 }
 
-// recordBlock is frisket's record block, as its policy.Record has it.
-// Written here rather than with frisket's own type until chase builds
-// against a frisket that has one; its fields are the same.
-type recordBlock struct {
-	Default string `json:"default,omitempty"`
-	Sink    string `json:"sink,omitempty"`
-}
-
-// recordedDocument is a session's document with a record block: the
-// block at the top, where frisket's Policy has it, in place of any the
-// document's own type carries.
-type recordedDocument struct {
-	policy.Document
-	Record recordBlock `json:"record"`
-}
-
 // block is the record block of the session named machine: its default,
 // and its sink, <RecordDir>/<machine>.jsonl, when the module gives frisket
 // a directory for one.
-func (r Recording) block(c Config, machine string) recordBlock {
-	b := recordBlock{Default: r.Default}
+func (r Recording) block(c Config, machine string) *policy.Record {
+	b := &policy.Record{Default: r.Default}
 	if c.RecordDir != "" {
 		b.Sink = c.RecordDir + "/" + machine + ".jsonl"
 	}

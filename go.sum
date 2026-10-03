@@ -1,5 +1,5 @@
-github.com/danielbodart/frisket v0.103.64-0.20261002142119-fc6ed4d78b51 h1:lDOj64ymbu8Nx6BwCsJrHwZHKWXcOJOAR/GFZ9dyH/E=
-github.com/danielbodart/frisket v0.103.64-0.20261002142119-fc6ed4d78b51/go.mod h1:mC4NYxojjwndgs2nEVbZe1LDWrPOLgBIHck2HHhqCuM=
+github.com/danielbodart/frisket v0.105.66-0.20261002234001-97fb0203f30c h1:y7idkxnuLoUqRw7pyAR+dkDOa0b4AgFS5LrosbVZKi0=
+github.com/danielbodart/frisket v0.105.66-0.20261002234001-97fb0203f30c/go.mod h1:mC4NYxojjwndgs2nEVbZe1LDWrPOLgBIHck2HHhqCuM=
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
 github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=

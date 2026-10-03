@@ -43,17 +43,18 @@ refuse` with `--base none` is refused.
 
 `--default` answers everything, with nobody asked. Without it, each subject
 is put to you through frisket's asker, whose question carries `record:
-true`; zenity's `--ok-label=Allow --cancel-label=Refuse --extra-button=Ask`
+true`, and `lan: true` for a connection to the local network; zenity's `--ok-label=Allow --cancel-label=Refuse --extra-button=Ask`
 gives all three. A subject is answered once a session; asked about again,
 the last answer stands.
 
 Recording is manual mode: anything the tier's rules refuse can be answered,
-guarded operations included. What no rule decides stays refused, and is
-reported as such: frisket's structural refusals, a credential or Host that
-does not hold, a path that is not canonical, anything on a Docker route, a
-command a shell route cannot read, an address dialled by itself; and
-flong's fixed filters, and what the tier's `seccomp.deny` takes, which no
-grant puts back.
+guarded operations included, and so can a call the tier's `seccomp.deny`
+takes: a grant's `seccomp.allow` puts one back, since the grant is the
+tailored fit and the tier the ready-made one. What no rule decides stays
+refused, and is reported as such: frisket's structural refusals, a
+credential or Host that does not hold, a path that is not canonical,
+anything on a Docker route, a command a shell route cannot read, an address
+dialled by itself; and flong's fixed filters.
 
 ## What each layer records
 
@@ -61,26 +62,30 @@ grant puts back.
 |---|---|
 | HTTP on a route | the operation's id, or the method and exact path where no operation matched; `apps.<app>.<answer>` for an app a grant has lists for (cloudflare, gcloud, git, github, huggingface) |
 | SSH | the catalogue's operation, or the command itself as a pattern; `apps.ssh.hosts.<machine>.<answer>` for a machine the grant names |
-| Other TCP | the name, `network.allow`; a name on the local network, reported only |
+| Other TCP | the name, `network.allow`; a name on the local network, `network.lan`, with the ports it was dialled at |
 | DNS | the names resolved off the allowlist, reported |
 | Syscalls | the call's name, `seccomp.allow`; nothing with `--default refuse` |
 
 Every connection goes through frisket while recording, whatever the tier's
 `egress`: the record launcher has no network of flong's, so a name off the
-allowlist, a port and a host on the local network are all seen. A tier with
-its own network loses, for the recording, what pasta gives it: published
-ports, and UDP.
+allowlist, a port and a host on the local network are all seen, and each is
+answered as anything else is, by `--default` too. A tier with its own
+network loses, for the recording, what pasta gives it: ports forwarded to
+the project's address, and UDP.
 
 Entries are exactly what was seen, never generalised. Edit the proposal to
 widen one before applying it. What was answered and cannot be an entry --
 a route no grant has lists for, a machine that is the tier's own, a
 one-word command, a command frisket cut short at 4 KiB, a refusal of a
-name, a name on the local network -- is left out, and the report says why.
+name, a project's own name -- is left out, and the report says why.
 
-A name whose address is on the local network is dialled while recording
-alone: outside one, frisket refuses a private address whatever the
-allowlist says, so a `network.allow` entry for it would do nothing, and none
-is proposed. Admitting one is for a later grant.
+A name whose address is on the local network -- a NAS, a printer -- is
+refused outside a recording whatever the allowlist says: frisket reaches a
+private address only for a name in its `lan` list. So a name answered
+`allow` or `ask` there is proposed for the grant's `network.lan`, once,
+with every port it was dialled at; the launch puts it on the allowlist too.
+Applied, a name the grant has already gains the ports it lacks, and one it
+has for every port is left.
 
 A grant is committed with its checkout, so a command or path that looks as
 if it carries a secret is never proposed, nor repeated in a note: a flag,
@@ -91,8 +96,8 @@ digits of both cases. The report names what it was taken for; write the
 entry yourself, with `*` in its place. What the check misses is yours to see
 in the proposal before applying it.
 
-A name answered `ask` is proposed for `allow`, as frisket cannot ask about
-a name, and a syscall answered by a person is proposed for `allow`, as the
+A name answered `ask` is proposed for `allow` or `lan`, as frisket cannot
+ask about a name, and a syscall answered by a person is proposed for `allow`, as the
 filter is fixed before the session starts and nothing is put to you: each
 says so in its note.
 
@@ -108,12 +113,14 @@ when it was made, and only when no other recording ran beside it: it is in
 the proposal as a comment, for you to uncomment.
 
 `--base tier`, the default, learns against the tier's filter and the
-grant's: what is logged is what the session needs beyond them. What the
-grant denies stays denied.
+grant's: what is logged is what the session needs beyond them, a call the
+tier's `seccomp.deny` takes included. What the grant denies stays denied:
+it is the project's own word.
 
-`--base none` learns from scratch: nothing is allowed but a handful of
-calls every process makes many times a second, which would otherwise be
-most of the log --
+`--base none` learns from scratch: nothing is allowed -- not the tier's
+names, and its `seccomp.deny` is no part of it -- but a handful of calls
+every process makes many times a second, which would otherwise be most of
+the log --
 
 ```
 read write readv writev pread64 pwrite64 lseek close
@@ -168,6 +175,10 @@ the line above, a loosening said as one:
     "allow": [
       // port 443; loosens: the tier would refuse (not allowed)
       "registry.npmjs.org",
+    ],
+    "lan": [
+      // on the local network, port 445; loosens: the tier would refuse (structural: private)
+      {"name":"nas.home.arpa","ports":[445]},
     ],
   },
   "seccomp": {

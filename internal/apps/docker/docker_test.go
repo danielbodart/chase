@@ -267,13 +267,13 @@ func TestTheRouteIsTheProjects(t *testing.T) {
 	// THE ENVIRONMENT: the CLI pointed at frisket, verifying it by the
 	// session's CA, and the project said for a person to read.
 	wantEnv := map[string]string{
-		"DOCKER_HOST":          "tcp://docker.frisket.internal:2376",
-		"DOCKER_TLS_VERIFY":    "1",
-		"DOCKER_CERT_PATH":     "/etc/chase/docker",
-		"CHASE_DOCKER_PROJECT": "example/shop",
-		"CHASE_DOCKER_ADDRESS": "127.101.170.171",
-		"CHASE_DOCKER_NAMES":   "shop.example.internal",
-		"CHASE_DOCKER_PORTS":   "64320 64321",
+		"DOCKER_HOST":           "tcp://docker.frisket.internal:2376",
+		"DOCKER_TLS_VERIFY":     "1",
+		"DOCKER_CERT_PATH":      "/etc/chase/docker",
+		"CHASE_PROJECT":         "example/shop",
+		"CHASE_PROJECT_ADDRESS": "127.101.170.171",
+		"CHASE_PROJECT_NAMES":   "shop.example.internal",
+		"CHASE_DOCKER_PORTS":    "64320 64321",
 	}
 	if !reflect.DeepEqual(p.Env, wantEnv) {
 		t.Errorf("env %v, want %v", p.Env, wantEnv)
@@ -421,14 +421,14 @@ func TestATierWithoutDockerSaysSo(t *testing.T) {
 	}
 }
 
-// The project is folded to lower case, as `chase docker-address` did.
+// The project is folded to lower case, as `chase project-address` did.
 func TestTheProjectIsLowerCased(t *testing.T) {
 	p, _, err := prepare(t, template(t), "trusted", "Example/Shop", `{"images": ["postgres:18"]}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Routes[0].Docker.Project != "example/shop" || p.Env["CHASE_DOCKER_PROJECT"] != "example/shop" {
-		t.Errorf("%s %s", p.Routes[0].Docker.Project, p.Env["CHASE_DOCKER_PROJECT"])
+	if p.Routes[0].Docker.Project != "example/shop" || p.Env["CHASE_PROJECT"] != "example/shop" {
+		t.Errorf("%s %s", p.Routes[0].Docker.Project, p.Env["CHASE_PROJECT"])
 	}
 }
 

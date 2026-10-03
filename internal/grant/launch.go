@@ -100,11 +100,14 @@ func launch(ctx context.Context, c Config, registry map[string]apps.App, rec *Re
 	enc := json.NewEncoder(&out)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
-	var doc any = pd
+	// A recording's block, in the document frisket serves the session
+	// under; any the tier's own document had is replaced, as only a
+	// recording has one.
+	pd.Record = nil
 	if rec != nil {
-		doc = recordedDocument{Document: pd, Record: rec.block(c, machine)}
+		pd.Record = rec.block(c, machine)
 	}
-	if err := enc.Encode(doc); err != nil {
+	if err := enc.Encode(pd); err != nil {
 		return session.Given{}, err
 	}
 	// Replaced whole, never truncated and rewritten: frisket, or anything
@@ -267,7 +270,33 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 	if named.Network != nil && len(named.Network.Allow) > 0 {
 		policydoc.Merge(pd, apps.Patch{Allow: named.Network.Allow})
 	}
+	// The names on the local network it reaches, each on the allowlist as
+	// frisket requires, and none a route's host, which the session's DNS
+	// answers with frisket's own address: refused here, with the grant's
+	// words, rather than by frisket when the session starts.
+	if named.Network != nil && len(named.Network.LAN) > 0 {
+		var names []string
+		for _, h := range named.Network.LAN {
+			for _, r := range pd.Routes {
+				if routeServes(r.Host, h.Name) {
+					return given, refuse("%s: network.lan %s is the %s route's host, which frisket answers with its own address", ws, h.Name, r.Name)
+				}
+			}
+			names = append(names, h.Name)
+		}
+		policydoc.Merge(pd, apps.Patch{Allow: names})
+		pd.LAN = append(pd.LAN, named.Network.LAN...)
+	}
 	return given, nil
+}
+
+// routeServes is whether a route whose host is host serves name: the host
+// itself, or a name below a "*.suffix" host.
+func routeServes(host, name string) bool {
+	if suffix, ok := strings.CutPrefix(host, "*"); ok && strings.HasPrefix(suffix, ".") {
+		return strings.HasSuffix(name, suffix)
+	}
+	return host == name
 }
 
 // decrypt is the secret an app binds, decrypted from the staged copy of the

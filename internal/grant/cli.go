@@ -69,7 +69,7 @@ func RunApprove(ctx context.Context, c Config, args []string, _ io.Reader, stdou
 	return 0
 }
 
-// RunProject is `project WS TIER`: the checkout's Docker project, as
+// RunProject is `project WS TIER`: the checkout's project, as
 // approve derives it, on a line.
 func RunProject(ctx context.Context, c Config, args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if len(args) != 2 {

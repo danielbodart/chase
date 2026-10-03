@@ -636,9 +636,9 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 		"DOCKER_HOST=tcp://docker.frisket.internal:2376",
 		"DOCKER_TLS_VERIFY=1",
 		"DOCKER_CERT_PATH=/etc/chase/docker",
-		"CHASE_DOCKER_PROJECT=example/shop",
-		"CHASE_DOCKER_ADDRESS=127.101.170.171",
-		"CHASE_DOCKER_NAMES=shop.example.internal",
+		"CHASE_PROJECT=example/shop",
+		"CHASE_PROJECT_ADDRESS=127.101.170.171",
+		"CHASE_PROJECT_NAMES=shop.example.internal",
 		"CHASE_DOCKER_PORTS=64320 64321",
 	} {
 		if !slices.Contains(env, line) {

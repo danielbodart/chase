@@ -28,7 +28,9 @@ Grant:
 }
 ```
 
-The project is the checkout's `origin`. It has its own loopback address
-(`example/shop` is `127.101.170.171`) and name (`shop.example.internal`);
-its ports are published there, and a session reaches them as `localhost`
-too. `chase docker [DIR]` shows them.
+The project is the checkout's `origin`, and its ports are published at the
+project's own address, as its dev servers are
+([Project addresses](../../README.md#project-addresses)); a session reaches
+them as `localhost` too. The session is given `CHASE_PROJECT`,
+`CHASE_PROJECT_ADDRESS`, `CHASE_PROJECT_NAMES` and `CHASE_DOCKER_PORTS`.
+`chase docker [DIR]` shows them.

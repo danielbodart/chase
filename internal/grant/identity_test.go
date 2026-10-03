@@ -98,7 +98,7 @@ func TestWhatNamesNoProjectIsRefused(t *testing.T) {
 	h.repo(r+"/w/lookalike", "https://github.com.example/acme/app")
 	h.refusedAs(r+"/w/lookalike", "is not github.com/owner/repo")
 	h.repo(r + "/w/none")
-	h.refusedAs(r+"/w/none", "exactly one origin URL, so its project has a name, and it has 0")
+	h.refusedAs(r+"/w/none", "exactly one origin URL, so it has a name, and this has 0")
 	h.repo(r+"/w/dot", "git@github.com:acme/..git")
 	h.refusedAs(r+"/w/dot", "origin git@github.com:acme/. names no repository")
 	h.repo(r+"/w/hyphen", "git@github.com:-acme/app.git")

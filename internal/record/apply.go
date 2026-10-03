@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/tailscale/hujson"
@@ -26,19 +27,23 @@ import (
 // two lists is a grant approve refuses.
 
 // Change is what a merge did with one entry: added it, moved it from
-// another list (From), or found it there already (Kept).
+// another list (From), widened the entry already there (Widened, a name on
+// the local network given ports it lacked), or found it there already
+// (Kept).
 type Change struct {
-	Path  []string
-	Value string
-	From  string
-	Kept  bool
+	Path    []string
+	Value   string
+	From    string
+	Widened bool
+	Kept    bool
 }
 
 // lists are the lists each place in a grant has, and so the shape a
 // proposal may have: under apps, each app with lists, and ssh's hosts;
-// network's allow; seccomp's allow and deny.
+// network's allow and lan; seccomp's allow and deny.
 var (
 	appLists     = []string{"allow", "ask", "refuse"}
+	networkLists = []string{"allow", "lan"}
 	seccompLists = []string{"allow", "deny"}
 )
 
@@ -95,7 +100,13 @@ func items(proposal []byte) ([]item, error) {
 		}
 		switch name {
 		case "network":
-			err = walkLists([]string{name}, o, []string{"allow"})
+			// Neither list is the other's alternative: a name on the local
+			// network is on the allowlist too, which the launch makes so.
+			from := len(out)
+			err = walkLists([]string{name}, o, networkLists)
+			for i := from; i < len(out); i++ {
+				out[i].siblings = out[i].path[len(out[i].path)-1:]
+			}
 		case "seccomp":
 			err = walkLists([]string{name}, o, seccompLists)
 		case "apps":
@@ -344,6 +355,80 @@ func unitOf(g hujson.Value) string {
 	return "  "
 }
 
+// add appends it's value, with its comments, to the end of its list in g,
+// making the list, and the objects above it, where they are not there.
+func (ed editor) add(g *hujson.Value, it item) error {
+	at, l := g, ed.layoutOf(g.Value, "", true)
+	for i, k := range it.path {
+		var err error
+		if at, l, err = ed.member(at, l, k, i == len(it.path)-1); err != nil {
+			return fmt.Errorf("%s: %w", strings.Join(it.path[:i], "."), err)
+		}
+	}
+	a := at.Value.(*hujson.Array)
+	v := hujson.Value{BeforeExtra: lead(l, len(a.Elements), notes(it.value.BeforeExtra)), Value: it.value.Value}
+	appended(a, l, &v)
+	return nil
+}
+
+// lanHost is a network.lan entry, as a proposal or a grant holds one.
+type lanHost struct {
+	Name  string `json:"name"`
+	Ports []int  `json:"ports,omitempty"`
+}
+
+// mergeLAN adds it, a network.lan entry, to g's: a name is in a grant's
+// lan once, so a name already there gains the ports it lacks, keeping its
+// place and its comments, and one there for every port is kept as it is.
+func mergeLAN(g *hujson.Value, ed editor, it item) (Change, error) {
+	c := Change{Path: it.path, Value: standard(it.value)}
+	var want lanHost
+	if err := json.Unmarshal([]byte(c.Value), &want); err != nil || want.Name == "" {
+		return c, fmt.Errorf("the proposal: %s: %s is not a name and its ports", strings.Join(it.path, "."), c.Value)
+	}
+	if at := g.Find(pointer(it.path)); at != nil {
+		a, ok := at.Value.(*hujson.Array)
+		if !ok {
+			return c, fmt.Errorf("%s is not a list", strings.Join(it.path, "."))
+		}
+		for i := range a.Elements {
+			var have lanHost
+			if json.Unmarshal([]byte(standard(a.Elements[i])), &have) != nil || have.Name != want.Name {
+				continue
+			}
+			ports := slices.Clone(have.Ports)
+			if len(ports) > 0 {
+				if len(want.Ports) == 0 {
+					ports = nil
+				}
+				for _, p := range want.Ports {
+					if !slices.Contains(ports, p) {
+						ports = append(ports, p)
+					}
+				}
+			}
+			if len(have.Ports) == 0 || slices.Equal(ports, have.Ports) {
+				c.Kept = true
+				return c, nil
+			}
+			said := make([]string, len(ports))
+			for i, p := range ports {
+				said[i] = strconv.Itoa(p)
+			}
+			// As a person writes one: a space after each colon and comma.
+			v, err := hujson.Parse([]byte(fmt.Sprintf(`{"name": %s, "ports": [%s]}`, marshal(have.Name), strings.Join(said, ", "))))
+			if err != nil {
+				return c, err
+			}
+			a.Elements[i].Value = v.Value
+			c.Value = standard(a.Elements[i])
+			c.Widened = true
+			return c, nil
+		}
+	}
+	return c, ed.add(g, it)
+}
+
 // Merge is current -- a checkout's chase.jsonc, or nil for none -- with
 // each entry of proposal in it, and what was done with each. What it
 // returns is a grant ParseFile reads, or an error and nothing.
@@ -365,6 +450,14 @@ func Merge(current, proposal []byte) ([]byte, []Change, error) {
 	ed := editor{unit: unitOf(g)}
 	var changes []Change
 	for _, it := range its {
+		if slices.Equal(it.path, lanPath) {
+			c, err := mergeLAN(&g, ed, it)
+			if err != nil {
+				return nil, nil, err
+			}
+			changes = append(changes, c)
+			continue
+		}
 		want := standard(it.value)
 		parent := it.path[:len(it.path)-1]
 		list := it.path[len(it.path)-1]
@@ -397,15 +490,9 @@ func Merge(current, proposal []byte) ([]byte, []Change, error) {
 		if c.Kept {
 			continue
 		}
-		at, l := &g, ed.layoutOf(g.Value, "", true)
-		for i, k := range it.path {
-			if at, l, err = ed.member(at, l, k, i == len(it.path)-1); err != nil {
-				return nil, nil, fmt.Errorf("%s: %w", strings.Join(it.path[:i], "."), err)
-			}
+		if err := ed.add(&g, it); err != nil {
+			return nil, nil, err
 		}
-		a := at.Value.(*hujson.Array)
-		v := hujson.Value{BeforeExtra: lead(l, len(a.Elements), notes(it.value.BeforeExtra)), Value: it.value.Value}
-		appended(a, l, &v)
 	}
 	out := g.Pack()
 	// ParseFile standardizes what it is given in place.

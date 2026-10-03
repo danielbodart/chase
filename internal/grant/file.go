@@ -14,8 +14,10 @@ import (
 	"golang.org/x/net/publicsuffix"
 
 	"github.com/danielbodart/frisket/docker"
+	"github.com/danielbodart/frisket/policy"
 
 	appsssh "github.com/danielbodart/chase/internal/apps/ssh"
+	"github.com/danielbodart/chase/internal/projectaddr"
 )
 
 // FileName is the grant's file, at the checkout's root.
@@ -55,12 +57,17 @@ type File struct {
 	// Network is names this project's sessions reach beyond the tier's
 	// allowlist and its apps' own (Allow), each added to the session's
 	// policy document's: what `chase record` proposes for a connection to
-	// a name no route serves.
+	// a name no route serves; and names on the local network they may
+	// reach at the private address their DNS gives (LAN), each added to
+	// the document's lan and to its allowlist.
 	Network *Network `json:"network,omitempty"`
 	// Seccomp is syscalls, or systemd @groups, this project's sessions need
 	// beyond the tier's filter (Allow), or do without (Deny, after Allow,
-	// which it overrides). Each one allowed is kernel surface the session
-	// gains. The fixed filters stay whatever this says: no terminal
+	// which it overrides). The grant is the tailored fit and the tier the
+	// ready-made one, so where they disagree the grant wins: an Allow puts
+	// back a call the tier's seccomp.deny takes, as flong reads a
+	// project's lines over its declaration. Each one allowed is kernel
+	// surface the session gains. The fixed filters stay whatever this says: no terminal
 	// injection, no audit socket, no namespaces of its own.
 	Seccomp *Seccomp `json:"seccomp,omitempty"`
 }
@@ -69,8 +76,15 @@ type File struct {
 // is frisket's: exact, or "*.suffix" for every name below suffix; never "*",
 // which only a tier says, and never an address, which no allowlist holds.
 // A tier that allows every name is left as it is.
+//
+// LAN is frisket's lan list: each name exact, and reached only at an
+// address the session's DNS gave for it, at its ports (every port when
+// none are named). Outside a recording, frisket refuses a private,
+// unique-local or link-local address whatever the allowlist says; a name
+// here is the one way a project reaches a NAS or a printer of the user's.
 type Network struct {
-	Allow []string `json:"allow,omitempty"`
+	Allow []string         `json:"allow,omitempty"`
+	LAN   []policy.LANHost `json:"lan,omitempty"`
 }
 
 type Seccomp struct {
@@ -311,6 +325,9 @@ func (f File) check() error {
 		if err := checkNetwork(n.Allow); err != nil {
 			return err
 		}
+		if err := CheckLAN(n.LAN); err != nil {
+			return err
+		}
 	}
 	b := f.Apps
 	if c := b.Cloudflare; c != nil {
@@ -406,6 +423,56 @@ func checkNetwork(names []string) error {
 			return fmt.Errorf("network.allow: %q is named twice", n)
 		}
 		seen[n] = true
+	}
+	return nil
+}
+
+// lanName is an exact name: lower-case labels, joined by dots, and no
+// wildcard.
+var lanName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$`)
+
+// CheckLAN is what frisket holds a document's lan list to, refused here
+// first, of the names a grant may give: each an exact name -- no "*",
+// since a name below one is anybody's to give any address -- lower-case,
+// with no trailing dot; not an address, which a name is looked up to give;
+// never a project's name, nor one under frisket's own reserved names,
+// which the session's DNS answers with a loopback address of the host's
+// and never looks up; and each once. Ports are TCP's, 1 to 65535, each
+// once; none is every port. That each is on the allowlist the launch
+// makes so, and that none is a route's host it checks then, when the
+// routes are known.
+func CheckLAN(hosts []policy.LANHost) error {
+	if len(hosts) > maxNetwork {
+		return fmt.Errorf("network.lan: at most %d names, not %d", maxNetwork, len(hosts))
+	}
+	seen := map[string]bool{}
+	for _, h := range hosts {
+		n := h.Name
+		switch {
+		case strings.Contains(n, "*"):
+			return fmt.Errorf("network.lan: %q: an exact name, never a wildcard: a name below one is anybody's to give any address", n)
+		case len(n) > 253 || !lanName.MatchString(n):
+			return fmt.Errorf("network.lan: %q is not a name: lower-case letters, digits and hyphens, in labels joined by dots", n)
+		case isAddress(n):
+			return fmt.Errorf("network.lan: %q is an address: a host on the local network is named, and reached at the address its name gives", n)
+		case projectaddr.IsName(n):
+			return fmt.Errorf("network.lan: %q is a project's name, which frisket answers with the project's own loopback address", n)
+		case projectaddr.Reserved(n):
+			return fmt.Errorf("network.lan: %q is under a name frisket keeps for its own", n)
+		case seen[n]:
+			return fmt.Errorf("network.lan: %q is named twice: give it every port it needs", n)
+		}
+		seen[n] = true
+		ports := map[int]bool{}
+		for _, p := range h.Ports {
+			switch {
+			case p < 1 || p > 65535:
+				return fmt.Errorf("network.lan: %s: port %d: 1 to 65535", n, p)
+			case ports[p]:
+				return fmt.Errorf("network.lan: %s: port %d is named twice", n, p)
+			}
+			ports[p] = true
+		}
 	}
 	return nil
 }

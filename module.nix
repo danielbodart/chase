@@ -203,8 +203,11 @@ let
           For a tier with its own network: ports published on the host,
           flong's `network.forwardPorts`. `"auto"` publishes whatever TCP port
           a session listens on, at the same port, while it listens -- a dev
-          server inside is reached from the host's browser. The host's
-          firewall still decides whether anything beyond the host reaches it.
+          server inside is reached from the host's browser. In a tier that
+          takes grants, they are published at the checkout's project address
+          (README, "Project addresses"), so two projects' dev servers on one
+          port do not meet. The host's firewall still decides whether
+          anything beyond the host reaches it.
         '';
       };
       seccomp = mkOption {

@@ -229,6 +229,21 @@ func TestWhatWasAnsweredIsProposed(t *testing.T) {
 			l.Name, l.Port, l.Answer, l.Source = "nas.lan", 445, "ask", "human"
 			l.LAN = true
 		}),
+		// The same name at another port, answered by the default: one
+		// entry, with both ports.
+		line("egress", func(l *record.Line) {
+			l.Name, l.Port = "nas.lan", 139
+			l.LAN = true
+		}),
+		line("egress", func(l *record.Line) {
+			l.Name, l.Port, l.Answer, l.Source = "printer.lan", 631, "refuse", "human"
+			l.LAN = true
+		}),
+		// A project's name is its own loopback address, never the LAN's.
+		line("egress", func(l *record.Line) {
+			l.Name, l.Port = "shop.example.internal", 80
+			l.LAN = true
+		}),
 		line("egress", func(l *record.Line) { l.Name, l.Port, l.Answer, l.Source = "intranet.example", 443, "ask", "human" }),
 		line("egress", func(l *record.Line) { l.Name, l.Port, l.Answer, l.Source = "evil.example", 443, "refuse", "human" }),
 		line("egress", func(l *record.Line) {
@@ -263,6 +278,7 @@ func TestWhatWasAnsweredIsProposed(t *testing.T) {
 		{"apps.ssh.hosts.server.allow", `"restart"`, false},
 		{"apps.ssh.hosts.server.ask", `"ls -la /srv"`, false},
 		{"network.allow", `"registry.npmjs.org"`, false},
+		{"network.lan", `{"name":"nas.lan","ports":[139,445]}`, false},
 		{"network.allow", `"intranet.example"`, false},
 		{"seccomp.allow", `"ptrace"`, false},
 		{"seccomp.allow", `"io_uring_setup"`, false},
@@ -272,11 +288,12 @@ func TestWhatWasAnsweredIsProposed(t *testing.T) {
 		t.Errorf("proposed\n%v\nnot\n%v", got, want)
 	}
 	for v, needle := range map[string]string{
-		`"git/delete-ref"`:   "loosens: the tier would refuse (path)",
-		`"restart"`:          "loosens: the tier would ask (systemctl restart *)",
-		`"intranet.example"`: "a name cannot be asked about",
-		`"io_uring_setup"`:   "high surface, io_uring",
-		`"keyctl"`:           "probable",
+		`"git/delete-ref"`:                     "loosens: the tier would refuse (path)",
+		`"restart"`:                            "loosens: the tier would ask (systemctl restart *)",
+		`"intranet.example"`:                   "a name cannot be asked about",
+		`{"name":"nas.lan","ports":[139,445]}`: "on the local network, port 139",
+		`"io_uring_setup"`:                     "high surface, io_uring",
+		`"keyctl"`:                             "probable",
 	} {
 		if !strings.Contains(notes[v], needle) {
 			t.Errorf("%s's note is %q, without %q", v, notes[v], needle)
@@ -297,13 +314,14 @@ func TestWhatWasAnsweredIsProposed(t *testing.T) {
 		"ssh rm -rf *: a command with a *",
 		"ssh show version: box is not a machine the grant names",
 		"egress evil.example: a name off the allowlist is refused already",
-		"egress nas.lan: a name on the local network stays refused outside a recording",
+		"egress printer.lan: a name off the allowlist is refused already",
+		"egress shop.example.internal: network.lan: \"shop.example.internal\" is a project's name",
 	} {
 		if !slices.ContainsFunc(left, func(s string) bool { return strings.HasPrefix(s, needle) }) {
 			t.Errorf("%q was not left out: %q", needle, left)
 		}
 	}
-	if len(left) != 8 {
+	if len(left) != 9 {
 		t.Errorf("left out %q", left)
 	}
 
@@ -567,6 +585,81 @@ func TestAProposalIsMergedIntoTheGrant(t *testing.T) {
 	// and keys are not the proposal's to give.
 	if out, _, err := record.Merge(nil, []byte(`{"apps": {"ssh": {"hosts": {"box": {"allow": ["ls -la /"]}}}}}`)); err == nil {
 		t.Errorf("an entry for an unnamed machine was merged: %s", out)
+	}
+}
+
+// A NAME ON THE LOCAL NETWORK is in a grant's lan once: merged, a name
+// already there gains the ports it lacks, in its place and with its
+// comments; one there for every port is left as it is; a new one is added
+// after the last.
+func TestALANNameIsMergedByName(t *testing.T) {
+	current := `{
+  "network": {
+    "lan": [
+      // the NAS
+      {"name": "nas.lan", "ports": [445]},
+      {"name": "printer.lan"},
+    ],
+  },
+}
+`
+	proposal := `{
+  "network": {
+    "lan": [
+      // smb
+      {"name": "nas.lan", "ports": [139, 445]},
+      {"name": "printer.lan", "ports": [631]},
+      // a camera
+      {"name": "cam.lan", "ports": [554]},
+    ],
+  },
+}
+`
+	want := `{
+  "network": {
+    "lan": [
+      // the NAS
+      {"name": "nas.lan", "ports": [445, 139]},
+      {"name": "printer.lan"},
+      // a camera
+      {"name": "cam.lan", "ports": [554]},
+    ],
+  },
+}
+`
+	got, changes, err := record.Merge([]byte(current), []byte(proposal))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Errorf("merged\n%s\nnot\n%s", got, want)
+	}
+	var said []string
+	for _, c := range changes {
+		said = append(said, fmt.Sprintf("%s %s %v %v", strings.Join(c.Path, "."), c.Value, c.Widened, c.Kept))
+	}
+	if !slices.Equal(said, []string{
+		`network.lan {"name":"nas.lan","ports":[445,139]} true false`,
+		`network.lan {"name":"printer.lan","ports":[631]} false true`,
+		`network.lan {"name":"cam.lan","ports":[554]} false false`,
+	}) {
+		t.Errorf("%q", said)
+	}
+	again, changes, err := record.Merge(got, []byte(proposal))
+	if err != nil || string(again) != string(got) || slices.ContainsFunc(changes, func(c record.Change) bool { return !c.Kept }) {
+		t.Errorf("a second merge changed the grant: %v\n%s", err, again)
+	}
+	// What frisket would refuse in its lan, a grant refuses, so nothing
+	// is merged.
+	for _, bad := range []string{
+		`{"network": {"lan": [{"name": "*.lan"}]}}`,
+		`{"network": {"lan": [{"name": "nas.lan", "ports": [0]}]}}`,
+		`{"network": {"lan": [{"name": "shop.example.internal"}]}}`,
+		`{"network": {"lan": ["nas.lan"]}}`,
+	} {
+		if out, _, err := record.Merge(nil, []byte(bad)); err == nil {
+			t.Errorf("%s was merged: %s", bad, out)
+		}
 	}
 }
 

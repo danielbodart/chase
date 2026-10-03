@@ -12,7 +12,7 @@
 //	          decrypts the secrets the staged grant binds, prepares each
 //	          bound app, writes the session's policy document where frisket
 //	          reads it, and gives the payload its environment and files
-//	project   a checkout's Docker project, as approve derives it
+//	project   a checkout's project, as approve derives it
 //	docker    `chase docker`: a checkout's project, address, names and ports
 //
 // and postStop: each app's Stop, then the session's run directory and
@@ -76,7 +76,7 @@ type Config struct {
 	DockerTiers []string `json:"dockerTiers"`
 	// Checkouts is every tier's pinned checkouts, as the selector holds
 	// them: each owner/repo, and every path any tier pins it at. What names
-	// a checkout's Docker project is held to these both ways. The module
+	// a checkout's project is held to these both ways. The module
 	// lower-cases each owner/repo and sorts its paths, and they are read as
 	// if it had, whether or not it did: a pin written Example/Billing is
 	// example/billing's, as the script's baked file always had it.

@@ -12,7 +12,7 @@ import (
 
 // Origin is WHERE A CHECKOUT SAYS IT CAME FROM, for what names it by its
 // origin rather than sorts it: the grant, which names a checkout's
-// Docker project. The checkout is Find's, found from where the directory is,
+// project. The checkout is Find's, found from where the directory is,
 // and its origin is read as the selector reads it, from the config files
 // alone by gitsafe's git, never by a git that reads the checkout's config
 // itself. Every URL is given, not the first, since a checkout with two names

@@ -7,7 +7,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/danielbodart/frisket/policy"
+
 	"github.com/danielbodart/chase/internal/apps/ssh"
+	"github.com/danielbodart/chase/internal/grant"
 	"github.com/danielbodart/chase/internal/term"
 )
 
@@ -24,7 +27,8 @@ import (
 //
 // What was answered and cannot be a grant entry -- a route no grant has
 // lists for, a machine that is the tier's own, a refusal of a name -- is
-// left out and said why (Left).
+// left out and said why (Left). A name on the local network, answered
+// allow or ask, is a network.lan entry with the ports it was dialled at.
 
 // Options are how a recording was made: `chase record`'s --default, ""
 // for a person's answers, and --base.
@@ -239,29 +243,59 @@ func (p *Proposal) ssh(l Line, a Against) {
 // egress is a connection to a name no route serves: the grant's network,
 // by the name, which frisket's allowlist holds without a port. A name is
 // allowed or not: one answered ask is allowed, and said so; one refused is
-// refused by the tier already, and nothing is proposed. A name on the local
-// network is never proposed: outside a recording frisket refuses its
-// address whatever the allowlist holds.
+// refused by the tier already, and nothing is proposed. A name whose
+// address is on the local network, which frisket refuses outside a
+// recording whatever the allowlist holds, is network.lan's instead, with
+// the ports it was dialled at (lan).
 func (p *Proposal) egress(l Line) {
 	if l.Name == "" {
 		p.Left = append(p.Left, Left{l, "an address dialled by itself has no name to allow"})
 		return
 	}
+	if l.Answer == "refuse" {
+		p.Left = append(p.Left, Left{l, "a name off the allowlist is refused already: a grant only adds names"})
+		return
+	}
 	if l.LAN {
-		// frisket's dialer refuses a private address whatever the
-		// allowlist says; only a recording dials one, through ClassifyLAN.
-		p.Left = append(p.Left, Left{l, "a name on the local network stays refused outside a recording, whatever the allowlist says: no grant entry admits one"})
+		p.lan(l)
 		return
 	}
 	note := fmt.Sprintf("port %d; %s", l.Port, why(l))
-	switch l.Answer {
-	case "refuse":
-		p.Left = append(p.Left, Left{l, "a name off the allowlist is refused already: a grant only adds names"})
-		return
-	case "ask":
+	if l.Answer == "ask" {
 		note += ": a name cannot be asked about, so this allows it"
 	}
 	p.add([]string{"network", "allow"}, l.Name, note)
+}
+
+// lanPath is where a name on the local network goes in a grant.
+var lanPath = []string{"network", "lan"}
+
+// lan is a name on the local network, answered allow or ask: one
+// network.lan entry for the name, holding every port it was dialled at,
+// which the launch also puts on the allowlist. A name frisket would not
+// take in its lan list -- a project's own, frisket's -- is left out.
+func (p *Proposal) lan(l Line) {
+	if err := grant.CheckLAN([]policy.LANHost{{Name: l.Name, Ports: []int{l.Port}}}); err != nil {
+		p.Left = append(p.Left, Left{l, err.Error()})
+		return
+	}
+	note := fmt.Sprintf("on the local network, port %d; %s", l.Port, why(l))
+	if l.Answer == "ask" {
+		note += ": a name cannot be asked about, so this allows it"
+	}
+	for i := range p.Entries {
+		e := &p.Entries[i]
+		if h, ok := e.Value.(policy.LANHost); ok && slices.Equal(e.Path, lanPath) && h.Name == l.Name {
+			if !slices.Contains(h.Ports, l.Port) {
+				h.Ports = append(slices.Clone(h.Ports), l.Port)
+				slices.Sort(h.Ports)
+				e.Value = h
+				e.Note += "; " + note
+			}
+			return
+		}
+	}
+	p.add(lanPath, policy.LANHost{Name: l.Name, Ports: []int{l.Port}}, note)
 }
 
 // syscall is a call the filter would have refused: the grant's seccomp

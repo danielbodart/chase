@@ -268,7 +268,7 @@ in
           assert d["names"] == ["shop.example.internal"], d["names"]
           env = dict(l.split("=", 1) for l in machine.succeed("cat ${ws}/cmd/env").splitlines() if "=" in l)
           assert env["DOCKER_HOST"] == "tcp://docker.frisket.internal:2376" and env["DOCKER_TLS_VERIFY"] == "1", env
-          assert env["CHASE_DOCKER_ADDRESS"] == "${address}" and env["CHASE_DOCKER_PORTS"] == "64320", env
+          assert env["CHASE_PROJECT_ADDRESS"] == "${address}" and env["CHASE_DOCKER_PORTS"] == "64320", env
 
       with subtest("the session's Docker is the configured package, with Compose ${pkgs.docker-compose.version}"):
           out = session_ok("readlink -f \"$(command -v docker)\"; docker compose version --short")

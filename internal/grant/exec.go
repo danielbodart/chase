@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/danielbodart/chase/internal/apps"
-	"github.com/danielbodart/chase/internal/dockerproject"
+	"github.com/danielbodart/chase/internal/projectaddr"
 	"github.com/danielbodart/chase/internal/session"
 	"github.com/danielbodart/chase/internal/term"
 )
@@ -65,7 +65,7 @@ func execute(ctx context.Context, s session.Config, e *Config, registry map[stri
 		// ports to publish: flong refuses a forward with no network to
 		// forward from.
 		if t, ok := s.Tiers[tier]; ok && t.Forward && rec == nil && given.Project != "" {
-			if p, err := dockerproject.Of(given.Project); err == nil {
+			if p, err := projectaddr.Of(given.Project); err == nil {
 				given.Forward = p.Address
 			}
 		}
@@ -121,15 +121,17 @@ func forget(s session.Config, e *Config, stderr io.Writer) {
 	os.Remove(agents)
 }
 
-// sessionProject is the project the session is of: the approved Docker
-// project's when it has one, otherwise the one its origin names, said
-// nothing of, since a checkout with none is still launched; "" for none.
-// Its address is where the session's published ports are bound, so two
-// projects' dev servers on one port do not meet, and its repo names the
-// session in the terminal's header.
+// sessionProject is the project the session is of: the one approved with
+// its grant when Docker has it -- CHASE_PROJECT, which the Docker app puts
+// in the session's environment -- otherwise the one its origin names,
+// said nothing of, since a checkout with none is still launched; "" for
+// none. Its project address is where the session's forwarded ports are
+// bound, as the Docker app's published ones are, so two projects' dev
+// servers on one port do not meet; and its repo names the session in the
+// terminal's header.
 func sessionProject(ctx context.Context, c Config, tier, ws string, given session.Given) string {
 	for _, v := range given.Env {
-		if v.Name == "CHASE_DOCKER_PROJECT" {
+		if v.Name == "CHASE_PROJECT" {
 			return v.Value
 		}
 	}

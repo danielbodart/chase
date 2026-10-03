@@ -59,7 +59,7 @@ type Host struct {
 // would not load. What frisket refuses of one against the rest of the
 // session's document is not known until launch, and is refused there: a
 // name that is an intercepted host's, or under one, or the Docker route's,
-// and the Docker project's address.
+// and the project's address.
 var (
 	hostName      = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*$`)
 	loginName     = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9._@-]*$`)
