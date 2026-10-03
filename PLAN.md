@@ -476,6 +476,45 @@ local network, which frisket dials outside a recording only for a name in
 its document's `lan`, is proposed for the grant's `network.lan` with the
 ports it was dialled at. See [docs/record.md](docs/record.md).
 
+## Recording: possible follow-ups (not decided)
+
+Thoughts kept from the design of `chase record` so they are not lost. None
+is decided or scheduled, and any may be dropped. frisket's PLAN.md keeps
+its own (interception of names that are not routes', synthetic per-name
+DNS, UDP and ICMP counts), which chase would turn into proposals as it does
+the lines it reads today.
+
+- **Narrowing.** A recording from scratch (`--base none`) already sees
+  every call the session makes, so a proposal could also deny what the tier
+  allows and the session never used -- a mould cut to what was done, tight
+  where it can be and loose only where it must be. The same for network
+  names. It needs a recording that is known to be complete, which seccomp's
+  log is not quite: a burst can lose a call made once.
+- **An eBPF recorder.** A root system service, filtered by the session's
+  cgroup id (`bpf_get_current_cgroup_id`), keeping sets in kernel maps
+  rather than a stream: every syscall, allowed ones too, with no audit
+  flood or loss; files opened, read and written, which would let a
+  recording propose binds and mounts as well; and every connect and send,
+  UDP and the local network included. It would be the one recorder under
+  every layer, frisket adding only HTTP's method and path. The kernel here
+  has BTF and the BPF LSM. Its cost is a service running as root.
+- **Templating paths.** A recorded path is proposed exactly as seen. A
+  high-entropy segment (`/bot<token>/`, an id) could be proposed as a
+  pattern instead, which a person would still see at approval.
+- **What a recording on a direct tier misses.** The record launcher has no
+  flong network, so forwarded dev-server ports and UDP are gone while
+  recording, and what the host's daemons do for the session is unseen. A
+  steering set that sent TCP through frisket and let UDP out directly,
+  counted, would keep more of the tier's own behaviour.
+- **One recording at a time.** Syscalls whose process is gone before its
+  cgroup is read are put down to the session only when it is the sole
+  recording; a per-user lock, or the eBPF recorder's cgroup ids, would make
+  that exact.
+- **A stacking asker.** Done outside chase and frisket, as galley
+  (github.com/danielbodart/galley): zenity's command line, every question
+  in one queue window. A machine's asker and approver use it when its
+  socket is there; neither chase nor frisket depends on it.
+
 ## Considered and rejected
 
 - **Per-project path matching in frisket, to scope a project to one zone.**
