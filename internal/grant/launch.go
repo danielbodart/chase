@@ -263,10 +263,16 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 	// app's are: to a tier that allows every name, nothing.
 	var named struct {
 		Network *Network `json:"network"`
+		Apps    struct {
+			Nix *Nix `json:"nix"`
+		} `json:"apps"`
 	}
 	if err := json.Unmarshal([]byte(result.compact()), &named); err != nil {
 		return given, err
 	}
+	// The devShell, which exec realises once the document is written:
+	// nothing of it is prepared here.
+	given.DevShellGranted = named.Apps.Nix != nil && named.Apps.Nix.DevShell
 	if named.Network != nil && len(named.Network.Allow) > 0 {
 		policydoc.Merge(pd, apps.Patch{Allow: named.Network.Allow})
 	}

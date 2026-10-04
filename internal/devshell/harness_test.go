@@ -33,9 +33,14 @@ type knobs struct {
 	Log, Store string
 	// Env is what print-dev-env prints.
 	Env string
-	// Fail is whether it fails, saying FailSaid.
+	// Fail is whether it fails, saying FailSaid: print-dev-env, or the
+	// run FailAt names -- eval, derivation or build -- offline.
 	Fail     bool
 	FailSaid string
+	FailAt   string
+	// Drv is what an offline evaluation prints, and Derivation what
+	// `nix derivation show` does.
+	Drv, Derivation string
 	// NoDefault is a flake with no devShells.<system>.default.
 	NoDefault bool
 	// Sleep is how long the evaluation takes, with a child of its own
@@ -139,9 +144,31 @@ func fakeNix() int {
 	k := readKnobs()
 	args := os.Args[1+len(c0):]
 	logRun(k, "nix", run{Argv: os.Args, Env: os.Environ()})
-	if args[0] != "print-dev-env" {
+	if args[0] != "print-dev-env" && args[0] != "eval" && args[0] != "derivation" && args[0] != "build" {
 		fmt.Fprintf(os.Stderr, "nix: %q\n", args)
 		return 1
+	}
+	if _, offline := optionValue(args, "substitute"); offline {
+		// As nix says it, wherever it finds itself with no network.
+		fmt.Fprintln(os.Stderr, "warning: you don't have Internet access; disabling some network-dependent features")
+	}
+	if k.Fail && k.FailAt == args[0] {
+		fmt.Fprintln(os.Stderr, k.FailSaid)
+		return 1
+	}
+	switch args[0] {
+	case "eval":
+		if k.NoDefault {
+			fmt.Fprintln(os.Stderr, "error: flake 'git+file:///w' does not provide attribute 'devShells.x86_64-linux.default.drvPath'")
+			return 1
+		}
+		fmt.Print(k.Drv)
+		return 0
+	case "derivation":
+		fmt.Print(k.Derivation)
+		return 0
+	case "build":
+		return 0
 	}
 	if k.Sleep > 0 {
 		self, _ := os.Executable()
@@ -155,7 +182,7 @@ func fakeNix() int {
 		fmt.Fprintln(os.Stderr, "error: flake 'git+file:///w' does not provide attribute 'devShells.x86_64-linux.default'")
 		return 1
 	}
-	if k.Fail {
+	if k.Fail && k.FailAt == "" {
 		fmt.Fprintln(os.Stderr, k.FailSaid)
 		return 1
 	}
@@ -188,6 +215,17 @@ const envJSON = `{"bashFunctions":{"greet":"echo hi"},"variables":{` +
 	`"shellHook":{"type":"exported","value":""},` +
 	`"outputs":{"type":"var","value":"out"}}}`
 
+// A devShell's derivation, as an offline evaluation prints it, and as
+// `nix derivation show` shows it: inputs that take one output of one
+// derivation and two of another, and a source.
+const (
+	shellDrv        = "/nix/store/lfqsxafsv6plq2hi64arbqi3q3d4qgmk-nix-shell.drv"
+	shellDerivation = `{"derivations":{"lfqsxafsv6plq2hi64arbqi3q3d4qgmk-nix-shell.drv":{"env":{"name":"nix-shell","shellHook":"export FOO=1"},` +
+		`"inputs":{"drvs":{"5c6c4dzr5fyk9vcrig229yxr9yidbl0c-hello-2.12.3.drv":{"dynamicOutputs":{},"outputs":["out"]},` +
+		`"yrk6i9db8wc7bjhqf71brv62w2nr6dw2-webkitgtk-2.48.drv":{"dynamicOutputs":{},"outputs":["out","dev"]}},` +
+		`"srcs":["l622p70vy8k5sh7y5wizi5f2mic6ynpg-source-stdenv.sh"]}}},"version":4}`
+)
+
 type harness struct {
 	t        *testing.T
 	dir, bin string
@@ -216,7 +254,7 @@ func newHarness(t *testing.T) *harness {
 			t.Fatal(err)
 		}
 	}
-	h.k = knobs{Log: dir + "/logs", Store: dir + "/store", Env: envJSON}
+	h.k = knobs{Log: dir + "/logs", Store: dir + "/store", Env: envJSON, Drv: shellDrv, Derivation: shellDerivation}
 	h.n = session.Nix{
 		Config: gitsafetest.Config(t), Timeout: 60,
 		Nix: h.bin + "/nix", Nixpkgs: "/nix/store/nixpkgs-src", System: "x86_64-linux",

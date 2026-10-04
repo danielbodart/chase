@@ -171,7 +171,7 @@ lives.
 | [docker](docs/apps/docker.md) | Docker and Compose, on your rootless daemon | | | | |
 | [ssh](docs/apps/ssh.md) | commands on a project's machines, or the tier's own, by SSH through frisket | | | | ✓ |
 | [mise](docs/apps/mise.md) | mise toolchains | | `session` `tier` `host` | ✓ | |
-| [nix](docs/apps/nix.md) | the checkout's devShell, as `nix develop` would give it, where egress is direct and unfiltered | | | | |
+| [nix](docs/apps/nix.md) | the checkout's devShell, as `nix develop` would give it: where egress is direct and unfiltered, whenever it has one; elsewhere, offline, where its grant turns it on | | | | |
 
 Every app takes the same settings, where they apply:
 
@@ -258,6 +258,7 @@ data and never run.
 | `secrets` | The checkout's sops file. Each `credential.secret` is a key in it. |
 | `apps.<app>` | The app's credential, its other settings, and `allow`, `ask` and `refuse` lists of operation ids or `category:<name>`. ssh's lists are each host's, and take command patterns too, `docker compose ps **` ([docs/apps/ssh.md](docs/apps/ssh.md)). |
 | `network` | Names to `allow` beyond the tier's and its apps', for connections no route serves: exact, or `*.suffix` below a public suffix (never `*.com`). And `lan`, hosts on your own network, `{"name": "nas.home.arpa", "ports": [445]}`: each an exact name, reached at the private address its DNS gives, at those ports (every port when none are given), and put on the allowlist with it. Not a route's host or a project's name. |
+| `apps.nix.devShell` | `true` turns the checkout's devShell on in a tier whose egress is not direct and unfiltered, where it is realised with no network, and a launch is refused where it cannot be ([docs/apps/nix.md](docs/apps/nix.md)). |
 | `seccomp` | Syscalls to `allow` or `deny` beyond the tier's filter. A grant's `allow` overrides the tier's `seccomp.deny`: the tier is the ready-made fit, the grant the tailored one. |
 
 `chase record` writes most of a grant for you: run the agent again under it,

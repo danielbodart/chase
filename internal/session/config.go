@@ -110,6 +110,12 @@ type Nix struct {
 	Bwrap string `json:"bwrap"`
 	// CABundle is the machine's, for the evaluation's https.
 	CABundle string `json:"caBundle"`
+	// Offline is a tier whose egress is not direct and unfiltered: a
+	// devShell only where the checkout's approved grant turns it on, and
+	// realised with no network -- substituted from the machine's binary
+	// caches, nothing built but nix's record of its environment -- and a
+	// launch refused where it cannot be.
+	Offline bool `json:"offline,omitempty"`
 }
 
 // Validate refuses a Nix the module did not write, rather than half obey

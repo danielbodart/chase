@@ -11,8 +11,8 @@
 // (session.DevShell), whose wrapper orders PATH and runs the shellHook in
 // the session.
 //
-// It is for a tier of one's own code alone, whose egress is direct and
-// unfiltered: the module refuses it in any other. What is evaluated is the
+// In a tier of one's own code, whose egress is direct and unfiltered, it
+// is given whenever the checkout has one. What is evaluated is the
 // checkout itself, as `nix develop` would evaluate it, by the caller's nix:
 // a flake purely, never taking its nixConfig or writing its lock; a
 // shell.nix under restrict-eval, its NIX_PATH the system's nixpkgs and the
@@ -20,10 +20,18 @@
 // is what a session writes, so nix runs in a bubblewrap that shows it
 // nothing of the host's but the store, the daemon's socket, the machine's
 // nix configuration and the checkout (job.confine): no environment of the
-// caller's, and no file the session could not read itself. Someone else's
-// checkout would need its fetches through frisket too, which waits on a
-// store of the session's own (flong's PLAN §3); the design that did that
-// on the host is kept on the branch devshell-confined.
+// caller's, and no file the session could not read itself.
+//
+// In any other tier -- someone else's code -- only where the checkout's
+// approved grant turns it on (apps.nix.devShell), and offline: nix in the
+// same bubblewrap with no network at all, its derivation evaluated alone,
+// its inputs substituted from the machine's binary caches by the daemon,
+// with nothing built but nix's record of its environment
+// (job.realiseOffline); one that needs a fetch or a build refuses the
+// launch, as a grant applied whole or not at all does. What needs a fetch
+// waits on a store of the session's own, where the session evaluates it
+// itself, through frisket (flong's PLAN §3); the design that fetched
+// through frisket on the host is kept on the branch devshell-confined.
 //
 // The result is cached on what was evaluated -- flake.nix and flake.lock,
 // or shell.nix, and every setting the evaluation is run with -- under
@@ -50,10 +58,12 @@ import (
 )
 
 // Request is one launch's: the checkout; chase's state directory, where
-// nix's HOME is kept; and the checkout's own directory there
-// (<state>/checkouts/<key>), bound into no session.
+// nix's HOME is kept; the checkout's own directory there
+// (<state>/checkouts/<key>), bound into no session; and whether its
+// approved grant turns its devShell on, which an offline tier's needs.
 type Request struct {
 	Workspace, State, Dir string
+	Granted               bool
 }
 
 // The kinds of devShell, by the file that has it.
@@ -83,7 +93,9 @@ func (n *none) Error() string { return n.line }
 // the caller, or nil for none. One that cannot be realised is said, and the
 // session starts without it: nothing of a session needs it to start. The
 // error is a launch stopped while it was realised, which is stopped, never
-// launched without it.
+// launched without it; or, offline, a devShell the grant turned on that
+// cannot be realised, which refuses the launch, as any part of a grant
+// that cannot be applied does.
 func Realise(ctx context.Context, n session.Nix, r Request, stderr io.Writer) (*session.DevShell, error) {
 	sweep(r.State)
 	ds, err := realise(ctx, n, r, stderr)
@@ -100,6 +112,9 @@ func Realise(ctx context.Context, n session.Nix, r Request, stderr io.Writer) (*
 			term.Say(stderr, "%s", no.line)
 		}
 		return nil, nil
+	}
+	if n.Offline {
+		return nil, fmt.Errorf("%s: the devShell its grant turns on could not be realised, and the session is not started: %s", r.Workspace, hinted(err.Error()))
 	}
 	term.Say(stderr, "%s: the devShell could not be realised, and the session starts without it: %s", r.Workspace, hinted(err.Error()))
 	return nil, nil
@@ -132,6 +147,11 @@ func realise(ctx context.Context, n session.Nix, r Request, stderr io.Writer) (*
 	if !exists(ws+"/"+flake) && !exists(ws+"/"+shell) {
 		os.RemoveAll(r.Dir + "/devshell")
 		return nil, &none{}
+	}
+	if n.Offline && !r.Granted {
+		// What a grant that no longer turns it on had kept is let go.
+		os.RemoveAll(r.Dir + "/devshell")
+		return nil, &none{line: fmt.Sprintf(`%s: its devShell is not given: in this tier, the checkout's grant turns it on, with "apps": {"nix": {"devShell": true}}`, ws)}
 	}
 	kind, untracked := "", ""
 	var c checkout.Checkout
@@ -192,7 +212,11 @@ func realise(ctx context.Context, n session.Nix, r Request, stderr io.Writer) (*
 	if ds, err, hit := j.cached(); hit {
 		return ds, err
 	}
-	term.Say(stderr, "%s: realising the devShell of %s", ws, kind)
+	if n.Offline {
+		term.Say(stderr, "%s: realising the devShell of %s, with no network", ws, kind)
+	} else {
+		term.Say(stderr, "%s: realising the devShell of %s", ws, kind)
+	}
 	ds, err := j.realise(ctx)
 	var no *none
 	switch {

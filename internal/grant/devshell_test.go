@@ -13,7 +13,8 @@ import (
 
 // A DEVSHELL, AS EXEC REALISES IT, where a test can watch it: nix is this
 // binary, which writes down how it was run and answers as print-dev-env
-// would, with an environment rooted at the profile it is told. Its
+// would, with an environment rooted at the profile it is told -- and,
+// offline, as eval, derivation show and build would before it. Its
 // environment is cleared, so it logs beside the link to it, in ../logs.
 // bwrap is this binary too, which runs what follows its `--`, every path
 // bound at its own.
@@ -33,6 +34,14 @@ func fakeNix() int {
 	f, _ := os.OpenFile(filepath.Join(logs, "nix.jsonl"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 	f.Write(append(b, '\n'))
 	f.Close()
+	switch {
+	case slices.Contains(os.Args, "eval"):
+		os.Stdout.WriteString("/nix/store/lfqsxafsv6plq2hi64arbqi3q3d4qgmk-nix-shell.drv")
+		return 0
+	case slices.Contains(os.Args, "derivation"):
+		os.Stdout.WriteString(`{"derivations":{"lfqsxafsv6plq2hi64arbqi3q3d4qgmk-nix-shell.drv":{"env":{},"inputs":{"drvs":{},"srcs":[]}}}}`)
+		return 0
+	}
 	profile := os.Args[slices.Index(os.Args, "--profile")+1]
 	env := `{"bashFunctions":{},"variables":{"PATH":{"type":"exported","value":"/nix/store/hello/bin"},"HELLO_FROM_SHELL":{"type":"exported","value":"hi"},"shellHook":{"type":"exported","value":""}}}`
 	os.WriteFile(filepath.Join(logs, "env.json"), []byte(env), 0o444)
@@ -108,6 +117,41 @@ func TestATierWithoutGrantsKeepsItsDevShellInTheDefaultState(t *testing.T) {
 	if _, err := os.Lstat(h.cfg.Home + "/.local/state/chase/checkouts/" + key(ws) + "/devshell/profile"); err != nil {
 		t.Errorf("no root in the default state directory: %v", err)
 	}
+}
+
+// In a tier whose egress is not direct and unfiltered, the devShell is
+// the approved grant's to turn on: none without it, and with it realised
+// offline. A grant that turns it on where the tier has no nix is said.
+func TestOfflineTheGrantTurnsTheDevShellOn(t *testing.T) {
+	h, _, ws := newProjectLaunch(t)
+	s := sessionConfig(h)
+	n := h.nixOf()
+	n.Offline = true
+	s.Tiers["trusted"] = session.Tier{Nix: n}
+	h.tracked(ws, map[string]string{"shell.nix": "{}"})
+	h.approved(ws, "m1", "trusted", `{"network": {"allow": ["example.org"]}}`)
+	if rc := h.exec(s, true, "trusted", ws, "m1", "shell"); rc != 0 {
+		t.Fatalf("refused: %s", h.err)
+	}
+	if got := h.fields(); slices.Contains(got, "env:HELLO_FROM_SHELL=hi") || h.log("nix.jsonl") != nil {
+		t.Errorf("a devShell no grant turned on: %q", got)
+	}
+	h.mustSay(`"apps": {"nix": {"devShell": true}}`)
+	h.approved(ws, "m2", "trusted", `{"apps": {"nix": {"devShell": true}}}`)
+	if rc := h.exec(s, true, "trusted", ws, "m2", "shell"); rc != 0 {
+		t.Fatalf("refused: %s", h.err)
+	}
+	if got := h.fields(); got[0] != "env:HELLO_FROM_SHELL=hi" {
+		t.Errorf("the devShell the grant turns on is not given: %q", got)
+	}
+	if n := len(h.log("nix.jsonl")); n != 3 {
+		t.Errorf("nix ran %d times, not eval, derivation show and print-dev-env", n)
+	}
+	h.approved(ws, "m3", "trusted", `{"apps": {"nix": {"devShell": true}}}`)
+	if rc := h.exec(sessionConfig(h), true, "trusted", ws, "m3", "shell"); rc != 0 {
+		t.Fatalf("refused: %s", h.err)
+	}
+	h.mustSay("apps.nix ignored: trusted has no nix")
 }
 
 // A tier without nix realises nothing, whatever the checkout has: the

@@ -2,11 +2,14 @@
 # launcher, as the caller, and given to the session as nix develop would
 # give it.
 #
-# Two tiers, as a desk has them: `own`, direct egress, a devShell whenever
-# the checkout has one, with mise; and `others`, the fallback, frisket's
-# alone, with no nix, which no tier of that egress may have. The machine
-# has no binary cache, and has everything a shell.nix of
-# `import <nixpkgs> { }` needs already, so a miss fails fast and nothing is
+# Three tiers, as a desk has them: `own`, direct egress, a devShell whenever
+# the checkout has one, with mise; `theirs`, frisket's alone and taking
+# grants, a devShell only where the checkout's approved grant turns it on,
+# realised with no network; and `others`, the fallback, frisket's alone,
+# with no nix. The machine has no binary cache, and has everything a
+# shell.nix of `import <nixpkgs> { }` needs already -- in its store, as
+# system.extraDependencies puts it there, which is what the binary cache
+# would give `theirs` on a desk -- so a miss fails fast and nothing is
 # fetched. A flake needs no nixpkgs: its devShell is a derivation whose
 # builder is a static bash in a relative path: input.
 #
@@ -69,6 +72,21 @@ let
     }
   '';
   subFlake = pkgs.writeText "flake.nix" "{ outputs = _: { }; }";
+
+  # What `theirs` needs before it gives a devShell, approved.
+  grantJsonc = pkgs.writeText "chase.jsonc" ''
+    { "apps": { "nix": { "devShell": true } } }
+  '';
+
+  # What a devShell realised with no network cannot do: fetch, and build
+  # anything of its own -- this, in no binary cache, nor in the store.
+  fetchNix = pkgs.writeText "shell.nix" ''
+    { ... }: builtins.seq (builtins.fetchurl "https://example.com/") (import <nixpkgs> { }).mkShell { }
+  '';
+  localBuildNix = pkgs.writeText "shell.nix" ''
+    { pkgs ? import <nixpkgs> { }, ... }:
+    pkgs.mkShell { packages = [ (pkgs.runCommand "chase-test-not-cached" { } "echo > $out") ]; }
+  '';
 
   # A checkout at DIR, with each FILE copied from SOURCE, committed.
   mkCheckout = pkgs.writeShellScript "mk-checkout" ''
@@ -142,7 +160,11 @@ in
       user = "alice";
       uid = 1000;
       gid = 100;
-      order = [ "own" ];
+      order = [ "own" "theirs" ];
+      # Approves every grant, and says what it was asked.
+      approver = "${pkgs.writeShellScript "approver" ''
+        ${pkgs.coreutils}/bin/cat | ${pkgs.util-linux}/bin/logger -t chase-test-approver
+      ''}";
       fallback = "others";
       apps = {
         claude.package = pkgs.hello;
@@ -153,6 +175,15 @@ in
         egress = "direct";
         allow = [ "*" ];
         apps.mise.enable = true;
+        apps.nix.enable = true;
+      };
+      tiers.theirs = {
+        match = [{ paths = map (d: "${home}/${d}") [ "nogrant" "granted" "granted-flake" "fetch" "localbuild" ]; }];
+        egress = "frisket";
+        writes = "refuse";
+        guarded = "refuse";
+        unmatched = "refuse";
+        grants = true;
         apps.nix.enable = true;
       };
       tiers.others = {
@@ -167,6 +198,7 @@ in
   testScript = { nodes, ... }:
     let
       own = lib.getExe nodes.machine.flong.chase-own.launcher;
+      theirs = lib.getExe nodes.machine.flong.chase-theirs.launcher;
       others = lib.getExe nodes.machine.flong.chase-others.launcher;
     in
     ''
@@ -259,6 +291,41 @@ in
           s, said = launch("${own}", "mine-flake")
           assert s is not None and s["FLAKE"] == "yes", said
           assert "realising the devShell of flake.nix" in said, said
+
+      with subtest("where egress is not direct, no devShell but the grant's"):
+          checkout("nogrant", "${shellNix}", "shell.nix")
+          s, said = launch("${theirs}", "nogrant")
+          assert s is not None and s["GREETING"] == "", (s, said)
+          assert "realising" not in said, said
+          assert '"apps": {"nix": {"devShell": true}}' in said, said
+
+      with subtest("the grant turns it on, realised with no network"):
+          checkout("granted", "${shellNix}", "shell.nix", "${grantJsonc}", "chase.jsonc")
+          s, said = launch("${theirs}", "granted")
+          assert s is not None and s["GREETING"] == "hi", said
+          assert s["HELLO"].startswith("/nix/store/") and s["HELLO"].endswith("/bin/hello"), s
+          assert "realising the devShell of shell.nix, with no network" in said, said
+          assert "the hook ran in ${home}/granted" in said, said
+          s, said = launch("${theirs}", "granted", "again")
+          assert s is not None and s["GREETING"] == "hi" and "realising" not in said, said
+
+      with subtest("a flake with a relative path: input is realised with no network"):
+          checkout("granted-flake", "${flakeNix}", "flake.nix", "${subFlake}", "sub/flake.nix", "${pkgs.pkgsStatic.bash}/bin/bash", "sub/bash", "${grantJsonc}", "chase.jsonc")
+          machine.succeed(as_user("cd ${home}/granted-flake && nix --extra-experimental-features 'nix-command flakes' flake lock"))
+          checkout("granted-flake")
+          s, said = launch("${theirs}", "granted-flake")
+          assert s is not None and s["FLAKE"] == "yes", said
+
+      with subtest("one that fetches, or builds anything of its own, refuses the launch"):
+          checkout("fetch", "${fetchNix}", "shell.nix", "${grantJsonc}", "chase.jsonc")
+          s, said = launch("${theirs}", "fetch")
+          assert s is None, said
+          assert "the session is not started" in said and "access to URI 'https://example.com/' is forbidden" in said, said
+          checkout("localbuild", "${localBuildNix}", "shell.nix", "${grantJsonc}", "chase.jsonc")
+          s, said = launch("${theirs}", "localbuild")
+          assert s is None, said
+          assert "not all in the machine's binary caches" in said and "chase-test-not-cached" in said, said
+          machine.fail("ls -d /nix/store/*-chase-test-not-cached")
 
       with subtest("a tier without nix gives no devShell"):
           checkout("theirs", "${shellNix}", "shell.nix")

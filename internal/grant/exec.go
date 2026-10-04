@@ -32,8 +32,9 @@ import (
 //     and seeds handed to the payload, with nothing written for a session
 //     to source;
 //   - the checkout's devShell, where its tier has nix (internal/devshell),
-//     realised as the caller, confined, and handed to the payload as the least of its
-//     environment;
+//     and, where the tier's egress is not direct and unfiltered, where the
+//     approved grant turns it on: realised as the caller, confined, and
+//     handed to the payload as the least of its environment;
 //   - the payload itself (session.Payload), printed.
 //
 // Anything that goes wrong ends the launch with nothing on stdout, flong's
@@ -75,12 +76,17 @@ func execute(ctx context.Context, s session.Config, e *Config, registry map[stri
 		}
 	}
 	// The devShell, last before the payload. One that cannot be realised
-	// is said, and the session starts without it; only a launch stopped
-	// while it is realised ends here.
-	if t := s.Tiers[tier]; t.Nix != nil {
+	// is said, and the session starts without it, unless the tier is one
+	// whose devShell a grant turns on; that, and a launch stopped while it
+	// is realised, end here.
+	if t := s.Tiers[tier]; t.Nix == nil {
+		if given.DevShellGranted {
+			term.Say(stderr, "%s: apps.nix ignored: %s has no nix", ws, tier)
+		}
+	} else {
 		var err error
 		given.DevShell, err = devshell.Realise(ctx, *t.Nix, devshell.Request{
-			Workspace: ws, State: stateOf(s, e), Dir: checkoutOf(s, e, ws),
+			Workspace: ws, State: stateOf(s, e), Dir: checkoutOf(s, e, ws), Granted: given.DevShellGranted,
 		}, stderr)
 		if err != nil {
 			term.Say(stderr, "%v", err)

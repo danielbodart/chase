@@ -51,6 +51,10 @@ type Given struct {
 	// least of the session's environment, and what the argument list is
 	// wrapped in; nil for none.
 	DevShell *DevShell
+	// DevShellGranted is whether the approved grant turns the checkout's
+	// devShell on, apps.nix.devShell: the exec hook's to read before it
+	// realises one (internal/devshell), never the payload's.
+	DevShellGranted bool
 }
 
 // Exec is the payload, as flong's exec prints it (Write): its whole

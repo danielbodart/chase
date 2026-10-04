@@ -100,9 +100,25 @@ type Apps struct {
 	Git         *Lists      `json:"git,omitempty"`
 	Github      *Lists      `json:"github,omitempty"`
 	Huggingface *Lists      `json:"huggingface,omitempty"`
+	Nix         *Nix        `json:"nix,omitempty"`
 	// SSH is the machines the project's sessions run commands on, each
 	// with its own lists (internal/apps/ssh).
 	SSH *appsssh.Binding `json:"ssh,omitempty"`
+}
+
+// Nix is what a project's sessions are given of Nix (internal/devshell).
+type Nix struct {
+	// DevShell turns the checkout's devShell -- flake.nix's
+	// devShells.<system>.default, or shell.nix's -- on in a tier whose
+	// egress is not direct and unfiltered, where it is realised with no
+	// network, and a launch is refused where it cannot be. A tier of
+	// direct, unfiltered egress gives it whatever this says.
+	//
+	// The files are not approved with it: once a grant has turned it on, a
+	// devShell is what the checkout's flake.nix or shell.nix says at each
+	// launch, what it may reach standing in for an approval (PLAN.md,
+	// decision 21).
+	DevShell bool `json:"devShell,omitempty"`
 }
 
 // Lists is an app's lists (PLAN.md, decision 18). What a project names

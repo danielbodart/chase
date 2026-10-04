@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -34,7 +35,8 @@ type job struct {
 
 	// files are the digests of what the cache is keyed on, by name.
 	files map[string]string
-	// args are nix's, after c0, and key what the cache is keyed on.
+	// args are nix's, after c0, and key what the cache is keyed on: the
+	// one run that realises it, or, offline, the run that evaluates it.
 	args []string
 	key  string
 	// env is the store path the profile pointed to when it was realised.
@@ -62,6 +64,13 @@ var c0 = []string{
 // restrict-eval would otherwise be asked to let through.
 var shellURIs = []string{"https://", "tarball+https://", "file+https://", "git+https://", "github:", "gitlab:", "sourcehut:"}
 
+// offlineEval is what an offline evaluation is given beyond c0:
+// substitution, which nix turns off when it finds no network, back on --
+// the daemon's, from the machine's own binary caches, on the host's
+// network, their signatures checked -- and nothing built while it
+// evaluates, nor imported from what would be.
+var offlineEval = []string{"--option", "substitute", "true", "--max-jobs", "0", "--option", "allow-import-from-derivation", "false"}
+
 // plan is what the job evaluates and how: the digests of the files keyed
 // on, nix's arguments, and the key of them all.
 //
@@ -70,6 +79,10 @@ var shellURIs = []string{"https://", "tarball+https://", "file+https://", "git+h
 // shell.nix is evaluated restricted, as nix-shell evaluates none: <nixpkgs>
 // is the system's, the rest of its NIX_PATH the checkout, and what it
 // fetches https alone.
+//
+// Offline, what is evaluated first is the devShell's derivation alone,
+// with no network: a flake's inputs are what the store has, and a
+// shell.nix fetches nothing at all (realiseOffline).
 func (j *job) plan() error {
 	j.files = map[string]string{}
 	names := []string{j.kind}
@@ -88,12 +101,20 @@ func (j *job) plan() error {
 		d := sha256.Sum256(b)
 		j.files[name] = hex.EncodeToString(d[:])
 	}
+	attr, uris := "", strings.Join(shellURIs, " ")
 	j.args = []string{"print-dev-env", "--json", "--profile", j.dir + "/profile"}
+	if j.n.Offline {
+		attr, uris = ".drvPath", ""
+		j.args = append([]string{"eval", "--raw"}, offlineEval...)
+	}
 	if j.kind == flake {
-		j.args = append(j.args, "--no-write-lock-file", j.r.Workspace+"#devShells."+j.n.System+".default")
+		j.args = append(j.args, "--no-write-lock-file", j.r.Workspace+"#devShells."+j.n.System+".default"+attr)
 	} else {
-		j.args = append(j.args, "--option", "restrict-eval", "true", "--option", "allowed-uris", strings.Join(shellURIs, " "),
+		j.args = append(j.args, "--option", "restrict-eval", "true", "--option", "allowed-uris", uris,
 			"--arg", "inNixShell", "true", "-f", j.r.Workspace+"/"+shell)
+		if j.n.Offline {
+			j.args = append(j.args, "drvPath")
+		}
 	}
 	b, err := json.Marshal(struct {
 		Version int               `json:"version"`
@@ -105,7 +126,8 @@ func (j *job) plan() error {
 		Bwrap   string            `json:"bwrap"`
 		Binds   []string          `json:"binds"`
 		Args    []string          `json:"args"`
-	}{2, j.kind, j.files, j.n.System, j.n.Nix, j.n.Nixpkgs, j.n.Bwrap, j.binds, append(append([]string{}, c0...), j.args...)})
+		Offline bool              `json:"offline,omitempty"`
+	}{2, j.kind, j.files, j.n.System, j.n.Nix, j.n.Nixpkgs, j.n.Bwrap, j.binds, append(append([]string{}, c0...), j.args...), j.n.Offline})
 	if err != nil {
 		return err
 	}
@@ -211,12 +233,20 @@ func (j *job) load() (*session.DevShell, error) {
 	return ds, nil
 }
 
-// realise is nix's run, and the environment that comes of it, rooted in
-// dir: given apps.nix.timeout, and then a failure.
+// realise is nix's runs, and the environment that comes of them, rooted
+// in dir: given apps.nix.timeout between them, and then a failure.
 func (j *job) realise(ctx context.Context) (*session.DevShell, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(j.n.Timeout)*time.Second)
 	defer cancel()
-	if err := j.run(ctx); err != nil {
+	args := j.args
+	var err error
+	if j.n.Offline {
+		args, err = j.realiseOffline(ctx)
+	}
+	if err == nil {
+		err = j.run(ctx, args, io.Discard)
+	}
+	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return nil, fmt.Errorf("it took more than %d s", j.n.Timeout)
 		}
@@ -227,12 +257,66 @@ func (j *job) realise(ctx context.Context) (*session.DevShell, error) {
 		return nil, err
 	}
 	prune(j.dir)
-	var err error
 	if j.env, err = filepath.EvalSymlinks(j.dir + "/profile"); err != nil {
 		return nil, err
 	}
 	return j.load()
 }
+
+// realiseOffline is everything of the devShell but the record of its
+// environment, with no network, and the arguments of the run that makes
+// that record: in a tier whose egress is not direct and unfiltered, what
+// an evaluation reaches is neither the host's network nor a build of the
+// checkout's.
+//
+// So the devShell's derivation is evaluated alone (plan), and read: one
+// that asks for what a sandboxed build is not given is refused. Each of
+// its inputs, as the outputs it takes, is substituted from the machine's
+// binary caches with no local build allowed, and one that is in none of
+// them refuses it, before anything is built. What is left is nix's own
+// derivation that records the environment, of the devShell's attributes
+// and with every input already there, which print-dev-env builds, the
+// one local build, sandboxed by the daemon.
+func (j *job) realiseOffline(ctx context.Context) ([]string, error) {
+	var out bytes.Buffer
+	if err := j.run(ctx, j.args, &out); err != nil {
+		var f *failure
+		if errors.As(err, &f) && fetching.MatchString(f.reason) {
+			return nil, &failure{reason: f.reason + offlineHint, said: f.said}
+		}
+		return nil, err
+	}
+	drv := strings.TrimSpace(out.String())
+	if !strings.HasPrefix(drv, "/nix/store/") || !drvName.MatchString(strings.TrimPrefix(drv, "/nix/store/")) {
+		return nil, fmt.Errorf("its derivation is %q, which is not one in the store", drv)
+	}
+	out.Reset()
+	if err := j.run(ctx, []string{"derivation", "show", "--option", "substitute", "true", drv}, &out); err != nil {
+		return nil, err
+	}
+	inputs, err := inputsOf(drv, out.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	if len(inputs) > 0 {
+		build := append([]string{"build", "--no-link", "--option", "substitute", "true", "--max-jobs", "0"}, inputs...)
+		if err := j.run(ctx, build, io.Discard); err != nil {
+			var f *failure
+			if ctx.Err() == nil && errors.As(err, &f) {
+				return nil, fmt.Errorf("what it needs is not all in the machine's binary caches, and nothing of a devShell is built in this tier but nix's record of its environment: %s", f.reason)
+			}
+			return nil, err
+		}
+	}
+	return []string{"print-dev-env", "--json", "--option", "substitute", "true", "--max-jobs", "1", "--profile", j.dir + "/profile", drv + "^*"}, nil
+}
+
+// fetching is what an evaluation with no network says of a fetch, and
+// offlineHint what it is told.
+var (
+	fetching    = regexp.MustCompile(`access to URI|unable to download|resolve host|fetch`)
+	offlineHint = "; a devShell is realised with no network in this tier: a flake's inputs are taken from the store alone, and a shell.nix has the system's <nixpkgs> and nothing to fetch"
+)
 
 // failure is a nix run that did not succeed, and what it said.
 type failure struct {
@@ -242,14 +326,23 @@ type failure struct {
 func (f *failure) Error() string { return f.reason }
 
 // home is nix's HOME, chase's own and every checkout's: its fetcher and
-// evaluation caches, and nothing of the caller's.
-func (j *job) home() string { return j.r.State + "/devshell/home" }
+// evaluation caches, and nothing of the caller's. Offline, one of its
+// own, so nothing an evaluation of someone else's code leaves in nix's
+// caches is read by an evaluation of one's own.
+func (j *job) home() string {
+	if j.n.Offline {
+		return j.r.State + "/devshell/offline-home"
+	}
+	return j.r.State + "/devshell/home"
+}
 
 // confine is nix's argument list, in a bubblewrap of its own: nothing of
 // the host but the store, the daemon's socket, the machine's nix
 // configuration and resolver, the checkout's binds, read-only, nix's HOME,
 // and the devshell directory, at its own path, for the profile nix roots
-// there by that path; the host's network, as the tier's egress is direct;
+// there by that path; the host's network, as the tier's egress is direct,
+// and none at all offline, where the daemon alone reaches the machine's
+// binary caches;
 // and none of the caller's environment but what is set here -- that HOME,
 // a PATH of nix and git alone, the git a fetch shells out to, the daemon,
 // the machine's CA bundle, and, for a shell.nix, its NIX_PATH. So
@@ -263,15 +356,19 @@ func (j *job) home() string { return j.r.State + "/devshell/home" }
 // home, ~/.ssh, another checkout, chase's state -- and hands nothing of
 // theirs to the session, nor to the world-readable store. /tmp is a tmpfs
 // first, so what is bound later is not hidden under it.
-func (j *job) confine() []string {
-	argv := []string{j.n.Bwrap, "--unshare-all", "--share-net", "--die-with-parent", "--new-session", "--clearenv",
+func (j *job) confine(args []string) []string {
+	argv := []string{j.n.Bwrap, "--unshare-all"}
+	if !j.n.Offline {
+		argv = append(argv, "--share-net")
+	}
+	argv = append(argv, "--die-with-parent", "--new-session", "--clearenv",
 		"--tmpfs", "/tmp",
 		"--ro-bind", "/nix/store", "/nix/store",
 		"--bind", "/nix/var/nix/daemon-socket", "/nix/var/nix/daemon-socket",
 		"--ro-bind-try", "/etc/nix", "/etc/nix",
 		"--ro-bind-try", "/etc/static", "/etc/static",
 		"--ro-bind-try", "/etc/resolv.conf", "/etc/resolv.conf",
-		"--ro-bind-try", "/etc/hosts", "/etc/hosts"}
+		"--ro-bind-try", "/etc/hosts", "/etc/hosts")
 	for _, b := range j.binds {
 		argv = append(argv, "--ro-bind", b, b)
 	}
@@ -286,20 +383,22 @@ func (j *job) confine() []string {
 	}
 	argv = append(argv, "--", j.n.Nix)
 	argv = append(argv, c0...)
-	return append(argv, j.args...)
+	return append(argv, args...)
 }
 
-// run is nix, as the caller, confined: its environment confine's, its
-// stdin /dev/null, and its process group killed when ctx is done --
-// bubblewrap's, that is, which puts nix in a session of its own
-// (--new-session, so nothing in it can push input to a terminal), and nix,
-// and all it started, die with it (--die-with-parent). What it says goes
-// to the launcher's stderr, cleaned, as it comes.
-func (j *job) run(ctx context.Context) error {
+// run is nix, run with args, as the caller, confined: its environment
+// confine's, its stdin /dev/null, its stdout stdout, and its process
+// group killed when ctx is done -- bubblewrap's, that is, which puts nix
+// in a session of its own (--new-session, so nothing in it can push input
+// to a terminal), and nix, and all it started, die with it
+// (--die-with-parent). What it says goes to the launcher's stderr,
+// cleaned, as it comes; offline, but its warning that it has no network,
+// which is the point.
+func (j *job) run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err := os.MkdirAll(j.home(), 0o700); err != nil {
 		return err
 	}
-	argv := j.confine()
+	argv := j.confine(args)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Env = []string{}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -307,7 +406,10 @@ func (j *job) run(ctx context.Context) error {
 	cmd.WaitDelay = 5 * time.Second
 	var said bytes.Buffer
 	lines := &cleanLines{w: j.stderr}
-	cmd.Stdout = io.Discard
+	if j.n.Offline {
+		lines.skip = "you don't have Internet access"
+	}
+	cmd.Stdout = stdout
 	cmd.Stderr = io.MultiWriter(lines, &said)
 	err := cmd.Run()
 	lines.flush()
@@ -340,10 +442,12 @@ func reasonOf(said string, err error) string {
 }
 
 // cleanLines writes what it is given to w a line at a time, each cleaned
-// (term.Clean): nix's output carries what the checkout named.
+// (term.Clean): nix's output carries what the checkout named. A line with
+// skip in it is not written.
 type cleanLines struct {
-	w   io.Writer
-	buf []byte
+	w    io.Writer
+	buf  []byte
+	skip string
 }
 
 func (c *cleanLines) Write(p []byte) (int, error) {
@@ -353,17 +457,19 @@ func (c *cleanLines) Write(p []byte) (int, error) {
 		if i < 0 {
 			break
 		}
-		io.WriteString(c.w, term.Clean(string(c.buf[:i+1])))
+		if line := string(c.buf[:i+1]); c.skip == "" || !strings.Contains(line, c.skip) {
+			io.WriteString(c.w, term.Clean(line))
+		}
 		c.buf = c.buf[i+1:]
 	}
 	return len(p), nil
 }
 
 func (c *cleanLines) flush() {
-	if len(c.buf) > 0 {
+	if len(c.buf) > 0 && (c.skip == "" || !strings.Contains(string(c.buf), c.skip)) {
 		io.WriteString(c.w, term.Clean(string(c.buf))+"\n")
-		c.buf = nil
 	}
+	c.buf = nil
 }
 
 // plural is one when n is 1, and many otherwise.

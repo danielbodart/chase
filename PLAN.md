@@ -485,7 +485,8 @@ its document's `lan`, is proposed for the grant's `network.lan` with the
 ports it was dialled at. See [docs/record.md](docs/record.md).
 
 **21. A checkout's devShell is realised by the launcher, and given to the
-session as its environment -- for now, in a tier of one's own code alone.** The files are not the problem: flong binds the whole of
+session as its environment -- in a tier of one's own code whenever it has
+one, and in any other offline, where its grant turns it on.** The files are not the problem: flong binds the whole of
 `/nix/store` read-only, so every library a devShell names is already there in
 every tier. Its environment is: flong starts a session clean, so the
 `PATH`, `PKG_CONFIG_PATH` and the rest of a `nix develop` on the host never
@@ -497,10 +498,10 @@ checkout it is the wrong order, since `nix develop` on the host runs their
 
 So exec, as the caller, after the grant and before the payload, realises
 the checkout's devShell -- flake.nix's `devShells.<system>.default`, or its
-shell.nix, flake.nix's when it has both -- whenever the checkout has one,
-in a tier whose `apps.nix` is enabled, and hands its environment to the
-payload (internal/devshell). One that cannot be realised is said, and the
-session starts without it; the failure is kept an hour. flake.nix and
+shell.nix, flake.nix's when it has both -- in a tier whose `apps.nix` is
+enabled, and hands its environment to the payload (internal/devshell). One
+that cannot be realised is said, and the session starts without it, unless
+a grant turned it on (below); the failure is kept an hour. flake.nix and
 shell.nix are never approved: an edit takes effect at the next launch.
 
 What is evaluated is the checkout itself, on the host, as `nix develop`
@@ -519,23 +520,47 @@ in and its git, a worktree's repository included -- with a `HOME` of
 chase's own and none of the caller's environment. Its network is the
 host's, and the daemon builds what it must, a fixed-output build on the
 host's own network: fetches neither filtered nor logged, which is the cost
-of one's own code, and nobody else's. So the module refuses `apps.nix` in a
-tier whose egress is not direct, or whose `allow` is not `*`, and in a bare
-one, whose agent runs on the host with its own `nix develop`; and a `chase
-record` launch's report never names what a devShell fetched.
+of one's own code, and nobody else's. So that is a tier whose egress is
+direct and whose `allow` is `*`, where a devShell is given whenever the
+checkout has one; the module refuses `apps.nix` in a bare tier, whose agent
+runs on the host with its own `nix develop`, and in any other that takes no
+grants; and a `chase record` launch's report never names what a devShell
+fetched.
 
-Other people's code waits on `nix` inside the session, with a store of its
-own over the host's (below): the session evaluates its devShell itself,
-in its sandbox, every fetch through frisket and on the allowlist, and
-nothing of theirs is evaluated on the host at all. A design that evaluated
-it on the host, confined -- bubblewrap with nothing of the host but the
-store and the daemon's socket, a lock's inputs prefetched through pasta
-from the allowlist's names alone, nothing of the devShell's built locally,
-a grant key to turn it on -- was built, and is kept on the branch
-devshell-confined: the thousand lines of it beyond the bubblewrap kept here
--- prefetching through pasta from the allowlist, refusing what would build
-locally -- existed only because the code was someone else's, and the
-overlay store makes them unnecessary.
+In any other tier -- someone else's code -- a devShell is the grant's to
+turn on, `"apps": {"nix": {"devShell": true}}`, approved as every key of a
+grant is (decision 17), and it is realised offline: the same bubblewrap,
+with no network at all. nix, finding none, turns substitution off, so every
+run turns it back on: the daemon substitutes from the machine's own binary
+caches, their signatures checked, on the host's network -- accepted, since
+what it fetches is named by a derivation's hash, from caches the machine
+trusts, never a URL the checkout chose. The devShell's derivation is
+evaluated alone, nothing built while it is and nothing imported from a
+derivation; read, and refused if it asks for what a sandboxed build is not
+given (`__noChroot`, `__impure`, the system features `recursive-nix` and
+`uid-range`); each of its inputs substituted, as the outputs it takes and
+never `^*`, which would be every debug output too, with no local build
+allowed, one in no cache refusing it before anything is built; and only
+then `print-dev-env`, whose one local build is nix's own record of the
+environment, of the devShell's attributes and every input already there,
+sandboxed by the daemon. So no fixed-output build, the one kind the daemon
+gives a network, is ever run for it, nor anything of the checkout's own. A
+devShell the grant turned on that cannot be realised refuses the launch,
+as any part of a grant does (decision 4), and is kept an hour as a failure
+is; nix's HOME is one of its own, so nothing an evaluation of someone
+else's leaves in nix's caches is read by one's own. What this cannot give
+is anything that fetches as it is evaluated: a flake whose inputs are not
+in the store already, a shell.nix that pins its nixpkgs by
+`fetchTarball`, any `builtins.fetch*`. Those wait on `nix` inside the
+session, with a store of its own over the host's (below): the session
+evaluates its devShell itself, in its sandbox, every fetch through frisket
+and on the allowlist, and nothing of theirs is evaluated on the host at
+all. A design that fetched for it on the host, confined -- a lock's inputs
+prefetched through pasta from the allowlist's names alone -- was built,
+and is kept on the branch devshell-confined: the prefetching, the lock's
+checks and the thousand lines of them existed only to fetch for someone
+else's code, which the overlay store does without; what it refused of a
+derivation is kept here.
 
 The result is cached in chase's state, `checkouts/<key>/devshell`, bound
 into no session, keyed on flake.nix and flake.lock, or shell.nix, the

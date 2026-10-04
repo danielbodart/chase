@@ -586,13 +586,22 @@
             # A CHECKOUT'S DEVSHELL (PLAN.md, decision 21): what exec
             # realises it with; the setuid wrappers first on every sandbox's
             # PATH, mise's shims next where it has mise, a devShell's behind
-            # both; no nix where no tier enables it; and none where egress is
-            # not direct and unfiltered, or the tier is bare, since its
-            # fetches are the host's.
-            assert refused "nix in a tier whose egress is not direct"
-              { chase.tiers.strict.apps.nix.enable = true; } "chase.tiers.strict.apps.nix is enabled, but the tier's egress is not direct and unfiltered";
-            assert refused "nix in a direct tier whose names are filtered"
-              { chase.tiers.trusted.allow = lib.mkForce [ "github.com" ]; } "chase.tiers.trusted.apps.nix is enabled, but the tier's egress is not direct and unfiltered";
+            # both; no nix where no tier enables it; offline where egress is
+            # not direct and unfiltered, which must take grants, a grant's
+            # to turn on; and none in a bare tier.
+            assert refused "nix in a tier whose egress is not direct, which takes no grants"
+              { chase.tiers.strict.apps.nix.enable = true; } "chase.tiers.strict.apps.nix is enabled, but the tier's egress is not direct and unfiltered, and it takes no grants";
+            assert
+              (let
+                strict = configWith { chase.tiers.strict = { apps.nix.enable = true; grants = true; }; };
+                filtered = configWith { chase.tiers.trusted.allow = lib.mkForce [ "github.com" ]; };
+              in
+              lib.all (a: a.assertion) strict.assertions
+              && strict.chase.internal.config.session.tiers.strict.nix.offline
+              && ! strict.chase.internal.config.session.tiers.trusted.nix ? offline
+              && lib.all (a: a.assertion) filtered.assertions
+              && filtered.chase.internal.config.session.tiers.trusted.nix.offline)
+              || throw "assertions: nix where egress is not direct and unfiltered, in a tier that takes grants, is not offline";
             assert refused "nix in a bare tier"
               { chase.tiers.host.apps.nix.enable = true; } "chase.tiers.host.apps.nix is enabled, but the tier is bare";
             assert

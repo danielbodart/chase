@@ -141,3 +141,21 @@ func TestAGrantIsApprovedAsChaseReadsIt(t *testing.T) {
 		t.Errorf("read as %s, not %s", got, want)
 	}
 }
+
+// WHAT A GRANT MAY SAY OF NIX (docs/apps/nix.md): whether the checkout's
+// devShell is given, and nothing else.
+func TestWhatAGrantMaySayOfNix(t *testing.T) {
+	for _, g := range []string{
+		`{"apps": {"nix": {"devShell": "yes"}}}`,
+		`{"apps": {"nix": {"devShell": true, "flake": "x"}}}`,
+		`{"apps": {"nix": {"shell": true}}}`,
+	} {
+		if _, err := grant.ParseFile([]byte(g)); err == nil {
+			t.Errorf("%s was accepted", g)
+		}
+	}
+	out, err := grant.ParseFile([]byte(`{"apps": {"nix": {"devShell": true}}}`))
+	if err != nil || !strings.Contains(string(out), `"nix":{"devShell":true}`) {
+		t.Errorf("%s, %v", out, err)
+	}
+}

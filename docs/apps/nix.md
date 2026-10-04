@@ -8,17 +8,21 @@ before the session starts, as you, keeps it rooted in chase's state, gives
 the session its variables and its PATH, and runs its shellHook inside the
 session. `nix` itself in a session is not this; it is flong's to give.
 
-It is for your own code alone: a tier whose `egress` is `direct` and whose
-`allow` is `[ "*" ]`, and never a bare one, whose agent runs on the host with
-its own `nix develop`. What is evaluated is the checkout itself, on the host,
-and the checkout is what a session writes; nix runs in a bubblewrap that
-shows it nothing of the host's but the store, the nix daemon and the
-checkout, and its fetches are the host's own, neither filtered nor logged.
-Someone else's code waits on a store of the session's own, where the session
-evaluates its devShell itself, its fetches through frisket (flong's PLAN
-§3); until then, a tier of other egress, or a filtered allowlist, is refused
-with nix enabled. For the same reason a `chase record` launch's report never
-names what a devShell fetched: that was the host, not the session.
+In a tier for your own code -- `egress` `direct` and `allow` `[ "*" ]` --
+it is given whenever the checkout has one. What is evaluated is the checkout
+itself, on the host, and the checkout is what a session writes; nix runs in
+a bubblewrap that shows it nothing of the host's but the store, the nix
+daemon and the checkout, and its fetches are the host's own, neither
+filtered nor logged. For the same reason a `chase record` launch's report
+never names what a devShell fetched: that was the host, not the session.
+
+In any other tier -- someone else's code -- it is given only where the
+checkout's approved grant turns it on, and it is realised with no network
+at all: what it needs substituted from the machine's binary caches, nothing
+built but nix's record of its environment, and the launch refused where
+that cannot be ([Other people's code](#other-peoples-code)). Such a tier
+must take grants. Never a bare tier, whose agent runs on the host with its
+own `nix develop`.
 
 | `chase.apps.nix.…` | Default | |
 |---|---|---|
@@ -28,7 +32,7 @@ names what a devShell fetched: that was the host, not the session.
 
 | `chase.tiers.<name>.apps.nix.…` | Default | |
 |---|---|---|
-| `enable` | `false` | The checkout's devShell, whenever it has one. Only where `egress = "direct"` and `allow = [ "*" ]`, and not in a bare tier. |
+| `enable` | `false` | The checkout's devShell: whenever it has one where `egress = "direct"` and `allow = [ "*" ]`; in any other tier, which must have `grants = true`, where its grant turns it on, with no network. Not in a bare tier. |
 | `package`, `nixpkgs`, `timeout` | the machine's | |
 
 ```nix
@@ -37,6 +41,49 @@ chase.tiers.trusted.apps.nix.enable = true;
 
 flake.nix, flake.lock and shell.nix are the checkout's, never approved: an
 edit to them takes effect at the next launch.
+
+## Other people's code
+
+Where egress is not direct and unfiltered, the checkout's grant turns its
+devShell on:
+
+```jsonc
+{ "apps": { "nix": { "devShell": true } } }
+```
+
+approved as every grant is. Without it the launch says so, and the session
+starts without one. With it, nix runs in the same bubblewrap with no network
+at all, and with a `HOME` of its own,
+`~/.local/state/chase/devshell/offline-home`, so nothing an evaluation of
+someone else's code leaves in nix's caches is read by one of yours:
+
+1. The devShell's derivation alone is evaluated: nothing built as it is,
+   and no import from derivation. A shell.nix is restricted as below, and
+   fetches nothing; a flake's inputs are what the store already has.
+2. The derivation is read, and refused if it asks for what a sandboxed
+   build is not given: `__noChroot`, `__impure`, or the system features
+   `recursive-nix` and `uid-range`.
+3. Each of its inputs, as the outputs it takes, is substituted from the
+   machine's binary caches, by the daemon, on the host's network, with no
+   local build allowed: one in no cache refuses the launch, before anything
+   is built.
+4. `nix print-dev-env` records its environment, which is the one thing
+   built: nix's own derivation of the devShell's attributes, every input
+   already there, sandboxed by the daemon.
+
+nix turns substitution off when it finds no network, so every run turns it
+back on; what the daemon fetches is named by a derivation's hash, from the
+caches the machine trusts, and checked against their keys. What cannot be
+realised refuses the launch, as any part of a grant that cannot be applied
+does, and is kept an hour as a failure is. So a devShell of `import
+<nixpkgs> { }` and what the caches hold -- a Tauri app's WebKitGTK and GTK
+libraries, a compiler, a database's client -- is given; one that fetches as
+it is evaluated is not: a flake whose inputs are not in the store already, a
+shell.nix that pins its nixpkgs by `fetchTarball`, any `builtins.fetch*`,
+nor one that needs a build of its own, a `runCommand` or a package with
+an override. Those wait on a store of the session's own, where the session
+evaluates its devShell itself, its fetches through frisket (flong's PLAN
+§3).
 
 ## In the session
 
@@ -87,10 +134,10 @@ machine's nix configuration (`/etc/nix`) and resolver, and the checkout,
 read-only -- for a flake, the whole of the checkout it is in and that
 checkout's git, a worktree's repository included -- and nothing else of the
 host: not your home, `~/.ssh`, another checkout, or chase's state. Its
-network is the host's. None of your environment reaches it: its `HOME` is
-chase's own, `~/.local/state/chase/devshell/home`, where nix keeps its
-fetcher and evaluation caches for every checkout; its PATH is nix and git
-alone. So `~/.config/nix`, its `access-tokens`, `~/.config/nixpkgs` and its
+network is the host's, or none, [offline](#other-peoples-code). None of
+your environment reaches it: its `HOME` is chase's own,
+`~/.local/state/chase/devshell/home`, where nix keeps its fetcher and
+evaluation caches for every checkout; its PATH is nix and git alone. So `~/.config/nix`, its `access-tokens`, `~/.config/nixpkgs` and its
 overlays, a `NIXPKGS_ALLOW_UNFREE`, an editor's variables or a terminal's
 are not read, and the devShell is the same from wherever it is launched. A
 flake's `nixConfig` is never taken.
@@ -145,7 +192,7 @@ what the clean evaluation leaves out:
   functions and hook together, or one of them over 128 KiB.
 
 Each is said at launch, with what nix said, and the session starts without
-it. A failure is kept for an hour, so a broken flake does not cost every
+it; offline, where the grant turned it on, the launch is refused. A failure is kept for an hour, so a broken flake does not cost every
 launch; an edit to the files it is keyed on (below) is tried at the next
 launch, and a fix elsewhere -- an imported `.nix` file, the machine's nix
 configuration -- sooner by removing what was kept:
