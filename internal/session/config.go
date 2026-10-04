@@ -1,6 +1,8 @@
 // Package session is what a tier's session is given on the host before it
 // starts, so that nothing a session needs is made, and nothing at all is
-// run, inside it but the agent:
+// run, inside it but the agent -- and, where the checkout's devShell is
+// given (internal/devshell), the bash that orders its PATH, runs its
+// shellHook and execs the agent, found on the container's PATH:
 //
 //   - the directories bound into it beside the workspace (Binds, flong's
 //     binds hook), made or refreshed as the caller;
@@ -16,7 +18,13 @@
 // runs the agent's own program with nothing between.
 package session
 
-import "path/filepath"
+import (
+	"fmt"
+	"path/filepath"
+	"slices"
+
+	"github.com/danielbodart/chase/internal/gitsafe"
+)
 
 // Config is the session section of chase's configuration.
 type Config struct {
@@ -69,6 +77,76 @@ type Tier struct {
 	// published ports exec may put on an address of its own: the
 	// project's, which flong is given as `forward:ADDRESS`.
 	Forward bool `json:"forward,omitempty"`
+	// Nix is the tier's apps.nix, nil for none: a checkout's devShell,
+	// realised on the host before the session starts (internal/devshell).
+	Nix *Nix `json:"nix,omitempty"`
+	// PathFront are the entries of the container's PATH that a devShell's
+	// go behind: /run/wrappers/bin, and an app's that must find a tool
+	// before a devShell does -- mise's shims, so the toolchain a checkout
+	// pins is the one found, and a shim with nothing pinned falls through
+	// to the devShell's.
+	PathFront []string `json:"pathFront,omitempty"`
+}
+
+// Nix is a tier's apps.nix: how a checkout's devShell is realised on the
+// host (internal/devshell), and the tier settings its confinement is
+// derived from, never the tier's name.
+type Nix struct {
+	// Git lists what a checkout tracks, from its index alone
+	// (internal/gitsafe).
+	gitsafe.Config
+	// DevShell is "automatic", whenever the checkout has one, or
+	// "granted", only when its approved grant asks for one.
+	DevShell string `json:"devShell"`
+	// Egress is the tier's: "direct", its own network, or "frisket",
+	// none but frisket's.
+	Egress string `json:"egress"`
+	// Timeout is how many seconds a realisation may take, every step
+	// together.
+	Timeout int `json:"timeout"`
+	// Nix is the nix that realises it, absolute: never looked up on PATH,
+	// which is the caller's.
+	Nix string `json:"nix"`
+	// Nixpkgs is what <nixpkgs> is to a checkout's shell.nix: the
+	// system's own, a store path.
+	Nixpkgs string `json:"nixpkgs"`
+	// System is the devShells.<system> a flake's is taken from.
+	System string `json:"system"`
+	// Bwrap and Pasta confine every nix run: bubblewrap for its
+	// filesystem and its environment, pasta for the steps that have a
+	// network.
+	Bwrap string `json:"bwrap"`
+	Pasta string `json:"pasta"`
+	// CABundle is the machine's, for the evaluation's https.
+	CABundle string `json:"caBundle"`
+	// Policy is the tier's own frisket document, whose allow list bounds
+	// the evaluation in a tier that takes no grant.
+	Policy string `json:"policy"`
+}
+
+// Validate refuses a Nix the module did not write, rather than half obey
+// it: a tool named without a slash would be looked up on the caller's
+// PATH, and a path left out would be read as the working directory.
+func (n Nix) Validate() error {
+	for _, p := range []struct{ name, path string }{
+		{"git", n.Git}, {"nix", n.Nix}, {"nixpkgs", n.Nixpkgs}, {"bwrap", n.Bwrap},
+		{"pasta", n.Pasta}, {"caBundle", n.CABundle}, {"policy", n.Policy},
+	} {
+		if !filepath.IsAbs(p.path) {
+			return fmt.Errorf("nix.%s is %q, which is not an absolute path", p.name, p.path)
+		}
+	}
+	switch {
+	case !slices.Contains([]string{"automatic", "granted"}, n.DevShell):
+		return fmt.Errorf("nix.devShell is %q, not automatic or granted", n.DevShell)
+	case !slices.Contains([]string{"direct", "frisket"}, n.Egress):
+		return fmt.Errorf("nix.egress is %q, not direct or frisket", n.Egress)
+	case n.Timeout <= 0:
+		return fmt.Errorf("nix.timeout is %d: a realisation is given some seconds", n.Timeout)
+	case n.System == "":
+		return fmt.Errorf("nix.system is empty")
+	}
+	return nil
 }
 
 // Store is a directory a tier's sessions keep, made on the host and bound

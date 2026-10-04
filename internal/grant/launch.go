@@ -47,36 +47,41 @@ import (
 // Everything written is the user's alone, decrypted secrets above all: the
 // process's umask is 077 while it runs, as the script's was.
 func Launch(ctx context.Context, c Config, registry map[string]apps.App, tier, ws, machine string, stderr io.Writer) (session.Given, error) {
-	return launch(ctx, c, registry, nil, tier, ws, machine, stderr)
+	given, _, err := launch(ctx, c, registry, nil, tier, ws, machine, stderr)
+	return given, err
 }
 
 // launch is Launch, with the record block rec, when it is not nil, written
-// into the session's document: a recording session's (Recording).
-func launch(ctx context.Context, c Config, registry map[string]apps.App, rec *Recording, tier, ws, machine string, stderr io.Writer) (session.Given, error) {
+// into the session's document: a recording session's (Recording). It
+// hands back too what the grant says of the checkout's devShell,
+// apps.nix.devShell, nil for nothing, which exec realises once the
+// session's document is written (internal/devshell): nothing of it is
+// prepared here.
+func launch(ctx context.Context, c Config, registry map[string]apps.App, rec *Recording, tier, ws, machine string, stderr io.Writer) (session.Given, *bool, error) {
 	old := unix.Umask(0o077)
 	defer unix.Umask(old)
 	stage := staged(c, machine)
 	if !regular(stage) {
-		return session.Given{}, refuse("%s: nothing was approved for this launch: the tier's seccompPolicy did not run", ws)
+		return session.Given{}, nil, refuse("%s: nothing was approved for this launch: the tier's seccompPolicy did not run", ws)
 	}
 	b, err := os.ReadFile(stage)
 	if err != nil {
-		return session.Given{}, err
+		return session.Given{}, nil, err
 	}
 	if err := os.Remove(stage); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return session.Given{}, err
+		return session.Given{}, nil, err
 	}
-	run := c.runtime() + "/chase/" + machine
+	run := c.session(machine)
 	if err := os.Mkdir(run, 0o700); err != nil {
-		return session.Given{}, err
+		return session.Given{}, nil, err
 	}
 	pb, err := os.ReadFile(c.Policies + "/" + tier + ".json")
 	if err != nil {
-		return session.Given{}, err
+		return session.Given{}, nil, err
 	}
 	var pd policy.Document
 	if err := policy.Decode(pb, &pd); err != nil {
-		return session.Given{}, err
+		return session.Given{}, nil, err
 	}
 	// The tier's own machines, in every session of it, before any app a
 	// grant binds: SSH's Prepare refuses a grant's machine of the same name
@@ -84,16 +89,17 @@ func launch(ctx context.Context, c Config, registry map[string]apps.App, rec *Re
 	if c.SSH != nil {
 		routes, err := c.SSH.TierRoutes(tier)
 		if err != nil {
-			return session.Given{}, refuse("%s: ssh: %v", ws, err)
+			return session.Given{}, nil, refuse("%s: ssh: %v", ws, err)
 		}
 		if len(routes) > 0 {
 			policydoc.Merge(&pd, apps.Patch{SSH: routes})
 		}
 	}
 	var given session.Given
+	var asked *bool
 	if strings.TrimRight(string(b), "\n") != "null" {
-		if given, err = apply(ctx, c, registry, &pd, b, run, tier, ws, stderr); err != nil {
-			return session.Given{}, err
+		if given, asked, err = apply(ctx, c, registry, &pd, b, run, tier, ws, stderr); err != nil {
+			return session.Given{}, nil, err
 		}
 	}
 	var out bytes.Buffer
@@ -108,66 +114,66 @@ func launch(ctx context.Context, c Config, registry map[string]apps.App, rec *Re
 		pd.Record = rec.block(c, machine)
 	}
 	if err := enc.Encode(pd); err != nil {
-		return session.Given{}, err
+		return session.Given{}, nil, err
 	}
 	// Replaced whole, never truncated and rewritten: frisket, or anything
 	// else, reading it then would read half a document. 0600 is what the
 	// umask made of the 0666 it was written with.
 	if err := files.WriteAtomic(run+"/policy.json", out.Bytes(), 0o600); err != nil {
-		return session.Given{}, err
+		return session.Given{}, nil, err
 	}
-	return given, nil
+	return given, asked, nil
 }
 
 // apply is the staged approval b, applied to the tier's document pd for the
 // session whose directory is run: its secrets decrypted there, each bound
 // app prepared and merged in, and the project's lists applied last.
-func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *policy.Document, b []byte, run, tier, ws string, stderr io.Writer) (session.Given, error) {
+func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *policy.Document, b []byte, run, tier, ws string, stderr io.Writer) (session.Given, *bool, error) {
 	var given session.Given
 	doc, err := parseJSON(b)
 	if err != nil {
-		return given, err
+		return given, nil, err
 	}
 	result, err := doc.index("result")
 	if err != nil {
-		return given, err
+		return given, nil, err
 	}
 	secrets, err := result.optional("secrets")
 	if err != nil {
-		return given, err
+		return given, nil, err
 	}
 	if err := os.Mkdir(run+"/secrets", 0o700); err != nil {
-		return given, err
+		return given, nil, err
 	}
 	file := ""
 	if secrets != "" {
 		dir, err := os.MkdirTemp(run, "sops.")
 		if err != nil {
-			return given, err
+			return given, nil, err
 		}
 		staged, err := doc.index("secrets")
 		if err != nil {
-			return given, err
+			return given, nil, err
 		}
 		name, err := staged.optional("name")
 		if err != nil {
-			return given, err
+			return given, nil, err
 		}
 		text, err := staged.index("text")
 		if err != nil {
-			return given, err
+			return given, nil, err
 		}
 		file = dir + "/" + name
 		if err := os.WriteFile(file, []byte(text.raw()), 0o666); err != nil {
-			return given, err
+			return given, nil, err
 		}
 		approved, err := result.optional("secretsSHA256")
 		if err != nil {
-			return given, err
+			return given, nil, err
 		}
 		d := sha256.Sum256([]byte(text.raw()))
 		if hex.EncodeToString(d[:]) != approved {
-			return given, refuse("%s: the staged %s is not the one approved", ws, secrets)
+			return given, nil, refuse("%s: the staged %s is not the one approved", ws, secrets)
 		}
 	}
 
@@ -176,11 +182,11 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 	// session is not.
 	project, err := result.optional("dockerProject")
 	if err != nil {
-		return given, err
+		return given, nil, err
 	}
 	bindings, err := result.index("apps")
 	if err != nil {
-		return given, err
+		return given, nil, err
 	}
 	names := slices.Sorted(maps.Keys(c.Apps))
 	for name := range registry {
@@ -192,7 +198,7 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 	for _, app := range names {
 		binding, err := bindings.index(app)
 		if err != nil {
-			return given, err
+			return given, nil, err
 		}
 		if !binding.truthy() {
 			continue
@@ -206,22 +212,22 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 		if conf.hasCredential() {
 			cred, err := binding.index("credential")
 			if err != nil {
-				return given, err
+				return given, nil, err
 			}
 			secret, err := cred.optional("secret")
 			if err != nil {
-				return given, err
+				return given, nil, err
 			}
 			if secret == "" {
 				continue
 			}
 			if err := decrypt(ctx, c, ws, file, secret, run+"/secrets/"+app, stderr); err != nil {
-				return given, err
+				return given, nil, err
 			}
 			from = secrets + ":" + secret
 		} else {
 			if !isCode {
-				return given, refuse("%s: %s has no credential and no prepare", ws, app)
+				return given, nil, refuse("%s: %s has no credential and no prepare", ws, app)
 			}
 		}
 		// The app's routes, in place of any of the same names the tier had:
@@ -237,15 +243,15 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 				// What the app's own prepare said as it died, and then the
 				// launch's own die.
 				term.Say(stderr, "%v", err)
-				return given, refuse("%s: %s could not be prepared", ws, app)
+				return given, nil, refuse("%s: %s could not be prepared", ws, app)
 			}
 		} else if patch, err = staticPatch(conf, tier, run+"/secrets/"+app); err != nil {
-			return given, err
+			return given, nil, err
 		}
 		policydoc.Merge(pd, patch)
 		vars, err := exportsOf(conf, patch, binding)
 		if err != nil {
-			return given, err
+			return given, nil, err
 		}
 		given.Env = append(given.Env, vars...)
 		given.Files = append(given.Files, patch.Files...)
@@ -257,15 +263,18 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 		os.RemoveAll(filepath.Dir(file))
 	}
 	if err := applyLists(pd, bindings, ws, tier, stderr); err != nil {
-		return given, err
+		return given, nil, err
 	}
 	// The names the project reaches beyond its apps', added last, as an
 	// app's are: to a tier that allows every name, nothing.
 	var named struct {
 		Network *Network `json:"network"`
+		Apps    struct {
+			Nix *Nix `json:"nix"`
+		} `json:"apps"`
 	}
 	if err := json.Unmarshal([]byte(result.compact()), &named); err != nil {
-		return given, err
+		return given, nil, err
 	}
 	if named.Network != nil && len(named.Network.Allow) > 0 {
 		policydoc.Merge(pd, apps.Patch{Allow: named.Network.Allow})
@@ -279,7 +288,7 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 		for _, h := range named.Network.LAN {
 			for _, r := range pd.Routes {
 				if routeServes(r.Host, h.Name) {
-					return given, refuse("%s: network.lan %s is the %s route's host, which frisket answers with its own address", ws, h.Name, r.Name)
+					return given, nil, refuse("%s: network.lan %s is the %s route's host, which frisket answers with its own address", ws, h.Name, r.Name)
 				}
 			}
 			names = append(names, h.Name)
@@ -287,7 +296,13 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 		policydoc.Merge(pd, apps.Patch{Allow: names})
 		pd.LAN = append(pd.LAN, named.Network.LAN...)
 	}
-	return given, nil
+	// What it says of the checkout's devShell is exec's, realised once the
+	// document that bounds what its evaluation fetches is written.
+	var asked *bool
+	if named.Apps.Nix != nil {
+		asked = named.Apps.Nix.DevShell
+	}
+	return given, asked, nil
 }
 
 // routeServes is whether a route whose host is host serves name: the host
@@ -464,7 +479,7 @@ func PostStop(ctx context.Context, c Config, registry map[string]apps.App, machi
 	for _, name := range slices.Sorted(maps.Keys(registry)) {
 		registry[name].Stop(ctx, machine)
 	}
-	os.RemoveAll(c.runtime() + "/chase/" + machine)
+	os.RemoveAll(c.session(machine))
 	os.RemoveAll(staged(c, machine))
 	return nil
 }

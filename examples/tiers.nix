@@ -76,6 +76,10 @@
         codex = { enable = true; scope = "host"; trust = true; };
         git = { enable = true; authenticated = true; };
         github = { enable = true; authenticated = true; };
+        # The checkout's devShell, whenever it has one: your own flake,
+        # realised before the session starts and given to it as nix develop
+        # would. One that cannot be realised is said, and left out.
+        nix = { enable = true; devShell = "automatic"; };
       };
     };
   };

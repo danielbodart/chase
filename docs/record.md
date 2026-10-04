@@ -140,6 +140,18 @@ Reading the audit takes a user who may read the system journal: one in
 `systemd-journal` (or `wheel`). The kernel's audit backlog can still
 overflow in a large burst, so a call made once among thousands may be lost.
 
+## A devShell
+
+A recording realises the checkout's devShell as a session of its tier
+would ([docs/apps/nix.md](apps/nix.md)): the same confinement, bounded by
+the tier's allowlist and the grant's. It is never refused for it: one that
+cannot be realised is said, and the recording starts without it, whatever
+the grant says. A flake.lock that fetches from names the allowlist does not
+hold names them, as what `network.allow` in the grant would admit; add them
+by hand. The devShell's own fetches are made before the session starts,
+outside it, so frisket does not see them and the proposal does not hold
+them.
+
 ## What is kept
 
 `~/.local/state/chase/records/<machine>/`, the user's own and seen by no

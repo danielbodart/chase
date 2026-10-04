@@ -549,6 +549,49 @@
               && hostScope.containers.chase-trusted.bindMounts ? "/home/alice/.local/share/mise"
               && ! hostScope.containers.chase-trusted.bindMounts ? "/home/alice/.local/state/mise")
               || throw "assertions: mise was not kept where its scope says";
+            # A CHECKOUT'S DEVSHELL (PLAN.md, decision 21): what exec
+            # realises it with, the confinement derived from the tier's
+            # egress and never its name; the setuid wrappers first on every
+            # sandbox's PATH, mise's shims next where it has mise, a
+            # devShell's behind both; no nix where no tier enables it; a
+            # filtered tier's remote builders warned of; and what could never
+            # work refused.
+            assert refused "a granted devShell in a tier that takes no grant"
+              { chase.tiers.strict.apps.nix.enable = true; } "chase.tiers.strict.apps.nix.devShell is";
+            assert refused "nix in a bare tier"
+              { chase.tiers.host.apps.nix.enable = true; } "and host is bare";
+            assert
+              (let
+                config = configWith { chase.tiers.trusted.apps.mise.enable = true; };
+                c = config.chase.internal.config;
+                none = (configWith { chase.tiers.trusted.apps.nix.enable = lib.mkForce false; }).chase.internal.config.session.tiers;
+                builders = configWith {
+                  chase.tiers.strict = { grants = true; apps.nix.enable = true; };
+                  nix.buildMachines = [{ hostName = "builder"; system = system; }];
+                };
+              in
+              lib.all (a: a.assertion) config.assertions
+              && c.session.tiers.trusted.nix == {
+                inherit (c.selector) git emptySha1 emptySha256;
+                devShell = "automatic";
+                egress = "direct";
+                timeout = 1200;
+                nix = lib.getExe config.nix.package;
+                nixpkgs = "${pkgs.path}";
+                inherit system;
+                bwrap = lib.getExe pkgs.bubblewrap;
+                pasta = lib.getExe' pkgs.passt "pasta";
+                caBundle = "${config.security.pki.caBundle}";
+                policy = "/etc/frisket/policies/trusted.json";
+              }
+              && ! c.session.tiers.strict ? nix
+              && c.session.tiers.strict.pathFront == [ "/run/wrappers/bin" ]
+              && c.session.tiers.trusted.pathFront == [ "/run/wrappers/bin" "/home/alice/.cache/chase/mise/trusted/all/data/shims" ]
+              && lib.all (t: ! t ? nix) (lib.attrValues none)
+              && lib.all (a: a.assertion) builders.assertions
+              && lib.any (lib.hasInfix "remote builders") builders.warnings
+              && ! lib.any (lib.hasInfix "remote builders") config.warnings)
+              || throw "assertions: a checkout's devShell did not hold together";
             # Claude Code's managed settings are each sandbox container's,
             # never the host's: the container the only boundary, a key a
             # tier sets kept beside the others, and none at all when forced
@@ -962,6 +1005,7 @@
           gcloud-session = pkgs.testers.runNixOSTest (import ./tests/gcloud-session.nix { inherit self home-manager; });
           ssh-session = pkgs.testers.runNixOSTest (import ./tests/ssh-session.nix { inherit self home-manager; });
           record-session = pkgs.testers.runNixOSTest (import ./tests/record-session.nix { inherit self home-manager; });
+          devshell-session = pkgs.testers.runNixOSTest (import ./tests/devshell-session.nix { inherit self home-manager; });
         } // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
           # Only where the pinned postgres:18 runs: the image is amd64's.
           docker-session = pkgs.testers.runNixOSTest (import ./tests/docker-session.nix { inherit self home-manager; });

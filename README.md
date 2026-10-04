@@ -116,6 +116,7 @@ a-fork                     strict    first commit by someone@upstream.org
 | `fallback` | | The tier for a checkout no rule matches, or one that can't be sorted. Not bare. |
 | `tiers.<name>` | | See [Tiers](#tiers). |
 | `apps.<app>` | | Each app's package and credential. See [Apps](#apps). |
+| `apps.nix.devShell` | `true` gives the checkout's devShell in a tier whose `apps.nix.devShell` is `granted`, and refuses the launch where it cannot be realised; `false` leaves out one the tier would give ([docs/apps/nix.md](docs/apps/nix.md)). |
 | `workspaceGroups` | `[]` | Checkouts mounted beside each other, read-write. |
 | `approver` | `null` | The program that approves grants. Null approves none. |
 | `placeholder` | `proxy-injected` | What a session holds in place of a credential. |
@@ -169,6 +170,7 @@ lives.
 | [docker](docs/apps/docker.md) | Docker and Compose, on your rootless daemon | | | | |
 | [ssh](docs/apps/ssh.md) | commands on a project's machines, or the tier's own, by SSH through frisket | | | | ✓ |
 | [mise](docs/apps/mise.md) | mise toolchains | | `session` `tier` `host` | ✓ | |
+| [nix](docs/apps/nix.md) | the checkout's devShell, as `nix develop` would give it | | | | |
 
 Every app takes the same settings, where they apply:
 

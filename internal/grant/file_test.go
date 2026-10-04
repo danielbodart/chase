@@ -130,14 +130,42 @@ func TestAGrantIsApprovedAsChaseReadsIt(t *testing.T) {
     /* often */
     "github": { "allow": ["b", { "path": "/x", "methods": ["GET"] }], },
     "cloudflare": { "credential": { "secret": "t" }, "accountId": "` + strings.Repeat("0", 32) + `" },
+    "nix": { "devShell": true },
   },
   "secrets": "secrets.yaml",
 }`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"secrets":"secrets.yaml","apps":{"cloudflare":{"accountId":"` + strings.Repeat("0", 32) + `","credential":{"secret":"t"}},"github":{"allow":["b",{"methods":["GET"],"path":"/x"}]}},"seccomp":{"allow":["io_uring_setup"]}}`
+	want := `{"secrets":"secrets.yaml","apps":{"cloudflare":{"accountId":"` + strings.Repeat("0", 32) + `","credential":{"secret":"t"}},"github":{"allow":["b",{"methods":["GET"],"path":"/x"}]},"nix":{"devShell":true}},"seccomp":{"allow":["io_uring_setup"]}}`
 	if string(got) != want {
 		t.Errorf("read as %s, not %s", got, want)
+	}
+}
+
+// WHAT A GRANT MAY NAME FOR NIX: whether the checkout's devShell is given,
+// a boolean and nothing else; and nothing of the flake's beside it, which
+// is the checkout's at each launch.
+func TestWhatAGrantMayNameForNix(t *testing.T) {
+	for _, g := range []string{
+		`{"apps": {"nix": {"devShell": "yes"}}}`,
+		`{"apps": {"nix": {"devShell": 1}}}`,
+		`{"apps": {"nix": {"devShells": true}}}`,
+		`{"apps": {"nix": {"flake": "./other.nix"}}}`,
+		`{"apps": {"nix": true}}`,
+	} {
+		if _, err := grant.ParseFile([]byte(g)); err == nil {
+			t.Errorf("%s was taken", g)
+		}
+	}
+	for g, want := range map[string]string{
+		`{"apps": {"nix": {"devShell": true}}}`:  `{"apps":{"nix":{"devShell":true}}}`,
+		`{"apps": {"nix": {"devShell": false}}}`: `{"apps":{"nix":{"devShell":false}}}`,
+		`{"apps": {"nix": {}}}`:                  `{"apps":{"nix":{}}}`,
+	} {
+		got, err := grant.ParseFile([]byte(g))
+		if err != nil || string(got) != want {
+			t.Errorf("%s was read as %s, %v, not %s", g, got, err, want)
+		}
 	}
 }

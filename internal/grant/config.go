@@ -245,3 +245,9 @@ func (c Config) runtime() string {
 	}
 	return "/run/user/" + strconv.Itoa(c.UID)
 }
+
+// session is the directory of the session on machine, under the runtime
+// directory: its policy document, its secrets, and what its apps prepared.
+func (c Config) session(machine string) string {
+	return c.runtime() + "/chase/" + machine
+}

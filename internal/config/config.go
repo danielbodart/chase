@@ -92,6 +92,13 @@ func Load(path string) (Config, error) {
 	if err := c.Selector.Validate(); err != nil {
 		return Config{}, fmt.Errorf("%s: selector: %w", path, err)
 	}
+	for name, t := range c.Session.Tiers {
+		if t.Nix != nil {
+			if err := t.Nix.Validate(); err != nil {
+				return Config{}, fmt.Errorf("%s: session: %s: %w", path, name, err)
+			}
+		}
+	}
 	if c.Grant != nil {
 		if err := grant.Validate(*c.Grant, grant.DefaultApps(*c.Grant, io.Discard)); err != nil {
 			return Config{}, fmt.Errorf("%s: grant: %w", path, err)
