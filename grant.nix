@@ -14,8 +14,8 @@
 #                  document there -- the tier's own, for a checkout with no
 #                  grant -- and gives what each app exports and seeds to
 #                  the payload it prints (internal/session); then realises
-#                  the checkout's devShell where the tier has nix
-#                  (./apps/nix.nix)
+#                  the checkout's devShell where the tier has nix and the
+#                  grant turns it on (./apps/nix.nix)
 #   frisket        steers the session under that document
 #   postStop       stops each app; removes
 #                  /run/user/<uid>/chase/<machine>/ and anything staged for it

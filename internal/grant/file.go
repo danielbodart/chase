@@ -109,10 +109,11 @@ type Apps struct {
 // Nix is what a project's sessions are given of Nix (internal/devshell).
 type Nix struct {
 	// DevShell turns the checkout's devShell -- flake.nix's
-	// devShells.<system>.default, or shell.nix's -- on in a tier whose
-	// egress is not direct and unfiltered, where it is realised with no
-	// network, and a launch is refused where it cannot be. A tier of
-	// direct, unfiltered egress gives it whatever this says.
+	// devShells.<system>.default, or shell.nix's -- on, in any tier with
+	// nix: none is evaluated without it, as with `direnv allow`. Realised
+	// with the host's network where the tier's egress is direct and
+	// unfiltered, and with none in any other; a launch is refused where it
+	// cannot be.
 	//
 	// The files are not approved with it: once a grant has turned it on, a
 	// devShell is what the checkout's flake.nix or shell.nix says at each

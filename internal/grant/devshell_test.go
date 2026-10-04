@@ -74,15 +74,15 @@ func (h *harness) tracked(ws string, files map[string]string) {
 	h.fx.Run("-C", ws, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "add", "-A")
 }
 
-// The devShell is realised after the grant and given to the payload: its
-// variables first, and a bash ahead of the agent that orders PATH; its
-// root kept in the grant's state directory.
+// The devShell the grant turns on is realised after the grant and given
+// to the payload: its variables first, and a bash ahead of the agent that
+// orders PATH; its root kept in the grant's state directory.
 func TestTheExecHookRealisesTheDevShellAfterTheGrant(t *testing.T) {
 	h, _, ws := newProjectLaunch(t)
 	s := sessionConfig(h)
 	s.Tiers["trusted"] = session.Tier{Nix: h.nixOf()}
 	h.tracked(ws, map[string]string{"shell.nix": "{}"})
-	h.approved(ws, "m1", "trusted", `{"network": {"allow": ["example.org"]}}`)
+	h.approved(ws, "m1", "trusted", `{"network": {"allow": ["example.org"]}, "apps": {"nix": {"devShell": true}}}`)
 	if rc := h.exec(s, true, "trusted", ws, "m1", "shell"); rc != 0 {
 		t.Fatalf("refused: %s", h.err)
 	}
@@ -102,9 +102,9 @@ func TestTheExecHookRealisesTheDevShellAfterTheGrant(t *testing.T) {
 	}
 }
 
-// A tier that takes no grant keeps the devShell in the default state
-// directory.
-func TestATierWithoutGrantsKeepsItsDevShellInTheDefaultState(t *testing.T) {
+// A tier that takes no grants gives no devShell, whatever the checkout
+// has: there is no grant to turn it on, and nothing is evaluated.
+func TestATierWithoutGrantsGivesNoDevShell(t *testing.T) {
 	h := newHarness(t)
 	ws := h.root() + "/w/shop"
 	h.repo(ws)
@@ -114,39 +114,46 @@ func TestATierWithoutGrantsKeepsItsDevShellInTheDefaultState(t *testing.T) {
 	if rc := h.exec(s, false, "plain", ws, "m1", "shell"); rc != 0 {
 		t.Fatalf("refused: %s", h.err)
 	}
-	if _, err := os.Lstat(h.cfg.Home + "/.local/state/chase/checkouts/" + key(ws) + "/devshell/profile"); err != nil {
-		t.Errorf("no root in the default state directory: %v", err)
-	}
-}
-
-// In a tier whose egress is not direct and unfiltered, the devShell is
-// the approved grant's to turn on: none without it, and with it realised
-// offline. A grant that turns it on where the tier has no nix is said.
-func TestOfflineTheGrantTurnsTheDevShellOn(t *testing.T) {
-	h, _, ws := newProjectLaunch(t)
-	s := sessionConfig(h)
-	n := h.nixOf()
-	n.Offline = true
-	s.Tiers["trusted"] = session.Tier{Nix: n}
-	h.tracked(ws, map[string]string{"shell.nix": "{}"})
-	h.approved(ws, "m1", "trusted", `{"network": {"allow": ["example.org"]}}`)
-	if rc := h.exec(s, true, "trusted", ws, "m1", "shell"); rc != 0 {
-		t.Fatalf("refused: %s", h.err)
-	}
 	if got := h.fields(); slices.Contains(got, "env:HELLO_FROM_SHELL=hi") || h.log("nix.jsonl") != nil {
 		t.Errorf("a devShell no grant turned on: %q", got)
 	}
-	h.mustSay(`"apps": {"nix": {"devShell": true}}`)
-	h.approved(ws, "m2", "trusted", `{"apps": {"nix": {"devShell": true}}}`)
-	if rc := h.exec(s, true, "trusted", ws, "m2", "shell"); rc != 0 {
-		t.Fatalf("refused: %s", h.err)
+}
+
+// In every tier the devShell is the approved grant's to turn on: none
+// without it, said in a line, and with it realised -- with the network
+// where the tier's egress is direct and unfiltered, offline in any other.
+// A grant that turns it on where the tier has no nix is said.
+func TestTheGrantTurnsTheDevShellOn(t *testing.T) {
+	for _, c := range []struct {
+		offline bool
+		runs    int
+	}{{false, 1}, {true, 3}} {
+		h, _, ws := newProjectLaunch(t)
+		s := sessionConfig(h)
+		n := h.nixOf()
+		n.Offline = c.offline
+		s.Tiers["trusted"] = session.Tier{Nix: n}
+		h.tracked(ws, map[string]string{"shell.nix": "{}"})
+		h.approved(ws, "m1", "trusted", `{"network": {"allow": ["example.org"]}}`)
+		if rc := h.exec(s, true, "trusted", ws, "m1", "shell"); rc != 0 {
+			t.Fatalf("offline %v: refused: %s", c.offline, h.err)
+		}
+		if got := h.fields(); slices.Contains(got, "env:HELLO_FROM_SHELL=hi") || h.log("nix.jsonl") != nil {
+			t.Errorf("offline %v: a devShell no grant turned on: %q", c.offline, got)
+		}
+		h.mustSay(`"apps": {"nix": {"devShell": true}}`)
+		h.approved(ws, "m2", "trusted", `{"apps": {"nix": {"devShell": true}}}`)
+		if rc := h.exec(s, true, "trusted", ws, "m2", "shell"); rc != 0 {
+			t.Fatalf("offline %v: refused: %s", c.offline, h.err)
+		}
+		if got := h.fields(); got[0] != "env:HELLO_FROM_SHELL=hi" {
+			t.Errorf("offline %v: the devShell the grant turns on is not given: %q", c.offline, got)
+		}
+		if n := len(h.log("nix.jsonl")); n != c.runs {
+			t.Errorf("offline %v: nix ran %d times, not %d", c.offline, n, c.runs)
+		}
 	}
-	if got := h.fields(); got[0] != "env:HELLO_FROM_SHELL=hi" {
-		t.Errorf("the devShell the grant turns on is not given: %q", got)
-	}
-	if n := len(h.log("nix.jsonl")); n != 3 {
-		t.Errorf("nix ran %d times, not eval, derivation show and print-dev-env", n)
-	}
+	h, _, ws := newProjectLaunch(t)
 	h.approved(ws, "m3", "trusted", `{"apps": {"nix": {"devShell": true}}}`)
 	if rc := h.exec(sessionConfig(h), true, "trusted", ws, "m3", "shell"); rc != 0 {
 		t.Fatalf("refused: %s", h.err)

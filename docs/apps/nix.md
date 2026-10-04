@@ -8,21 +8,33 @@ before the session starts, as you, keeps it rooted in chase's state, gives
 the session its variables and its PATH, and runs its shellHook inside the
 session. `nix` itself in a session is not this; it is flong's to give.
 
-In a tier for your own code -- `egress` `direct` and `allow` `[ "*" ]` --
-it is given whenever the checkout has one. What is evaluated is the checkout
-itself, on the host, and the checkout is what a session writes; nix runs in
-a bubblewrap that shows it nothing of the host's but the store, the nix
-daemon and the checkout, and its fetches are the host's own, neither
-filtered nor logged. For the same reason a `chase record` launch's report
-never names what a devShell fetched: that was the host, not the session.
+In every tier it is given only where the checkout's approved grant turns
+it on, as `direnv allow` does:
 
-In any other tier -- someone else's code -- it is given only where the
-checkout's approved grant turns it on, and it is realised with no network
+```jsonc
+{ "apps": { "nix": { "devShell": true } } }
+```
+
+so the tier must take grants. Without it nothing of the checkout's Nix is
+evaluated, and a launch costs nothing more; a checkout with a shell.nix, or
+a flake.nix that names `devShells`, is told so in a line. With it, a
+devShell that cannot be realised refuses the launch, as any part of a grant
+that cannot be applied does; to launch without it, set `"devShell": false`
+or remove it, and approve that. Never a bare tier, whose agent runs on the
+host with its own `nix develop`.
+
+In a tier for your own code -- `egress` `direct` and `allow` `[ "*" ]` --
+what is evaluated is the checkout itself, on the host, and the checkout is
+what a session writes; nix runs in a bubblewrap that shows it nothing of the
+host's but the store, the nix daemon and the checkout, and its fetches are
+the host's own, neither filtered nor logged. For the same reason a `chase
+record` launch's report never names what a devShell fetched: that was the
+host, not the session.
+
+In any other tier -- someone else's code -- it is realised with no network
 at all: what it needs substituted from the machine's binary caches, nothing
-built but nix's record of its environment, and the launch refused where
-that cannot be ([Other people's code](#other-peoples-code)). Such a tier
-must take grants. Never a bare tier, whose agent runs on the host with its
-own `nix develop`.
+built but nix's record of its environment ([Other people's
+code](#other-peoples-code)).
 
 | `chase.apps.nix.…` | Default | |
 |---|---|---|
@@ -32,28 +44,22 @@ own `nix develop`.
 
 | `chase.tiers.<name>.apps.nix.…` | Default | |
 |---|---|---|
-| `enable` | `false` | The checkout's devShell: whenever it has one where `egress = "direct"` and `allow = [ "*" ]`; in any other tier, which must have `grants = true`, where its grant turns it on, with no network. Not in a bare tier. |
+| `enable` | `false` | The checkout's devShell, where its grant turns it on, so the tier must have `grants = true`: with the host's network where `egress = "direct"` and `allow = [ "*" ]`, and with none in any other. Not in a bare tier. |
 | `package`, `nixpkgs`, `timeout` | the machine's | |
 
 ```nix
 chase.tiers.trusted.apps.nix.enable = true;
 ```
 
-flake.nix, flake.lock and shell.nix are the checkout's, never approved: an
-edit to them takes effect at the next launch.
+flake.nix, flake.lock and shell.nix are the checkout's, never approved: the
+approval is of the grant that turns the devShell on, and an edit to them
+afterwards takes effect at the next launch.
 
 ## Other people's code
 
-Where egress is not direct and unfiltered, the checkout's grant turns its
-devShell on:
-
-```jsonc
-{ "apps": { "nix": { "devShell": true } } }
-```
-
-approved as every grant is. Without it the launch says so, and the session
-starts without one. With it, nix runs in the same bubblewrap with no network
-at all, and with a `HOME` of its own,
+Where egress is not direct and unfiltered, the devShell the grant turns on
+is realised by nix in the same bubblewrap with no network at all, and with a
+`HOME` of its own,
 `~/.local/state/chase/devshell/offline-home`, so nothing an evaluation of
 someone else's code leaves in nix's caches is read by one of yours:
 
@@ -74,8 +80,8 @@ someone else's code leaves in nix's caches is read by one of yours:
 nix turns substitution off when it finds no network, so every run turns it
 back on; what the daemon fetches is named by a derivation's hash, from the
 caches the machine trusts, and checked against their keys. What cannot be
-realised refuses the launch, as any part of a grant that cannot be applied
-does, and is kept an hour as a failure is. So a devShell of `import
+realised refuses the launch, as it does online, and is kept an hour as a
+failure is. So a devShell of `import
 <nixpkgs> { }` and what the caches hold -- a Tauri app's WebKitGTK and GTK
 libraries, a compiler, a database's client -- is given; one that fetches as
 it is evaluated is not: a flake whose inputs are not in the store already, a
@@ -191,9 +197,9 @@ what the clean evaluation leaves out:
 - **one larger than a launch carries**: more than 512 KiB of variables,
   functions and hook together, or one of them over 128 KiB.
 
-Each is said at launch, with what nix said, and the session starts without
-it; offline, where the grant turned it on, the launch is refused. A failure is kept for an hour, so a broken flake does not cost every
-launch; an edit to the files it is keyed on (below) is tried at the next
+Each refuses the launch, with what nix said, and how to launch without it:
+`"devShell": false` in the grant, approved. A failure is kept for an hour,
+so a broken flake does not cost every launch; an edit to the files it is keyed on (below) is tried at the next
 launch, and a fix elsewhere -- an imported `.nix` file, the machine's nix
 configuration -- sooner by removing what was kept:
 
@@ -211,7 +217,8 @@ launch: exit and launch again.
 
 Its GC root is a profile in `~/.local/state/chase/checkouts/<key>/devshell`,
 never the checkout, the latest generation alone. A checkout that no longer
-has either file has it let go of at its next launch, and one that is gone
+has either file, or whose grant no longer turns it on, has it let go of at
+its next launch, and one that is gone
 at any launch that wants a devShell. Two tiers with nix that each launch one
 checkout share its root, and each realises it again after the other. To let
 go of them all:

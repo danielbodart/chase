@@ -79,7 +79,8 @@ type Tier struct {
 	// project's, which flong is given as `forward:ADDRESS`.
 	Forward bool `json:"forward,omitempty"`
 	// Nix is the tier's apps.nix, nil for none: a checkout's devShell,
-	// realised on the host before the session starts (internal/devshell).
+	// where its approved grant turns it on, realised on the host before
+	// the session starts (internal/devshell).
 	Nix *Nix `json:"nix,omitempty"`
 	// PathFront are the entries of the container's PATH that a devShell's
 	// go behind: /run/wrappers/bin, and an app's that must find a tool
@@ -110,11 +111,10 @@ type Nix struct {
 	Bwrap string `json:"bwrap"`
 	// CABundle is the machine's, for the evaluation's https.
 	CABundle string `json:"caBundle"`
-	// Offline is a tier whose egress is not direct and unfiltered: a
-	// devShell only where the checkout's approved grant turns it on, and
-	// realised with no network -- substituted from the machine's binary
-	// caches, nothing built but nix's record of its environment -- and a
-	// launch refused where it cannot be.
+	// Offline is a tier whose egress is not direct and unfiltered: the
+	// devShell the checkout's approved grant turns on realised with no
+	// network -- substituted from the machine's binary caches, nothing
+	// built but nix's record of its environment.
 	Offline bool `json:"offline,omitempty"`
 }
 

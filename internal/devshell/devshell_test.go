@@ -26,6 +26,50 @@ const githubLock = `{"nodes":{"root":{"inputs":{"nixpkgs":"nixpkgs"}},"nixpkgs":
 // args is a nix run's arguments after c0.
 func args(r run) []string { return r.Argv[1+len(c0):] }
 
+// IN EVERY TIER, a devShell is the approved grant's to turn on, as
+// `direnv allow` is: without it nothing of the checkout's is evaluated,
+// what an earlier grant kept is let go, and a checkout that looks to have
+// one -- a shell.nix, or a flake.nix that names devShells, read and never
+// evaluated -- is told in a line what turns it on. One that does not is
+// told nothing.
+func TestThereIsNoDevShellWithoutTheGrant(t *testing.T) {
+	for _, offline := range []bool{false, true} {
+		h := newHarness(t)
+		h.n.Offline = offline
+		h.checkout(map[string]string{"shell.nix": "{}"})
+		if ds, err := h.realise(); ds == nil || err != nil {
+			t.Fatalf("offline %v, granted: %+v, %v: %s", offline, ds, err, h.said)
+		}
+		h.r.Granted = false
+		h.clear()
+		if ds, err := h.realise(); ds != nil || err != nil || h.runs("nix") != nil || h.runs("bwrap") != nil {
+			t.Errorf("offline %v, not granted: %+v, %v, ran %d", offline, ds, err, len(h.runs("bwrap")))
+		}
+		if want := h.r.Workspace + `: its devShell is not given: the checkout's grant turns it on, with "apps": {"nix": {"devShell": true}}`; strings.Count(h.said, "\n") != 1 || !strings.Contains(h.said, want) {
+			t.Errorf("offline %v: said %q", offline, h.said)
+		}
+		if _, err := os.Stat(h.r.Dir + "/devshell"); err == nil {
+			t.Errorf("offline %v: what the grant had kept was kept without it", offline)
+		}
+	}
+	for files, says := range map[string]bool{
+		flakeNix:                true,
+		`{ outputs = _: { }; }`: false,
+		"":                      false,
+	} {
+		h := newHarness(t)
+		h.r.Granted = false
+		if files == "" {
+			h.checkout(map[string]string{"README": "hi"})
+		} else {
+			h.checkout(map[string]string{"flake.nix": files})
+		}
+		if ds, err := h.realise(); ds != nil || err != nil || h.runs("bwrap") != nil || (h.said != "") != says {
+			t.Errorf("%q: %+v, %v, ran %d, said %q", files, ds, err, len(h.runs("bwrap")), h.said)
+		}
+	}
+}
+
 // A checkout with neither file has no devShell, and nothing is run or
 // said, a git checkout or not. One whose flake.nix is there and untracked
 // is said to be, as nix develop says it, and not evaluated.
@@ -173,16 +217,17 @@ func TestAFlakeIsEvaluatedPurelyItsLockNeverWritten(t *testing.T) {
 }
 
 // A checkout whose path nix would read as part of a flake reference is
-// said, never evaluated as something else.
-func TestACheckoutWhosePathNixWouldMisreadIsSaid(t *testing.T) {
+// refused, never evaluated as something else.
+func TestACheckoutWhosePathNixWouldMisreadIsRefused(t *testing.T) {
 	h := newHarness(t)
 	ws := h.dir + "/w/a#b"
 	h.r.Workspace, h.r.Dir = ws, h.dir+"/state/checkouts/"+key(ws)
 	h.checkout(map[string]string{"flake.nix": flakeNix})
-	if ds, err := h.realise(); ds != nil || err != nil || h.runs("nix") != nil {
-		t.Errorf("%+v, %v, ran %d", ds, err, len(h.runs("nix")))
+	ds, err := h.realise()
+	h.mustRefuse(ds, err, "nix would read the # or ? in "+ws+" as part of a flake reference")
+	if h.runs("nix") != nil {
+		t.Errorf("ran %d", len(h.runs("nix")))
 	}
-	h.mustSay("nix would read the # or ? in " + ws + " as part of a flake reference")
 
 	// A shell.nix's checkout is an entry of NIX_PATH, which a : or an =
 	// would make more of, every one of them readable under restrict-eval.
@@ -190,10 +235,11 @@ func TestACheckoutWhosePathNixWouldMisreadIsSaid(t *testing.T) {
 	ws = h.dir + "/w/:x"
 	h.r.Workspace, h.r.Dir = ws, h.dir+"/state/checkouts/"+key(ws)
 	h.checkout(map[string]string{"shell.nix": "{}"})
-	if ds, err := h.realise(); ds != nil || err != nil || h.runs("nix") != nil {
-		t.Errorf("%+v, %v, ran %d", ds, err, len(h.runs("nix")))
+	ds, err = h.realise()
+	h.mustRefuse(ds, err, "nix would read the : or = in "+ws+" as part of NIX_PATH")
+	if h.runs("nix") != nil {
+		t.Errorf("ran %d", len(h.runs("nix")))
 	}
-	h.mustSay("nix would read the : or = in " + ws + " as part of NIX_PATH")
 }
 
 // NIX IS CONFINED: a bubblewrap with nothing of the host's but the store,
@@ -356,22 +402,21 @@ func TestADevShellWhoseCheckoutIsGoneIsSwept(t *testing.T) {
 	}
 }
 
-// A devShell that could not be realised is said, the session starts
-// without it, and it is not tried again for an hour.
-func TestAFailureIsSaidLeftOutAndCachedForAnHour(t *testing.T) {
+// A devShell the grant turned on that could not be realised refuses the
+// launch, saying how to launch without it, and is not tried again for an
+// hour.
+func TestAFailureRefusesTheLaunchAndIsCachedForAnHour(t *testing.T) {
 	h := newHarness(t)
 	h.checkout(map[string]string{"shell.nix": "{}"})
 	h.k.Fail, h.k.FailSaid = true, "error: undefined variable 'pkgs'"
-	if ds, err := h.realise(); ds != nil || err != nil {
-		t.Fatalf("%+v, %v", ds, err)
-	}
-	h.mustSay("the devShell could not be realised, and the session starts without it: undefined variable 'pkgs'")
+	ds, err := h.realise()
+	h.mustRefuse(ds, err, "undefined variable 'pkgs'")
 	h.clear()
-	h.realise()
+	ds, err = h.realise()
 	if h.runs("nix") != nil {
 		t.Error("a failure was tried again within the hour")
 	}
-	h.mustSay("(as at ")
+	h.mustRefuse(ds, err, "(as at ")
 	defer func(f func() time.Time) { now = f }(now)
 	now = func() time.Time { return time.Now().Add(61 * time.Minute) }
 	h.realise()
@@ -388,11 +433,11 @@ func TestARealisationThatTakesTooLongIsKilled(t *testing.T) {
 	h.k.Sleep = 30
 	h.checkout(map[string]string{"shell.nix": "{}"})
 	start := time.Now()
-	h.realise()
+	ds, err := h.realise()
 	if time.Since(start) > 15*time.Second {
 		t.Errorf("it took %v", time.Since(start))
 	}
-	h.mustSay("it took more than 1 s")
+	h.mustRefuse(ds, err, "it took more than 1 s")
 	b, err := os.ReadFile(h.k.Log + "/sleeper.pid")
 	if err != nil {
 		t.Fatal("the evaluation started nothing")
@@ -427,8 +472,8 @@ func TestAFlakeWithNoDefaultDevShellIsNoneAndSaidOnce(t *testing.T) {
 }
 
 // A flake.nix that is a link keys the cache on nothing nix is sure to read
-// the same: said, and not evaluated.
-func TestAFlakeNixThatIsALinkIsSaid(t *testing.T) {
+// the same: refused, and not evaluated.
+func TestAFlakeNixThatIsALinkIsRefused(t *testing.T) {
 	h := newHarness(t)
 	other := h.dir + "/other.nix"
 	os.WriteFile(other, []byte(flakeNix), 0o600)
@@ -436,10 +481,10 @@ func TestAFlakeNixThatIsALinkIsSaid(t *testing.T) {
 	os.Symlink(other, h.r.Workspace+"/flake.nix")
 	h.fx.Run("-C", h.r.Workspace, "add", "-A")
 	ds, err := h.realise()
-	if ds != nil || err != nil || h.runs("nix") != nil {
-		t.Errorf("%+v, %v", ds, err)
+	h.mustRefuse(ds, err, "flake.nix: a link, not a file of the checkout's")
+	if h.runs("nix") != nil {
+		t.Errorf("ran %d", len(h.runs("nix")))
 	}
-	h.mustSay("flake.nix: a link, not a file of the checkout's")
 }
 
 // What nix says goes to the terminal cleaned: the checkout names what is
@@ -535,10 +580,8 @@ func TestADevShellLargerThanALaunchCarriesIsAFailure(t *testing.T) {
 	big := strings.Repeat("x", 200<<10)
 	h.k.Env = `{"bashFunctions":{},"variables":{"BIG":{"type":"exported","value":"` + big + `"}}}`
 	h.checkout(map[string]string{"shell.nix": "{}"})
-	if ds, err := h.realise(); ds != nil || err != nil {
-		t.Errorf("%+v, %v", ds != nil, err)
-	}
-	h.mustSay("more than a launch carries")
+	ds, err := h.realise()
+	h.mustRefuse(ds, err, "more than a launch carries")
 	if _, _, err := parse([]byte(h.k.Env)); err == nil || !strings.Contains(err.Error(), "its environment is 204804 bytes") {
 		t.Errorf("%v", err)
 	}
@@ -623,6 +666,6 @@ func TestAFailureTheCleanEnvironmentExplainsIsHinted(t *testing.T) {
 	h := newHarness(t)
 	h.checkout(map[string]string{"shell.nix": "{}"})
 	h.k.Fail, h.k.FailSaid = true, "error: Package 'slack' has an unfree license, refusing to evaluate."
-	h.realise()
-	h.mustSay("refusing to evaluate.; the evaluation sees none of your environment, nor your home: set config.allowUnfree in the import, and give private inputs access-tokens in the machine's nix configuration")
+	ds, err := h.realise()
+	h.mustRefuse(ds, err, "refusing to evaluate.; the evaluation sees none of your environment, nor your home: set config.allowUnfree in the import, and give private inputs access-tokens in the machine's nix configuration")
 }

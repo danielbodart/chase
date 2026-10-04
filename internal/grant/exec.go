@@ -31,10 +31,10 @@ import (
 //     session's policy document written for frisket -- and what it exports
 //     and seeds handed to the payload, with nothing written for a session
 //     to source;
-//   - the checkout's devShell, where its tier has nix (internal/devshell),
-//     and, where the tier's egress is not direct and unfiltered, where the
-//     approved grant turns it on: realised as the caller, confined, and
-//     handed to the payload as the least of its environment;
+//   - the checkout's devShell, where its tier has nix (internal/devshell)
+//     and the approved grant turns it on: realised as the caller,
+//     confined, and handed to the payload as the least of its
+//     environment;
 //   - the payload itself (session.Payload), printed.
 //
 // Anything that goes wrong ends the launch with nothing on stdout, flong's
@@ -75,10 +75,9 @@ func execute(ctx context.Context, s session.Config, e *Config, registry map[stri
 			}
 		}
 	}
-	// The devShell, last before the payload. One that cannot be realised
-	// is said, and the session starts without it, unless the tier is one
-	// whose devShell a grant turns on; that, and a launch stopped while it
-	// is realised, end here.
+	// The devShell, last before the payload, where the grant turns it on.
+	// One that cannot be realised, and a launch stopped while it is
+	// realised, end here.
 	if t := s.Tiers[tier]; t.Nix == nil {
 		if given.DevShellGranted {
 			term.Say(stderr, "%s: apps.nix ignored: %s has no nix", ws, tier)

@@ -1,39 +1,18 @@
 package devshell
 
 import (
-	"os"
 	"slices"
 	"strings"
 	"testing"
 )
 
 // OFFLINE: a tier whose egress is not direct and unfiltered, someone
-// else's code. Its devShell is the approved grant's to turn on, and is
-// realised with no network.
+// else's code. Its devShell, which the approved grant turns on as in any
+// tier, is realised with no network.
 func offline(t *testing.T) *harness {
 	h := newHarness(t)
 	h.n.Offline = true
-	h.r.Granted = true
 	return h
-}
-
-// With no grant to turn it on, there is none: nothing is run, what an
-// earlier grant kept is let go, and what turns it on is said.
-func TestOfflineThereIsNoDevShellWithoutTheGrant(t *testing.T) {
-	h := offline(t)
-	h.checkout(map[string]string{"shell.nix": "{}"})
-	if ds, err := h.realise(); ds == nil || err != nil {
-		t.Fatalf("granted: %+v, %v: %s", ds, err, h.said)
-	}
-	h.r.Granted = false
-	h.clear()
-	if ds, err := h.realise(); ds != nil || err != nil || h.runs("nix") != nil {
-		t.Errorf("not granted: %+v, %v, ran %d", ds, err, len(h.runs("nix")))
-	}
-	h.mustSay(`its devShell is not given: in this tier, the checkout's grant turns it on, with "apps": {"nix": {"devShell": true}}`)
-	if _, err := os.Stat(h.r.Dir + "/devshell"); err == nil {
-		t.Error("what the grant had kept was kept without it")
-	}
 }
 
 // Four runs, each with no network and substitution back on: the
@@ -109,8 +88,8 @@ func TestOfflineAFlakesDerivationIsItsDefaultDevShells(t *testing.T) {
 	h.mustSay("flake.nix has no devShells.x86_64-linux.default")
 }
 
-// What cannot be realised offline refuses the launch, the grant having
-// turned it on, and is remembered as a failure is: a fetch, said with
+// What cannot be realised offline refuses the launch, as it does online,
+// and is remembered as a failure is: a fetch, said with
 // what this tier gives a devShell; an input in none of the machine's
 // binary caches, before anything is built; a derivation that asks for
 // what a sandboxed build is not given, before anything is substituted.
@@ -133,13 +112,7 @@ func TestOfflineWhatCannotBeRealisedRefusesTheLaunch(t *testing.T) {
 			h.k.Derivation = c.derivation
 		}
 		ds, err := h.realise()
-		if ds != nil || err == nil {
-			t.Errorf("%s: %+v, %v", c.what, ds, err)
-			continue
-		}
-		if !strings.Contains(err.Error(), "the devShell its grant turns on could not be realised, and the session is not started: ") || !strings.Contains(err.Error(), c.want) {
-			t.Errorf("%s: %v", c.what, err)
-		}
+		h.mustRefuse(ds, err, c.want)
 		if n := len(h.runs("nix")); n != c.runs {
 			t.Errorf("%s: nix ran %d times, not %d", c.what, n, c.runs)
 		}

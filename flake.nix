@@ -586,11 +586,13 @@
             # A CHECKOUT'S DEVSHELL (PLAN.md, decision 21): what exec
             # realises it with; the setuid wrappers first on every sandbox's
             # PATH, mise's shims next where it has mise, a devShell's behind
-            # both; no nix where no tier enables it; offline where egress is
-            # not direct and unfiltered, which must take grants, a grant's
-            # to turn on; and none in a bare tier.
+            # both; no nix where no tier enables it; a grant's to turn on in
+            # every tier, which must take grants; offline where egress is
+            # not direct and unfiltered; and none in a bare tier.
             assert refused "nix in a tier whose egress is not direct, which takes no grants"
-              { chase.tiers.strict.apps.nix.enable = true; } "chase.tiers.strict.apps.nix is enabled, but the tier's egress is not direct and unfiltered, and it takes no grants";
+              { chase.tiers.strict.apps.nix.enable = true; } "chase.tiers.strict.apps.nix is enabled, but the tier takes no grants";
+            assert refused "nix in a tier of one's own code, which takes no grants"
+              { chase.tiers.trusted.grants = lib.mkForce false; } "chase.tiers.trusted.apps.nix is enabled, but the tier takes no grants";
             assert
               (let
                 strict = configWith { chase.tiers.strict = { apps.nix.enable = true; grants = true; }; };

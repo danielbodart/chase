@@ -261,7 +261,9 @@ func newHarness(t *testing.T) *harness {
 		Bwrap: h.bin + "/bwrap", CABundle: "/etc/ssl/certs/ca-bundle.crt",
 	}
 	ws := dir + "/w/shop"
-	h.r = Request{Workspace: ws, State: dir + "/state", Dir: dir + "/state/checkouts/" + key(ws)}
+	// Granted, as the grant's apps.nix.devShell: without it there is none
+	// (TestThereIsNoDevShellWithoutTheGrant).
+	h.r = Request{Workspace: ws, State: dir + "/state", Dir: dir + "/state/checkouts/" + key(ws), Granted: true}
 	return h
 }
 
@@ -326,6 +328,20 @@ func (h *harness) mustSay(needle string) {
 	h.t.Helper()
 	if !strings.Contains(h.said, needle) {
 		h.t.Errorf("expected %q in: %s", needle, h.said)
+	}
+}
+
+// mustRefuse is a devShell the grant turned on that could not be
+// realised, and so a launch refused: why, with needle in it, and how to
+// launch without it.
+func (h *harness) mustRefuse(ds *session.DevShell, err error, needle string) {
+	h.t.Helper()
+	switch {
+	case ds != nil || err == nil:
+		h.t.Errorf("not refused: %+v, %v: %s", ds, err, h.said)
+	case !strings.Contains(err.Error(), "the devShell its grant turns on could not be realised, and the session is not started: ") ||
+		!strings.Contains(err.Error(), needle) || !strings.HasSuffix(err.Error(), without):
+		h.t.Errorf("expected %q in the refusal: %v", needle, err)
 	}
 }
 

@@ -11,15 +11,15 @@
 # its shellHook inside the session. Never `nix` itself inside one, which is
 # flong's to give.
 #
-# In a tier for one's own code, whose egress is direct and unfiltered,
-# whenever the checkout has one: what is evaluated is the checkout itself,
-# on the host, in a bubblewrap that shows it nothing of the host's but the
-# store, the daemon and the checkout, its fetches the host's own. In any
-# other, only where the checkout's approved grant turns it on, and with no
-# network: substituted from the machine's binary caches, nothing built but
-# nix's record of its environment, and the launch refused where it cannot
-# be. What needs a fetch waits on a store of the session's own, where the
-# session evaluates it itself, through frisket (flong's PLAN §3).
+# In every tier, only where the checkout's approved grant turns it on, as
+# `direnv allow` does, and the launch refused where it cannot be. In a tier
+# for one's own code, whose egress is direct and unfiltered, what is
+# evaluated is the checkout itself, on the host, in a bubblewrap that shows
+# it nothing of the host's but the store, the daemon and the checkout, its
+# fetches the host's own. In any other, with no network: substituted from
+# the machine's binary caches, nothing built but nix's record of its
+# environment. What needs a fetch waits on a store of the session's own,
+# where the session evaluates it itself, through frisket (flong's PLAN §3).
 { config, options, lib, pkgs, ... }:
 
 let
@@ -72,13 +72,13 @@ in
           nix in this tier's sessions: for now, the checkout's devShell --
           flake.nix's devShells.<system>.default, or its shell.nix --
           realised on the host, as you, and given to the session as its
-          environment. Where egress is direct and unfiltered, whenever the
-          checkout has one: it is your own code, fetching as the host. In
-          any other tier, which must take grants, only where the checkout's
-          approved grant turns it on (`"apps": {"nix": {"devShell": true}}`),
-          and with no network: what it needs substituted from the machine's
-          binary caches, nothing built but nix's record of its environment,
-          and the launch refused where that cannot be'';
+          environment, only where the checkout's approved grant turns it on
+          (`"apps": {"nix": {"devShell": true}}`), so the tier must take
+          grants, and the launch refused where it cannot be. Where egress is
+          direct and unfiltered, it is your own code, fetching as the host;
+          in any other tier, with no network: what it needs substituted from
+          the machine's binary caches, nothing built but nix's record of its
+          environment'';
       };
     });
   };
@@ -90,8 +90,8 @@ in
         message = "chase.tiers.${name}.apps.nix is enabled, but the tier is bare: its agent runs on the host, whose `nix develop` is its own.";
       }
       {
-        assertion = tier.bare || !tier.apps.nix.enable || unfiltered tier || tier.grants;
-        message = "chase.tiers.${name}.apps.nix is enabled, but the tier's egress is not direct and unfiltered, and it takes no grants: there a devShell is realised only where a checkout's approved grant turns it on, with no network, since an evaluation on the host fetches as the host, neither filtered nor logged. Set grants, or leave nix to a tier of your own code.";
+        assertion = tier.bare || !tier.apps.nix.enable || tier.grants;
+        message = "chase.tiers.${name}.apps.nix is enabled, but the tier takes no grants: a devShell is realised only where a checkout's approved grant turns it on. Set grants.";
       }
     ]) cfg.tiers);
 
@@ -108,7 +108,8 @@ in
         # The machine's, for the evaluation's https.
         caBundle = "${config.security.pki.caBundle}";
       } // lib.optionalAttrs (!unfiltered tier) {
-        # Only where the grant turns it on, and with no network.
+        # With no network: an evaluation on the host fetches as the host,
+        # neither filtered nor logged.
         offline = true;
       };
     }) enabled;

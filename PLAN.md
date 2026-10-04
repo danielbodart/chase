@@ -485,8 +485,8 @@ its document's `lan`, is proposed for the grant's `network.lan` with the
 ports it was dialled at. See [docs/record.md](docs/record.md).
 
 **21. A checkout's devShell is realised by the launcher, and given to the
-session as its environment -- in a tier of one's own code whenever it has
-one, and in any other offline, where its grant turns it on.** The files are not the problem: flong binds the whole of
+session as its environment, where its grant turns it on -- in a tier of
+one's own code as `nix develop` would, and in any other offline.** The files are not the problem: flong binds the whole of
 `/nix/store` read-only, so every library a devShell names is already there in
 every tier. Its environment is: flong starts a session clean, so the
 `PATH`, `PKG_CONFIG_PATH` and the rest of a `nix develop` on the host never
@@ -499,10 +499,21 @@ checkout it is the wrong order, since `nix develop` on the host runs their
 So exec, as the caller, after the grant and before the payload, realises
 the checkout's devShell -- flake.nix's `devShells.<system>.default`, or its
 shell.nix, flake.nix's when it has both -- in a tier whose `apps.nix` is
-enabled, and hands its environment to the payload (internal/devshell). One
-that cannot be realised is said, and the session starts without it, unless
-a grant turned it on (below); the failure is kept an hour. flake.nix and
-shell.nix are never approved: an edit takes effect at the next launch.
+enabled, where the checkout's approved grant turns it on, `"apps": {"nix":
+{"devShell": true}}`, and hands its environment to the payload
+(internal/devshell). That is so in every tier, one's own code's too, as
+`direnv allow` is: no checkout's Nix is evaluated unless it asks, and one
+that does not costs a launch nothing but a look for the files, a checkout
+with a shell.nix, or a flake.nix that names `devShells`, told in a line
+what turns it on. Given whenever a checkout had one, as it first was, every
+checkout with a flake.nix paid for an evaluation it may never have wanted,
+and a failure was said and left out rather than asked for. So the module
+refuses `apps.nix` in a tier that takes no grants. A devShell the grant
+turned on that cannot be realised refuses the launch, as any part of a
+grant does (decision 4), saying how to launch without it -- the key false,
+or gone, approved -- and the failure is kept an hour. What is approved is
+the grant, not flake.nix or shell.nix, which are never approved: an edit to
+them after it takes effect at the next launch.
 
 What is evaluated is the checkout itself, on the host, as `nix develop`
 would evaluate it there: a flake purely, from what git tracks, its
@@ -521,15 +532,13 @@ chase's own and none of the caller's environment. Its network is the
 host's, and the daemon builds what it must, a fixed-output build on the
 host's own network: fetches neither filtered nor logged, which is the cost
 of one's own code, and nobody else's. So that is a tier whose egress is
-direct and whose `allow` is `*`, where a devShell is given whenever the
-checkout has one; the module refuses `apps.nix` in a bare tier, whose agent
-runs on the host with its own `nix develop`, and in any other that takes no
-grants; and a `chase record` launch's report never names what a devShell
-fetched.
+direct and whose `allow` is `*`; the module refuses `apps.nix` in a bare
+tier, whose agent runs on the host with its own `nix develop`; and a `chase
+record` launch's report never names what a devShell fetched.
 
-In any other tier -- someone else's code -- a devShell is the grant's to
-turn on, `"apps": {"nix": {"devShell": true}}`, approved as every key of a
-grant is (decision 17), and it is realised offline: the same bubblewrap,
+In any other tier -- someone else's code -- the devShell the grant turns on,
+approved as every key of a grant is (decision 17), is realised offline: the
+same bubblewrap,
 with no network at all. nix, finding none, turns substitution off, so every
 run turns it back on: the daemon substitutes from the machine's own binary
 caches, their signatures checked, on the host's network -- accepted, since
@@ -544,10 +553,8 @@ allowed, one in no cache refusing it before anything is built; and only
 then `print-dev-env`, whose one local build is nix's own record of the
 environment, of the devShell's attributes and every input already there,
 sandboxed by the daemon. So no fixed-output build, the one kind the daemon
-gives a network, is ever run for it, nor anything of the checkout's own. A
-devShell the grant turned on that cannot be realised refuses the launch,
-as any part of a grant does (decision 4), and is kept an hour as a failure
-is; nix's HOME is one of its own, so nothing an evaluation of someone
+gives a network, is ever run for it, nor anything of the checkout's own.
+nix's HOME is one of its own, so nothing an evaluation of someone
 else's leaves in nix's caches is read by one's own. What this cannot give
 is anything that fetches as it is evaluated: a flake whose inputs are not
 in the store already, a shell.nix that pins its nixpkgs by
@@ -569,8 +576,9 @@ GC root is a profile there, the latest generation alone, never in the
 checkout, and the store path it pointed to is kept with the key, so a
 profile a killed launch switched is never taken for another's. One launch
 of a checkout realises it at a time, under a lock, and the next finds what
-it kept. A checkout that is gone has its root let go of at any launch that
-wants a devShell. A launch stopped while it realises is stopped, never
+it kept. A checkout whose grant no longer turns it on has its root let go
+of at its next launch, and one that is gone at any launch that wants a
+devShell. A launch stopped while it realises is stopped, never
 launched without it, and nothing of it is kept.
 
 The session gets it through exec's own output, as every variable it has:
