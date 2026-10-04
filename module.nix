@@ -239,8 +239,10 @@ let
         default = false;
         description = ''
           Whether a checkout's own grant -- what its `chase.jsonc` asks for
-          -- is applied to its sessions in this tier, once approved. Not for
-          a tier that runs other people's code (PLAN.md, decision 13).
+          -- is applied to its sessions in this tier, once approved. In a
+          tier that runs other people's code, too, where it fits the tier to
+          one checkout rather than moving it to a looser one (PLAN.md,
+          decision 13).
         '';
       };
     };

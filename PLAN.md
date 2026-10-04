@@ -212,11 +212,18 @@ credential files are the user's own and a process with sudo simply reads
 them, and since a netns can be left with `nsenter`. So there is nothing that
 containerising such work would buy, for as long as it has root.
 
-**13. A tier for other people's code takes no grant.** `grants` is a
-tier's switch, and a tier that runs code nobody vouched for leaves it off: it
-has no network to open a port on, and "nothing local is reachable" is the
-whole of what such a tier is for. A project that ships a grant and is
-sorted into it has it ignored.
+**13. A tier for other people's code may take a grant, approved.** `grants` is
+a tier's switch, and the machine decides it (decision 5). Leaving it off is
+the stricter fit -- nothing a checkout ships loosens its sandbox -- but it
+leaves one way to give someone else's project what it needs: move it to a
+tier for one's own code, and give it everything that tier has. With it on,
+the project keeps the tier, and what it needs beyond it is named entry by
+entry -- a name to download from, a syscall its build makes -- as `chase
+record` proposes, and nothing applies until a person has read the diff and
+approved it. The approval is the boundary, not the tier: a checkout can write
+its own `chase.jsonc`, and what it writes there is only ever a request. Its
+lists for an anonymous app are still ignored (decision 18): there is no
+credential to write with, and no one to ask.
 
 **14. An app declares a credential's shape; a consumer binds its source.**
 Nothing above frisket mentions files. frisket already has the vocabulary for
@@ -364,9 +371,9 @@ tier's, so there is nothing for a tier to be checked against: saying so is
 what makes it so. An app without `authenticated` refuses all three whatever
 its tier says.
 A project's lists are ignored for both, and that is reported (decision 8):
-such a tier takes no grant anyway (decision 13), and a project that needs
-more goes into another tier, which is the machine's decision (decision 5), not
-the checkout's.
+in such a tier its grant can name what else it reaches (decision 13), never
+what an app answers; a project that needs that goes into another tier, which
+is the machine's decision (decision 5), not the checkout's.
 
 This all resolves in chase: the tier's and the app's settings at eval, and a
 project's lists at launch, against the tier's own policy document
