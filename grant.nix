@@ -13,7 +13,9 @@
 #                  prepares each bound app; writes the session's policy
 #                  document there -- the tier's own, for a checkout with no
 #                  grant -- and gives what each app exports and seeds to
-#                  the payload it prints (internal/session)
+#                  the payload it prints (internal/session); then realises
+#                  the checkout's devShell where the tier has nix
+#                  (./apps/nix.nix)
 #   frisket        steers the session under that document
 #   postStop       stops each app; removes
 #                  /run/user/<uid>/chase/<machine>/ and anything staged for it
@@ -24,7 +26,10 @@
 # loosens it has to be known, and approved, before flong starts bwrap. The
 # rest is exec's because exec is the one hook whose output is the session's
 # environment: nothing is written for a session to source, and nothing of
-# chase's runs inside one.
+# chase's runs inside one but, where a devShell is given, the bash that
+# orders its PATH, runs its shellHook and execs the agent, found on the
+# container's PATH, given its script and data as arguments (PLAN.md,
+# decision 21).
 #
 # A checkout with no `chase.jsonc` is the tier as it is. Anything that goes
 # wrong on the way ends the launch: a grant is applied whole or the session

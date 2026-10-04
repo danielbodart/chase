@@ -139,8 +139,14 @@ in
     # A tier's store; and trust, by naming the checkout at launch, never by
     # writing mise's own records: in a session (internal/session), or on
     # the host for a bare tier, by the wrapper.
-    chase.internal.config.session.tiers = lib.mapAttrs (_: tier:
-      lib.optionalAttrs (tier.apps.mise.scope == "tier") {
+    #
+    # Its shims ahead of a devShell's PATH, behind only the setuid
+    # wrappers: the toolchain a checkout pins is the one found, and a shim
+    # with nothing pinned falls through to the devShell's.
+    chase.internal.config.session.tiers = lib.mapAttrs (name: tier:
+      {
+        pathFront = [ "${dataDir name tier}/shims" ];
+      } // lib.optionalAttrs (tier.apps.mise.scope == "tier") {
         stores.mise = {
           scope = "tier";
           root = storeRoot;
