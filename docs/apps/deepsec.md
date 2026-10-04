@@ -10,26 +10,28 @@ given a credential. No `ANTHROPIC_*`, `OPENAI_*` or `AI_GATEWAY_*` key is set.
 Once per checkout, set its workspace up to use those logins:
 
 ```sh
-deepsec init --model-auth local
+deepsec init
 cd .deepsec
 ```
 
-`--model-auth local` is not optional: without it `init` takes Vercel's AI
-Gateway, and asks to link a Vercel project. Nor is `--plan` for a session:
-it asks the Vercel CLI who is logged in, whatever the route, and waits on a
-device login. Then, from `.deepsec`, where deepsec looks for its
-`deepsec.config.ts`, run `deepsec scan`, `deepsec process` and the rest as
-its own docs say -- but as `deepsec`, chase's, never `pnpm deepsec` or
-`npx deepsec`, which the steps `init` prints name. Those run the copy `init`
-installs into the workspace from npm, which has none of the package's fixes
-below. That install needs `registry.npmjs.org` on the tier's allowlist.
+With the package's fixes `--model-auth` defaults to `local`, those logins,
+for `init` and `setup` alike, and `--plan` asks Vercel nothing on that
+route; npm's deepsec defaults to Vercel's AI Gateway, whose first step is a
+Vercel login no session can finish. Another route is named with
+`--model-auth` on every `setup` as well as `init`, since `setup` given none
+takes `local` over what the checkout chose.
 
-In a tier with Claude Code, `init` given no `--agent` is given
-`--agent claude`, which it keeps in the checkout's
-`.deepsec/deepsec.config.ts` as `defaultAgent`; nothing is added to any
-other run, so a checkout's own choice stands. `init`'s own choice of a model
-route does not change it: pass `--agent` yourself if you choose a route
-other than `local`. A tier with codex alone leaves deepsec's default, codex.
+Then, from `.deepsec`, where deepsec looks for its `deepsec.config.ts`, run
+`deepsec scan`, `deepsec process` and the rest as its own docs say -- but as
+`deepsec`, chase's, never `pnpm deepsec` or `npx deepsec`, which the steps
+`init` prints name. Those run the copy `init` installs into the workspace
+from npm, which has none of the package's fixes below. That install needs
+`registry.npmjs.org` on the tier's allowlist.
+
+In a tier with Claude Code, `init` given no `--agent` is given `--agent
+claude`, which it keeps in the checkout's `.deepsec/deepsec.config.ts` as
+`defaultAgent`; nothing is added to any other run, so a checkout's own
+choice stands. A tier with codex alone leaves deepsec's default, codex.
 
 Inside a sandbox, `DEEPSEC_INSIDE_SANDBOX=1` turns deepsec's agents' own
 sandboxes off -- they cannot nest in the container, which is the boundary --
@@ -46,7 +48,7 @@ does not trust its checkouts, the container is the only boundary around it.
 
 | `chase.apps.deepsec.…` | Default | |
 |---|---|---|
-| `package` | | deepsec. No default: the package must carry fixes for running in a session -- frisket's CA passed to its agents, its codex sandbox under `DEEPSEC_INSIDE_SANDBOX`, a workspace's `deepsec/config` import resolved to the package, and its Claude Code's queries reading no settings files. Without one there is no `deepsec` on the host. |
+| `package` | | deepsec. No default: the package must carry fixes for running in a session -- frisket's CA passed to its agents, its codex sandbox under `DEEPSEC_INSIDE_SANDBOX`, a workspace's `deepsec/config` import resolved to the package, its Claude Code's queries reading no settings files, and `local` the model route given none. Without one there is no `deepsec` on the host. |
 
 | `chase.tiers.<name>.apps.deepsec.…` | Default | |
 |---|---|---|
