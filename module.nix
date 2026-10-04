@@ -265,6 +265,7 @@ in
     ./apps/docker.nix
     ./apps/ssh.nix
     ./apps/mise.nix
+    ./apps/nix.nix
     ./apps/gcloud-renew.nix
     ./grant.nix
     (import ./record.nix self)
@@ -470,6 +471,10 @@ in
         # address, which exec gives flong per launch (internal/grant's
         # Exec): 127.0.0.1 is only where a checkout with no project's go.
         forward = tier.egress == "direct";
+        # NixOS's setuid wrappers, first on the container's PATH, and first
+        # still with a devShell's: a devShell's sudo or ping is no setuid
+        # program.
+        pathFront = lib.mkBefore [ "/run/wrappers/bin" ];
       } // lib.optionalAttrs (tier.caches != "session") {
         stores.caches = {
           scope = tier.caches;
@@ -525,8 +530,11 @@ in
       # nothing between: its argument list, the variables it adds to the
       # container's environment, and the files seeded into its home, Claude
       # Code's placeholder login among them. Nothing of chase's runs in a
-      # session but the agent (internal/session). A tier that takes
-      # grants applies the approved one here first (./grant.nix).
+      # session but the agent (internal/session), and, where the checkout's
+      # devShell is given (./apps/nix.nix), the bash that orders its PATH,
+      # runs its shellHook and execs the agent, found on the container's
+      # PATH. A tier that takes grants applies the approved one here first
+      # (./grant.nix).
       exec = [ (lib.getExe cfg.package) "hook" "exec" name ];
       # The checkout's root, so all of it is mounted wherever you start;
       # otherwise the directory itself, which only a `paths` rule can place.

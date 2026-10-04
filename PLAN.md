@@ -260,8 +260,9 @@ with 5432 open still has no `DATABASE_URL` and nothing tells it to look. This
 is why the grant is not a port list: ports and environment are the same
 feature, and shipping one without the other opens a door nothing walks through.
 
-nix-config's note that *"no tier that could use a devShell runs in one"* stops
-being true when this lands, and wants rewriting.
+nix-config's note that *"no tier that could use a devShell runs in one"*
+stops being true with decision 21, for a tier that enables it, and is to
+be rewritten there when nix-config does.
 
 Docker needs no environment beyond what its app sets: `DOCKER_HOST`,
 `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH`, which point the CLI and Compose at
@@ -483,8 +484,8 @@ local network, which frisket dials outside a recording only for a name in
 its document's `lan`, is proposed for the grant's `network.lan` with the
 ports it was dialled at. See [docs/record.md](docs/record.md).
 
-**21. A checkout's devShell is realised by the launcher, and loaded by the
-session.** The files are not the problem: flong binds the whole of
+**21. A checkout's devShell is realised by the launcher, and given to the
+session as its environment -- for now, in a tier of one's own code alone.** The files are not the problem: flong binds the whole of
 `/nix/store` read-only, so every library a devShell names is already there in
 every tier. Its environment is: flong starts a session clean, so the
 `PATH`, `PKG_CONFIG_PATH` and the rest of a `nix develop` on the host never
@@ -494,22 +495,76 @@ from an editor (decision 11), it is fixed at launch, and for someone else's
 checkout it is the wrong order, since `nix develop` on the host runs their
 `shellHook` as you, unsandboxed.
 
-So the launcher, as the caller, runs `nix print-dev-env` for the checkout
-before the session starts, cached on `flake.nix` and `flake.lock` as
-nix-direnv's is, holds a GC root for the result in chase's state (not the
-checkout, which the session can write), and binds the script read-only into
-the session, beside the checkout's `env` directory. The session's shell loads
-it, so the `shellHook` runs inside the sandbox, not on the host.
+So exec, as the caller, after the grant and before the payload, realises
+the checkout's devShell -- flake.nix's `devShells.<system>.default`, or its
+shell.nix, flake.nix's when it has both -- whenever the checkout has one,
+in a tier whose `apps.nix` is enabled, and hands its environment to the
+payload (internal/devshell). One that cannot be realised is said, and the
+session starts without it; the failure is kept an hour. flake.nix and
+shell.nix are never approved: an edit takes effect at the next launch.
 
-Realising it is still the host's daemon building and fetching, and a
-fixed-output derivation fetches on the host's network, outside frisket. In a
-tier for one's own code that is the caller's own flake, and it is automatic
-when the checkout has a devShell. In a tier for other people's code it is a
-grant key, approved as any is (decision 17), realised from the binary cache
-alone: a dry run that would build anything locally is refused, and a
-flake's `nixConfig` is never accepted. Open: whether the devShell's `PATH`
-goes ahead of mise's shims or behind them, as nix-config keeps mise's
-ahead on the host.
+What is evaluated is the checkout itself, on the host, as `nix develop`
+would evaluate it there, with none of the caller's environment but `HOME`
+and nothing to confine it but nix's own settings: a flake purely, from what
+git tracks, its `nixConfig` never taken and its lock never written; a
+shell.nix under `restrict-eval`, its `NIX_PATH` the system's nixpkgs and the
+checkout, `allowed-uris` any https. The daemon builds what it must, a
+fixed-output build on the host's own network. That is a session's code
+evaluated unconfined -- `builtins.getFlake`, a `path:` or `git+file` input
+and a pure flake's locked fetches reach past nix's restrictions, and the
+checkout is what the session writes -- which is the cost of one's own code,
+and nobody else's. So the module refuses `apps.nix` in a tier whose egress
+is not direct, and in a bare one, whose agent runs on the host with its own
+`nix develop`.
+
+Other people's code waits on `nix` inside the session, with a store of its
+own over the host's (below): the session evaluates its devShell itself,
+in its sandbox, every fetch through frisket and on the allowlist, and
+nothing of theirs is evaluated on the host at all. A design that evaluated
+it on the host, confined -- bubblewrap with nothing of the host but the
+store and the daemon's socket, a lock's inputs prefetched through pasta
+from the allowlist's names alone, nothing of the devShell's built locally,
+a grant key to turn it on -- was built, and is kept on the branch
+devshell-confined: a thousand lines of it existed only because nix's own
+restrictions do not hold a flake, and the overlay store makes them
+unnecessary.
+
+The result is cached in chase's state, `checkouts/<key>/devshell`, bound
+into no session, keyed on flake.nix and flake.lock, or shell.nix, the
+system, the nix, the nixpkgs and every setting it was evaluated with; its
+GC root is a profile there, the latest generation alone, never in the
+checkout, and the store path it pointed to is kept with the key, so a
+profile a killed launch switched is never taken for another's. One launch
+of a checkout realises it at a time, under a lock, and the next finds what
+it kept. A checkout that is gone has its root let go of at any launch that
+wants a devShell. A launch stopped while it realises is stopped, never
+launched without it, and nothing of it is kept.
+
+The session gets it through exec's own output, as every variable it has:
+the devShell's exported variables, but nix's own build variables, those
+that steer bash and those that steer the agent -- `LD_PRELOAD`,
+`NODE_OPTIONS`, `ANTHROPIC_*`, `CLAUDE_*`, `CODEX_*`, `OPENAI_*`, every
+`*_PROXY` -- are the least of its environment, and flong's, the
+container's and chase's own win by name. What exec cannot set is PATH's
+order, and what it cannot run is the shellHook, which must run inside the
+sandbox and never on the host. So where a devShell is given, one thing of
+chase's runs in the session ahead of the agent: the container's bash, given
+a fixed script and its data as argument words, never written for anything
+to source. It finds the agent on the container's PATH, so a devShell's own
+`claude` or `bash` is never what runs; puts PATH in order --
+`/run/wrappers/bin`, then mise's shims, so a toolchain the checkout pins
+wins and a shim with nothing pinned falls through, then the devShell's,
+then the rest of the container's; runs the hook in a subshell, with the
+devShell's variables and functions, its stdin closed and its output on
+stderr, so what it does to the bash it runs in -- a function named as a
+builtin, a readonly variable, a `cd` -- dies with the subshell, which hands
+back its exported variables as data and nothing else; takes of those the
+hook's changes to the devShell's own and what it added, but none of the
+container's and chase's, none that steer the agent or bash, and none of
+bash's own; orders PATH again, so the hook's own `PATH=$PWD/bin:$PATH`
+stays behind the wrappers and the shims; and execs the agent. A hook that
+exits, or leaves its subshell handing back nothing whole, ends the session,
+said. Without a devShell there is no such bash.
 
 `nix` itself inside a session is a later extension, flong's (its PLAN §3):
 either the host daemon's socket, or a store of the session's own over the

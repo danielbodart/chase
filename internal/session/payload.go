@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/danielbodart/chase/internal/term"
 )
 
 // Var is one variable added to the payload's environment.
@@ -45,6 +47,10 @@ type Given struct {
 	Forward string
 	// Project is the session's owner/repo, "" for a checkout with none.
 	Project string
+	// DevShell is the checkout's devShell, as the launch realised it: the
+	// least of the session's environment, and what the argument list is
+	// wrapped in; nil for none.
+	DevShell *DevShell
 }
 
 // Exec is the payload, as flong's exec prints it (Write): its whole
@@ -101,10 +107,21 @@ const never = 4102444800000
 //     gets it with no agent. A session with Docker is told, on stderr, where
 //     its containers' ports are.
 //
+// Where the launch realised the checkout's devShell (given.DevShell), the
+// agent's argument list is run by a bash ahead of it: the container's, given
+// a fixed script and its data as words, never script text, which orders
+// PATH -- pathFront, then the devShell's, then the rest -- runs the
+// shellHook inside the session, in a subshell that hands back only its
+// exports, of which none of the container's or chase's is taken, and
+// execs the agent, found on the container's PATH (wrap). Without one there
+// is no bash.
+//
 // Its environment is the container's, which flong computes, and what the
-// tier and the launch add: where its stores are, each variable unless the
-// container sets it (codex's CODEX_HOME among them), the workspace in each
-// trusting app's variable (TrustEnv), the Cloudflare
+// tier and the launch add: least of all a devShell's exports, which
+// anything of flong's, the container's or chase's of the same name
+// replaces, said once by name; then where its stores are, each variable
+// unless the container sets it (codex's CODEX_HOME among them), the
+// workspace in each trusting app's variable (TrustEnv), the Cloudflare
 // account, and the grant's exports, which win over the tier's of the
 // same name, a project's own account over the tier's. flong refuses an exec
 // that sets a name the container's environment already sets, or one the
@@ -128,7 +145,7 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 	agent, rest := args[0], args[1:]
 
 	var e Exec
-	set := func(name, value string) {
+	put := func(name, value string) {
 		for i := range e.Env {
 			if e.Env[i].Name == name {
 				e.Env[i].Value = value
@@ -136,6 +153,34 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 			}
 		}
 		e.Env = append(e.Env, Var{name, value})
+	}
+	// The devShell's first, the least of it: what flong sets, and what the
+	// container does, are theirs, and everything chase sets after it is
+	// chase's, by name. A name of it that does not reach the session as it
+	// gave it is said, once, so a devShell's CARGO_HOME pointed elsewhere
+	// is not a mystery; never refused, since nothing of it is the
+	// session's to need.
+	shell := map[string]string{}
+	var overridden []string
+	if ds := given.DevShell; ds != nil {
+		for _, v := range ds.Env {
+			if slices.Contains(launchEnv, v.Name) || strings.HasPrefix(v.Name, "TINI_") {
+				continue
+			}
+			if value, sets := t.Environment[v.Name]; sets {
+				if value != v.Value {
+					overridden = append(overridden, v.Name)
+				}
+				continue
+			}
+			put(v.Name, v.Value)
+			shell[v.Name] = v.Value
+		}
+	}
+	own := map[string]bool{}
+	set := func(name, value string) {
+		own[name] = true
+		put(name, value)
 	}
 	// Each store's directory, as Binds made and bound it, for what its
 	// variables name, unless the container sets one, which is then left
@@ -174,6 +219,15 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 	}
 	for _, v := range given.Env {
 		set(v.Name, v.Value)
+	}
+	for _, v := range e.Env {
+		if was, ok := shell[v.Name]; ok && own[v.Name] && was != v.Value {
+			overridden = append(overridden, v.Name)
+		}
+	}
+	if len(overridden) > 0 {
+		slices.Sort(overridden)
+		term.Say(stderr, "%s: the devShell's %s are the session's own", workspace, strings.Join(overridden, ", "))
 	}
 	env := e.Env[:0]
 	for _, v := range e.Env {
@@ -240,6 +294,12 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 		return Exec{}, fmt.Errorf("unknown agent '%s': %s runs %s", agent, tier, strings.Join(agents(t), ", "))
 	}
 	e.Argv = append(e.Argv, rest...)
+	// A devShell's PATH, which exec cannot set, and its shellHook, which
+	// runs in the session: a bash ahead of the agent's own program, which
+	// it execs once both are done (wrap).
+	if ds := given.DevShell; ds != nil {
+		e.Argv = wrap(e.Argv, ds, t.PathFront, keepOf(t, own))
+	}
 
 	if cl := t.Claude; cl != nil {
 		scopes := inferenceScopes

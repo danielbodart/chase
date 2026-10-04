@@ -583,6 +583,36 @@
               && hostScope.containers.chase-trusted.bindMounts ? "/home/alice/.local/share/mise"
               && ! hostScope.containers.chase-trusted.bindMounts ? "/home/alice/.local/state/mise")
               || throw "assertions: mise was not kept where its scope says";
+            # A CHECKOUT'S DEVSHELL (PLAN.md, decision 21): what exec
+            # realises it with; the setuid wrappers first on every sandbox's
+            # PATH, mise's shims next where it has mise, a devShell's behind
+            # both; no nix where no tier enables it; and none where egress is
+            # not direct, or the tier is bare, since it is evaluated on the
+            # host, unconfined.
+            assert refused "nix in a tier whose egress is not direct"
+              { chase.tiers.strict.apps.nix.enable = true; } "chase.tiers.strict.apps.nix is enabled, but the tier's egress is not direct";
+            assert refused "nix in a bare tier"
+              { chase.tiers.host.apps.nix.enable = true; } "chase.tiers.host.apps.nix is enabled, but the tier is bare";
+            assert
+              (let
+                config = configWith { chase.tiers.trusted.apps.mise.enable = true; };
+                c = config.chase.internal.config;
+                none = (configWith { chase.tiers.trusted.apps.nix.enable = lib.mkForce false; }).chase.internal.config.session.tiers;
+              in
+              lib.all (a: a.assertion) config.assertions
+              && c.session.tiers.trusted.nix == {
+                inherit (c.selector) git emptySha1 emptySha256;
+                timeout = 1200;
+                nix = lib.getExe config.nix.package;
+                nixpkgs = "${pkgs.path}";
+                inherit system;
+                caBundle = "${config.security.pki.caBundle}";
+              }
+              && ! c.session.tiers.strict ? nix
+              && c.session.tiers.strict.pathFront == [ "/run/wrappers/bin" ]
+              && c.session.tiers.trusted.pathFront == [ "/run/wrappers/bin" "/home/alice/.cache/chase/mise/trusted/all/data/shims" ]
+              && lib.all (t: ! t ? nix) (lib.attrValues none))
+              || throw "assertions: a checkout's devShell did not hold together";
             # Claude Code's managed settings are each sandbox container's,
             # never the host's: the container the only boundary, a key a
             # tier sets kept beside the others, and none at all when forced
@@ -996,6 +1026,7 @@
           gcloud-session = pkgs.testers.runNixOSTest (import ./tests/gcloud-session.nix { inherit self home-manager; });
           ssh-session = pkgs.testers.runNixOSTest (import ./tests/ssh-session.nix { inherit self home-manager; });
           record-session = pkgs.testers.runNixOSTest (import ./tests/record-session.nix { inherit self home-manager; });
+          devshell-session = pkgs.testers.runNixOSTest (import ./tests/devshell-session.nix { inherit self home-manager; });
         } // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
           # Only where the pinned postgres:18 runs: the image is amd64's.
           docker-session = pkgs.testers.runNixOSTest (import ./tests/docker-session.nix { inherit self home-manager; });

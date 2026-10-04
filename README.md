@@ -171,6 +171,7 @@ lives.
 | [docker](docs/apps/docker.md) | Docker and Compose, on your rootless daemon | | | | |
 | [ssh](docs/apps/ssh.md) | commands on a project's machines, or the tier's own, by SSH through frisket | | | | ✓ |
 | [mise](docs/apps/mise.md) | mise toolchains | | `session` `tier` `host` | ✓ | |
+| [nix](docs/apps/nix.md) | the checkout's devShell, as `nix develop` would give it, where egress is direct | | | | |
 
 Every app takes the same settings, where they apply:
 

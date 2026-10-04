@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/danielbodart/chase/internal/apps"
+	"github.com/danielbodart/chase/internal/devshell"
 	"github.com/danielbodart/chase/internal/projectaddr"
 	"github.com/danielbodart/chase/internal/session"
 	"github.com/danielbodart/chase/internal/term"
@@ -30,6 +31,9 @@ import (
 //     session's policy document written for frisket -- and what it exports
 //     and seeds handed to the payload, with nothing written for a session
 //     to source;
+//   - the checkout's devShell, where its tier has nix (internal/devshell),
+//     realised as the caller and handed to the payload as the least of its
+//     environment;
 //   - the payload itself (session.Payload), printed.
 //
 // Anything that goes wrong ends the launch with nothing on stdout, flong's
@@ -70,6 +74,19 @@ func execute(ctx context.Context, s session.Config, e *Config, registry map[stri
 			}
 		}
 	}
+	// The devShell, last before the payload. One that cannot be realised
+	// is said, and the session starts without it; only a launch stopped
+	// while it is realised ends here.
+	if t := s.Tiers[tier]; t.Nix != nil {
+		var err error
+		given.DevShell, err = devshell.Realise(ctx, *t.Nix, devshell.Request{
+			Workspace: ws, Home: s.Home, State: stateOf(s, e), Dir: checkoutOf(s, e, ws),
+		}, stderr)
+		if err != nil {
+			term.Say(stderr, "%v", err)
+			return 1
+		}
+	}
 	p, err := session.Payload(s, tier, ws, binds, args, given, stderr)
 	if err != nil {
 		term.Say(stderr, "%s: %v", ws, err)
@@ -107,10 +124,7 @@ func forget(s session.Config, e *Config, stderr io.Writer) {
 	if s.Home == "" {
 		return
 	}
-	state := s.Home + "/.local/state/chase"
-	if e != nil {
-		state = e.state()
-	}
+	state := stateOf(s, e)
 	agents := s.Home + "/.local/state/agents"
 	for _, dir := range []string{state + "/env", agents + "/cloudflare"} {
 		if err := os.RemoveAll(dir); err != nil {
@@ -119,6 +133,20 @@ func forget(s session.Config, e *Config, stderr io.Writer) {
 	}
 	// Removes only an empty directory, and says nothing of one that is not.
 	os.Remove(agents)
+}
+
+// stateOf is chase's state directory: the grant's, for a tier that takes
+// grants, and otherwise the default one under the user's home.
+func stateOf(s session.Config, e *Config) string {
+	if e != nil {
+		return e.state()
+	}
+	return s.Home + "/.local/state/chase"
+}
+
+// checkoutOf is the checkout's own directory in it, bound into no session.
+func checkoutOf(s session.Config, e *Config, ws string) string {
+	return stateOf(s, e) + "/checkouts/" + key(ws)
 }
 
 // sessionProject is the project the session is of: the one approved with
