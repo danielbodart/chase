@@ -280,6 +280,9 @@ in
           assert 'to launch without it, set "apps": {"nix": {"devShell": false}}' in said, said
           assert "the-users-bashrc" not in said, said
           assert "restricted mode" in said, said
+          # Never kept: the next launch tries again.
+          s, said = launch("${own}", "bashrc", "again")
+          assert s is None and "realising the devShell of shell.nix" in said and "restricted mode" in said, said
 
       with subtest("nix sees nothing of the user's outside the checkout: not through getFlake, nor a flake's path: input"):
           machine.succeed("runuser -u alice -- sh -c 'mkdir -p ${home}/secrets && echo the-users-token > ${home}/secrets/token && echo \"{ outputs = _: { }; }\" > ${home}/secrets/flake.nix'")

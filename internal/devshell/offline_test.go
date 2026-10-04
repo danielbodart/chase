@@ -89,7 +89,7 @@ func TestOfflineAFlakesDerivationIsItsDefaultDevShells(t *testing.T) {
 }
 
 // What cannot be realised offline refuses the launch, as it does online,
-// and is remembered as a failure is: a fetch, said with
+// and is tried again at the next, as a failure is: a fetch, said with
 // what this tier gives a devShell; an input in none of the machine's
 // binary caches, before anything is built; a derivation that asks for
 // what a sandboxed build is not given, before anything is substituted.
@@ -117,8 +117,10 @@ func TestOfflineWhatCannotBeRealisedRefusesTheLaunch(t *testing.T) {
 			t.Errorf("%s: nix ran %d times, not %d", c.what, n, c.runs)
 		}
 		h.clear()
-		if _, err := h.realise(); err == nil || !strings.Contains(err.Error(), "(as at ") || h.runs("nix") != nil {
-			t.Errorf("%s again: %v, ran %d", c.what, err, len(h.runs("nix")))
+		ds, err = h.realise()
+		h.mustRefuse(ds, err, c.want)
+		if n := len(h.runs("nix")); n != c.runs {
+			t.Errorf("%s again: nix ran %d times, not %d", c.what, n, c.runs)
 		}
 	}
 }

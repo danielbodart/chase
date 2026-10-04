@@ -55,7 +55,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/danielbodart/chase/internal/checkout"
 	"github.com/danielbodart/chase/internal/gitsafe"
@@ -78,13 +77,6 @@ const (
 	shell = "shell.nix"
 	lock  = "flake.lock"
 )
-
-// failedFor is how long a devShell that could not be realised is taken to
-// still be so: a broken flake does not cost every launch its seconds.
-const failedFor = time.Hour
-
-// now is the clock, a test's to move.
-var now = time.Now
 
 // none is a checkout with no devShell to give, and what is said of it,
 // unless quiet -- as it is when it was said at the launch that found it.
@@ -251,7 +243,8 @@ func realise(ctx context.Context, n session.Nix, r Request, stderr io.Writer) (*
 		prune(dir)
 		j.record("none", no.line)
 	case err != nil:
-		j.record("failed", err.Error())
+		// Never kept: a failure refuses the launch, so the next launch
+		// tries again, and an outage refuses no launch but those it lasts.
 	default:
 		j.record("env", "")
 	}

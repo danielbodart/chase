@@ -80,9 +80,8 @@ someone else's code leaves in nix's caches is read by one of yours:
 nix turns substitution off when it finds no network, so every run turns it
 back on; what the daemon fetches is named by a derivation's hash, from the
 caches the machine trusts, and checked against their keys. What cannot be
-realised refuses the launch, as it does online, and is kept an hour as a
-failure is. So a devShell of `import
-<nixpkgs> { }` and what the caches hold -- a Tauri app's WebKitGTK and GTK
+realised refuses the launch, as it does online, and is tried again at the
+next. So a devShell of `import <nixpkgs> { }` and what the caches hold -- a Tauri app's WebKitGTK and GTK
 libraries, a compiler, a database's client -- is given; one that fetches as
 it is evaluated is not: a flake whose inputs are not in the store already, a
 shell.nix that pins its nixpkgs by `fetchTarball`, any `builtins.fetch*`,
@@ -198,14 +197,10 @@ what the clean evaluation leaves out:
   functions and hook together, or one of them over 128 KiB.
 
 Each refuses the launch, with what nix said, and how to launch without it:
-`"devShell": false` in the grant, approved. A failure is kept for an hour,
-so a broken flake does not cost every launch; an edit to the files it is keyed on (below) is tried at the next
-launch, and a fix elsewhere -- an imported `.nix` file, the machine's nix
-configuration -- sooner by removing what was kept:
-
-```sh
-rm ~/.local/state/chase/checkouts/*/devshell/state.json
-```
+`"devShell": false` in the grant, approved. A failure is never kept: the
+next launch tries again, so a fix -- to the checkout, an imported `.nix`
+file, the machine's nix configuration, or a network that was down -- takes
+effect then.
 
 ## Caching and its roots
 

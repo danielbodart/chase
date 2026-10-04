@@ -511,9 +511,10 @@ and a failure was said and left out rather than asked for. So the module
 refuses `apps.nix` in a tier that takes no grants. A devShell the grant
 turned on that cannot be realised refuses the launch, as any part of a
 grant does (decision 4), saying how to launch without it -- the key false,
-or gone, approved -- and the failure is kept an hour. What is approved is
-the grant, not flake.nix or shell.nix, which are never approved: an edit to
-them after it takes effect at the next launch.
+or gone, approved -- and the failure is never kept, so the next launch
+tries again: kept, a fetch outage would be an hour's refusal. What is
+approved is the grant, not flake.nix or shell.nix, which are never
+approved: an edit to them after it takes effect at the next launch.
 
 What is evaluated is the checkout itself, on the host, as `nix develop`
 would evaluate it there: a flake purely, from what git tracks, its

@@ -403,9 +403,9 @@ func TestADevShellWhoseCheckoutIsGoneIsSwept(t *testing.T) {
 }
 
 // A devShell the grant turned on that could not be realised refuses the
-// launch, saying how to launch without it, and is not tried again for an
-// hour.
-func TestAFailureRefusesTheLaunchAndIsCachedForAnHour(t *testing.T) {
+// launch, saying how to launch without it, and is never kept: the next
+// launch tries again, and once it is realised, it is cached.
+func TestAFailureRefusesTheLaunchAndIsTriedAgainAtTheNext(t *testing.T) {
 	h := newHarness(t)
 	h.checkout(map[string]string{"shell.nix": "{}"})
 	h.k.Fail, h.k.FailSaid = true, "error: undefined variable 'pkgs'"
@@ -413,15 +413,18 @@ func TestAFailureRefusesTheLaunchAndIsCachedForAnHour(t *testing.T) {
 	h.mustRefuse(ds, err, "undefined variable 'pkgs'")
 	h.clear()
 	ds, err = h.realise()
-	if h.runs("nix") != nil {
-		t.Error("a failure was tried again within the hour")
-	}
-	h.mustRefuse(ds, err, "(as at ")
-	defer func(f func() time.Time) { now = f }(now)
-	now = func() time.Time { return time.Now().Add(61 * time.Minute) }
-	h.realise()
+	h.mustRefuse(ds, err, "undefined variable 'pkgs'")
 	if len(h.runs("nix")) != 1 {
-		t.Error("a failure an hour old was not tried again")
+		t.Error("a failure was not tried again at the next launch")
+	}
+	h.k.Fail = false
+	h.clear()
+	if ds, err := h.realise(); ds == nil || err != nil || len(h.runs("nix")) != 1 {
+		t.Fatalf("fixed: %+v, %v, ran %d: %s", ds, err, len(h.runs("nix")), h.said)
+	}
+	h.clear()
+	if ds, err := h.realise(); ds == nil || err != nil || h.runs("nix") != nil {
+		t.Errorf("again: %+v, %v, ran %d", ds, err, len(h.runs("nix")))
 	}
 }
 

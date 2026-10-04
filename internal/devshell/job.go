@@ -174,7 +174,7 @@ type state struct {
 
 // record writes what the realisation came to.
 func (j *job) record(result, reason string) {
-	b, err := json.Marshal(state{Key: j.key, Workspace: j.r.Workspace, Result: result, Reason: reason, Env: j.env, At: now().UTC().Format(time.RFC3339)})
+	b, err := json.Marshal(state{Key: j.key, Workspace: j.r.Workspace, Result: result, Reason: reason, Env: j.env, At: time.Now().UTC().Format(time.RFC3339)})
 	if err == nil {
 		files.WriteAtomic(j.dir+"/state.json", b, 0o600)
 	}
@@ -182,8 +182,8 @@ func (j *job) record(result, reason string) {
 
 // cached is the devShell the last realisation kept, when it is of what is
 // evaluated now: its environment, read through the profile that roots it;
-// none; or a failure less than failedFor old, said as it was. hit is false
-// for anything else, which is realised again.
+// or none. hit is false for anything else, which is realised again: a
+// failure is never kept.
 func (j *job) cached() (ds *session.DevShell, err error, hit bool) {
 	b, err := os.ReadFile(j.dir + "/state.json")
 	if err != nil {
@@ -207,12 +207,6 @@ func (j *job) cached() (ds *session.DevShell, err error, hit bool) {
 		return ds, nil, true
 	case "none":
 		return nil, &none{line: s.Reason, quiet: true}, true
-	case "failed":
-		at, err := time.Parse(time.RFC3339, s.At)
-		if err != nil || now().Sub(at) >= failedFor {
-			return nil, nil, false
-		}
-		return nil, fmt.Errorf("(as at %s) %s", s.At, s.Reason), true
 	}
 	return nil, nil, false
 }
