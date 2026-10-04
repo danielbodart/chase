@@ -48,6 +48,8 @@ func TestMain(m *testing.M) {
 		os.Exit(fakeSops())
 	case "systemctl":
 		os.Exit(fakeSystemctl())
+	case "bwrap":
+		os.Exit(fakeBwrap())
 	case "nix":
 		os.Exit(fakeNix())
 	}

@@ -17,7 +17,7 @@ func file(t *testing.T, change func(nix map[string]any)) string {
 	nix := map[string]any{
 		"git": "/nix/store/git/bin/git", "timeout": 1200,
 		"nix": "/nix/store/nix/bin/nix", "nixpkgs": "/nix/store/nixpkgs", "system": "x86_64-linux",
-		"caBundle": "/etc/ssl/certs/ca-certificates.crt",
+		"bwrap": "/nix/store/bubblewrap/bin/bwrap", "caBundle": "/etc/ssl/certs/ca-certificates.crt",
 	}
 	change(nix)
 	doc := map[string]any{
@@ -38,11 +38,11 @@ func file(t *testing.T, change func(nix map[string]any)) string {
 // A tool chase runs to realise a devShell, or what it is given, named
 // without a slash would be looked up on the caller's PATH or read from the
 // working directory: refused when the file is read, naming it.
-func TestLoadRefusesARelativeNixNixpkgsOrCABundle(t *testing.T) {
+func TestLoadRefusesARelativeNixNixpkgsBwrapOrCABundle(t *testing.T) {
 	if _, err := config.Load(file(t, func(map[string]any) {})); err != nil {
 		t.Fatalf("the module's own was refused: %v", err)
 	}
-	for _, key := range []string{"nix", "nixpkgs", "caBundle", "git"} {
+	for _, key := range []string{"nix", "nixpkgs", "bwrap", "caBundle", "git"} {
 		_, err := config.Load(file(t, func(n map[string]any) { n[key] = "relative/" + key }))
 		if err == nil || !strings.Contains(err.Error(), "nix."+key+` is "relative/`+key+`", which is not an absolute path`) {
 			t.Errorf("a relative %s: %v", key, err)

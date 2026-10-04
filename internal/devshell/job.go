@@ -39,13 +39,18 @@ type job struct {
 	key  string
 	// env is the store path the profile pointed to when it was realised.
 	env string
+	// binds are what of the checkout nix is shown, at their own paths:
+	// its directory, or the checkout it is in, and that checkout's git
+	// directories.
+	binds []string
 }
 
 // c0 is what every nix run is given first: flakes, and nothing the flake
 // says of nix's own configuration, which would be the checkout's say over
-// what the caller's nix trusts and fetches from; and lazy trees, which
-// keep the checkout out of the world-readable store unless a derivation
-// refers to it.
+// what the caller's nix trusts and fetches from; and lazy trees, which on
+// Determinate Nix keep the checkout out of the world-readable store unless
+// a derivation refers to it -- another nix warns of the setting it does
+// not know and copies what git tracks in, as its own `nix develop` does.
 var c0 = []string{
 	"--extra-experimental-features", "nix-command flakes",
 	"--option", "accept-flake-config", "false",
@@ -97,8 +102,10 @@ func (j *job) plan() error {
 		System  string            `json:"system"`
 		Nix     string            `json:"nix"`
 		Nixpkgs string            `json:"nixpkgs"`
+		Bwrap   string            `json:"bwrap"`
+		Binds   []string          `json:"binds"`
 		Args    []string          `json:"args"`
-	}{1, j.kind, j.files, j.n.System, j.n.Nix, j.n.Nixpkgs, append(append([]string{}, c0...), j.args...)})
+	}{2, j.kind, j.files, j.n.System, j.n.Nix, j.n.Nixpkgs, j.n.Bwrap, j.binds, append(append([]string{}, c0...), j.args...)})
 	if err != nil {
 		return err
 	}
@@ -199,7 +206,7 @@ func (j *job) load() (*session.DevShell, error) {
 		return nil, err
 	}
 	if len(dropped) > 0 {
-		term.Say(j.stderr, "%s: the devShell's %s are not given to the agent", j.r.Workspace, strings.Join(dropped, ", "))
+		term.Say(j.stderr, "%s: the devShell's %s %s not given to the agent", j.r.Workspace, strings.Join(dropped, ", "), plural(len(dropped), "is", "are"))
 	}
 	return ds, nil
 }
@@ -234,32 +241,67 @@ type failure struct {
 
 func (f *failure) Error() string { return f.reason }
 
-// environ is all of the environment nix is given: the caller's HOME, for
-// its own configuration, its fetcher cache and its access tokens; a PATH of
-// nix and git alone, the git a fetch shells out to; the daemon; the
-// machine's CA bundle; and, for a shell.nix, its NIX_PATH. Nothing else of
-// the caller's -- NIXPKGS_ALLOW_UNFREE, an editor's or a terminal's
-// variables -- so a devShell is the same from wherever it is launched.
-func (j *job) environ() []string {
-	env := []string{
-		"HOME=" + j.r.Home,
-		"PATH=" + filepath.Dir(j.n.Nix) + ":" + filepath.Dir(j.n.Git),
-		"NIX_REMOTE=daemon",
-		"NIX_SSL_CERT_FILE=" + j.n.CABundle,
+// home is nix's HOME, chase's own and every checkout's: its fetcher and
+// evaluation caches, and nothing of the caller's.
+func (j *job) home() string { return j.r.State + "/devshell/home" }
+
+// confine is nix's argument list, in a bubblewrap of its own: nothing of
+// the host but the store, the daemon's socket, the machine's nix
+// configuration and resolver, the checkout's binds, read-only, nix's HOME,
+// and the devshell directory, at its own path, for the profile nix roots
+// there by that path; the host's network, as the tier's egress is direct;
+// and none of the caller's environment but what is set here -- that HOME,
+// a PATH of nix and git alone, the git a fetch shells out to, the daemon,
+// the machine's CA bundle, and, for a shell.nix, its NIX_PATH. So
+// NIXPKGS_ALLOW_UNFREE, an editor's or a terminal's variables never reach
+// it, and a devShell is the same from wherever it is launched.
+//
+// nix's own restrictions do not hold what it reads -- builtins.getFlake
+// in a shell.nix, a flake's path: or git+file input, is any file of the
+// caller's -- and the checkout is what a session writes. So what is
+// evaluated reads no file of the host's the session cannot -- the user's
+// home, ~/.ssh, another checkout, chase's state -- and hands nothing of
+// theirs to the session, nor to the world-readable store. /tmp is a tmpfs
+// first, so what is bound later is not hidden under it.
+func (j *job) confine() []string {
+	argv := []string{j.n.Bwrap, "--unshare-all", "--share-net", "--die-with-parent", "--new-session", "--clearenv",
+		"--tmpfs", "/tmp",
+		"--ro-bind", "/nix/store", "/nix/store",
+		"--bind", "/nix/var/nix/daemon-socket", "/nix/var/nix/daemon-socket",
+		"--ro-bind-try", "/etc/nix", "/etc/nix",
+		"--ro-bind-try", "/etc/static", "/etc/static",
+		"--ro-bind-try", "/etc/resolv.conf", "/etc/resolv.conf",
+		"--ro-bind-try", "/etc/hosts", "/etc/hosts"}
+	for _, b := range j.binds {
+		argv = append(argv, "--ro-bind", b, b)
 	}
+	argv = append(argv, "--bind", j.home(), j.home(), "--bind", j.dir, j.dir,
+		"--dev", "/dev", "--proc", "/proc",
+		"--setenv", "HOME", j.home(),
+		"--setenv", "PATH", filepath.Dir(j.n.Nix)+":"+filepath.Dir(j.n.Git),
+		"--setenv", "NIX_REMOTE", "daemon",
+		"--setenv", "NIX_SSL_CERT_FILE", j.n.CABundle)
 	if j.kind == shell {
-		env = append(env, "NIX_PATH=nixpkgs="+j.n.Nixpkgs+":"+j.r.Workspace)
+		argv = append(argv, "--setenv", "NIX_PATH", "nixpkgs="+j.n.Nixpkgs+":"+j.r.Workspace)
 	}
-	return env
+	argv = append(argv, "--", j.n.Nix)
+	argv = append(argv, c0...)
+	return append(argv, j.args...)
 }
 
-// run is nix, as the caller: its environment environ's, its stdin
-// /dev/null, and its process group killed when ctx is done, so nothing it
-// started outlives the launch. What it says goes to the launcher's
-// stderr, cleaned, as it comes.
+// run is nix, as the caller, confined: its environment confine's, its
+// stdin /dev/null, and its process group killed when ctx is done --
+// bubblewrap's, that is, which puts nix in a session of its own
+// (--new-session, so nothing in it can push input to a terminal), and nix,
+// and all it started, die with it (--die-with-parent). What it says goes
+// to the launcher's stderr, cleaned, as it comes.
 func (j *job) run(ctx context.Context) error {
-	cmd := exec.CommandContext(ctx, j.n.Nix, append(append([]string{}, c0...), j.args...)...)
-	cmd.Env = j.environ()
+	if err := os.MkdirAll(j.home(), 0o700); err != nil {
+		return err
+	}
+	argv := j.confine()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Env = []string{}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 5 * time.Second
@@ -322,4 +364,12 @@ func (c *cleanLines) flush() {
 		io.WriteString(c.w, term.Clean(string(c.buf))+"\n")
 		c.buf = nil
 	}
+}
+
+// plural is one when n is 1, and many otherwise.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }

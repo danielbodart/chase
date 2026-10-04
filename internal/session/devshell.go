@@ -28,14 +28,18 @@ type DevShell struct {
 
 // AgentNames are the variables that steer the agent rather than the
 // checkout's tools -- what it loads into itself, the endpoint and the
-// account it talks to, the proxy it goes through -- so a devShell's are
-// never given to it: its exact names, the prefixes of others, and the
-// suffixes. LD_LIBRARY_PATH is not among them: devShells rely on it. The
-// wrapper's script unsets the same names when a shellHook sets them, from
-// the one pattern AgentPattern makes of these.
+// account it talks to, the proxy it goes through, the certificates it
+// trusts -- so a devShell's are never given to it: its exact names, the
+// prefixes of others, and the suffixes. LD_LIBRARY_PATH is not among them:
+// devShells rely on it, and since it can as well name a libc of the
+// devShell's, these keep a devShell from steering the agent by mistake,
+// not one written to. The wrapper's script drops the same names when a
+// shellHook sets them, from the one pattern AgentPattern makes of these.
 var AgentNames = struct{ Exact, Prefixes, Suffixes []string }{
-	Exact:    []string{"LD_PRELOAD", "LD_AUDIT", "NODE_OPTIONS", "NO_PROXY", "no_proxy"},
-	Prefixes: []string{"ANTHROPIC_", "CLAUDE_", "CODEX_", "OPENAI_"},
+	Exact: []string{"LD_PRELOAD", "LD_AUDIT", "GCONV_PATH", "NODE_OPTIONS", "NODE_PATH",
+		"NODE_EXTRA_CA_CERTS", "NODE_TLS_REJECT_UNAUTHORIZED", "SSL_CERT_FILE", "SSL_CERT_DIR",
+		"NO_PROXY", "no_proxy"},
+	Prefixes: []string{"ANTHROPIC_", "CLAUDE_", "CODEX_", "OPENAI_", "BUN_"},
 	Suffixes: []string{"_PROXY", "_proxy"},
 }
 
@@ -64,7 +68,7 @@ func AgentPattern() string {
 // POSIX's -- never a devShell's to give the wrapper's bash or the agent's,
 // nor a hook's: internal/devshell drops them from a devShell's exports and
 // declarations, and the wrapper's script from what a hook hands back.
-var BashNames = []string{"BASH_ENV", "ENV", "CDPATH", "GLOBIGNORE", "POSIXLY_CORRECT", "IFS", "PS4", "BASH_XTRACEFD"}
+var BashNames = []string{"BASH_ENV", "ENV", "CDPATH", "GLOBIGNORE", "EXECIGNORE", "POSIXLY_CORRECT", "IFS", "PS4", "BASH_XTRACEFD"}
 
 // VarName is a name bash takes for a variable's.
 var VarName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -81,7 +85,8 @@ var VarName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // PATH is pathFront first, in its order, wherever its entries were; then
 // the devShell's; then the rest of the container's, in its order. A hook
 // runs in a subshell of the script's, with its declarations and the
-// functions it calls, its stdin closed and its output on stderr, which is
+// functions it calls, no positional parameters, as under nix develop, its
+// stdin closed and its output on stderr, which is
 // the person's: stdout may be the agent's protocol. What it can do to the
 // bash that runs it -- a function named as a builtin, a readonly
 // variable, an IFS of its own, a cd -- dies with the subshell, which hands
@@ -116,6 +121,7 @@ if [[ -n $__chase_hook ]]; then
   __chase_back=()
   builtin mapfile -d '' -t __chase_back < <(
     exec 3>&1 >&2 </dev/null
+    builtin set --
     { for __chase_d in "${__chase_decls[@]}"; do builtin eval "$__chase_d"; done
       builtin eval "$__chase_hook"; } 3>&-
     for __chase_k in @NAMES@; do
@@ -141,7 +147,7 @@ if [[ -n $__chase_hook ]]; then
   done
   for __chase_k in @NAMES@; do
     [[ ${!__chase_k@a} == *x* && -z ${__chase_seen[$__chase_k]-} ]] || continue
-    case $__chase_k in PATH|XDG_DATA_DIRS|BASH*|SHELLOPTS|EUID|UID|PPID|PWD|OLDPWD|SHLVL|_|__chase_*) continue;; esac
+    case $__chase_k in PATH|XDG_DATA_DIRS|@AGENT@|@BASH@|BASH*|SHELLOPTS|EUID|UID|PPID|PWD|OLDPWD|SHLVL|_|__chase_*) continue;; esac
     [[ " $__chase_keep " == *" $__chase_k "* ]] || builtin unset -v "$__chase_k"
   done
   __chase_order ""

@@ -26,10 +26,11 @@ var funcName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_:.-]*$`)
 
 // ignored are the variables nix develop does not take from a devShell:
 // those of its build's own, which mean nothing outside it, or would point
-// a session somewhere wrong -- stdenv's SSL_CERT_FILE is /no-cert-file.crt.
+// a session somewhere wrong -- stdenv's SSL_CERT_FILE is /no-cert-file.crt,
+// its SHELL the build's bash, its TERM the caller's.
 var ignored = []string{
 	"BASHOPTS", "HOME", "NIX_BUILD_TOP", "NIX_ENFORCE_PURITY", "NIX_LOG_FD", "NIX_REMOTE",
-	"PPID", "SHELLOPTS", "SSL_CERT_FILE", "TZ", "UID", "TMP", "TMPDIR", "TEMP", "TEMPDIR",
+	"PPID", "SHELL", "SHELLOPTS", "SSL_CERT_FILE", "TERM", "TZ", "UID", "TMP", "TMPDIR", "TEMP", "TEMPDIR",
 }
 
 // bashOwn are bash's own variables, which a declaration of would change
@@ -64,7 +65,7 @@ const (
 
 // parse is the session's devShell from print-dev-env's JSON b: its exported
 // variables, but those nix develop ignores, those that steer the wrapper's
-// bash, and those that steer the agent, which are returned to be said;
+// bash or are its own, and those that steer the agent, which are returned to be said;
 // PATH and XDG_DATA_DIRS apart; and, when it has a shellHook, every other
 // variable and function, as the bash that declares it, for the hook alone.
 // A name bash would not take, a value with a NUL, and anything named as
@@ -98,7 +99,8 @@ func parse(b []byte) (*session.DevShell, []string, error) {
 				ds.Path = split(s)
 			case name == "XDG_DATA_DIRS":
 				ds.DataDirs = split(s)
-			case slices.Contains(ignored, name), slices.Contains(session.BashNames, name):
+			case slices.Contains(ignored, name), slices.Contains(session.BashNames, name),
+				strings.HasPrefix(name, "BASH"), slices.Contains(bashOwn, name):
 			case session.IsAgentName(name):
 				dropped = append(dropped, name)
 			default:

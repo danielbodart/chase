@@ -11,10 +11,12 @@
 # its shellHook inside the session. Never `nix` itself inside one, which is
 # flong's to give.
 #
-# Only in a tier for one's own code, whose egress is direct: what is
-# evaluated is the checkout itself, unconfined, on the host. Someone else's
-# waits on a store of the session's own, where the session evaluates it
-# itself, through frisket (flong's PLAN §3).
+# Only in a tier for one's own code, whose egress is direct and unfiltered:
+# what is evaluated is the checkout itself, on the host, in a bubblewrap
+# that shows it nothing of the host's but the store, the daemon and the
+# checkout, its fetches the host's own. Someone else's waits on a store of
+# the session's own, where the session evaluates it itself, through frisket
+# (flong's PLAN §3).
 { config, options, lib, pkgs, ... }:
 
 let
@@ -65,7 +67,7 @@ in
           flake.nix's devShells.<system>.default, or its shell.nix --
           realised on the host, as you, whenever the checkout has one, and
           given to the session as its environment. Only where egress is
-          direct: it is your own code, evaluated unconfined'';
+          direct and unfiltered: it is your own code, fetching as the host'';
       };
     });
   };
@@ -77,8 +79,8 @@ in
         message = "chase.tiers.${name}.apps.nix is enabled, but the tier is bare: its agent runs on the host, whose `nix develop` is its own.";
       }
       {
-        assertion = tier.bare || !tier.apps.nix.enable || tier.egress == "direct";
-        message = "chase.tiers.${name}.apps.nix is enabled, but the tier's egress is not direct: a devShell is evaluated on the host, unconfined, as you, which is for your own code alone. Other people's waits on a store of the session's own, where the session evaluates it itself, through frisket (flong's PLAN §3).";
+        assertion = tier.bare || !tier.apps.nix.enable || (tier.egress == "direct" && tier.allow == [ "*" ]);
+        message = "chase.tiers.${name}.apps.nix is enabled, but the tier's egress is not direct and unfiltered: a devShell is evaluated on the host, as you, its fetches the host's own, neither filtered nor logged, which is for your own code alone. Other people's waits on a store of the session's own, where the session evaluates it itself, through frisket (flong's PLAN §3).";
       }
     ]) cfg.tiers);
 
@@ -91,6 +93,7 @@ in
         nix = lib.getExe tier.apps.nix.package;
         nixpkgs = "${tier.apps.nix.nixpkgs}";
         system = pkgs.stdenv.hostPlatform.system;
+        bwrap = lib.getExe pkgs.bubblewrap;
         # The machine's, for the evaluation's https.
         caBundle = "${config.security.pki.caBundle}";
       };

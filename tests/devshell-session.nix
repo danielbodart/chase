@@ -32,6 +32,23 @@ let
     { ... }: builtins.trace (builtins.readFile ${home}/.bashrc) (import <nixpkgs> { }).mkShell { }
   '';
 
+  # What nix's own restrictions let through, and the bubblewrap nix runs in
+  # does not: a shell.nix's builtins.getFlake, and a flake's path: input,
+  # each of a directory of the user's outside the checkout.
+  getFlakeNix = pkgs.writeText "shell.nix" ''
+    { ... }: builtins.trace (builtins.readFile ((builtins.getFlake "path:${home}?dir=secrets").sourceInfo.outPath + "/secrets/token")) (import <nixpkgs> { }).mkShell { }
+  '';
+  pathInputNix = pkgs.writeText "flake.nix" ''
+    {
+      inputs.secrets = { url = "path:${home}/secrets"; flake = false; };
+      outputs = { self, secrets }: {
+        devShells.${system}.default = builtins.trace (builtins.readFile "''${secrets}/token") (derivation {
+          name = "leak"; system = "${system}"; builder = "/bin/sh";
+        });
+      };
+    }
+  '';
+
   # A flake with a relative path: input, sub, holding a static bash, which
   # is the devShell's builder: nothing to fetch, and nothing of nixpkgs.
   flakeNix = pkgs.writeText "flake.nix" ''
@@ -132,7 +149,7 @@ in
         codex.package = pkgs.hello;
       };
       tiers.own = {
-        match = [{ paths = map (d: "${home}/${d}") [ "mine" "mine-flake" "bashrc" "gone" ]; }];
+        match = [{ paths = map (d: "${home}/${d}") [ "mine" "mine-flake" "bashrc" "getflake" "pathinput" "gone" ]; }];
         egress = "direct";
         allow = [ "*" ];
         apps.mise.enable = true;
@@ -222,6 +239,18 @@ in
           assert s is not None and "could not be realised" in said, said
           assert "the-users-bashrc" not in said, said
           assert "restricted mode" in said, said
+
+      with subtest("nix sees nothing of the user's outside the checkout: not through getFlake, nor a flake's path: input"):
+          machine.succeed("runuser -u alice -- sh -c 'mkdir -p ${home}/secrets && echo the-users-token > ${home}/secrets/token && echo \"{ outputs = _: { }; }\" > ${home}/secrets/flake.nix'")
+          checkout("getflake", "${getFlakeNix}", "shell.nix")
+          s, said = launch("${own}", "getflake")
+          assert s is not None and "could not be realised" in said, said
+          assert "the-users-token" not in said, said
+          checkout("pathinput", "${pathInputNix}", "flake.nix")
+          s, said = launch("${own}", "pathinput")
+          assert s is not None and "could not be realised" in said, said
+          assert "the-users-token" not in said, said
+          machine.fail("grep -rl the-users-token /nix/store/*-nix-shell-env 2>/dev/null")
 
       with subtest("a flake with a relative path: input is realised from the checkout itself"):
           checkout("mine-flake", "${flakeNix}", "flake.nix", "${subFlake}", "sub/flake.nix", "${pkgs.pkgsStatic.bash}/bin/bash", "sub/bash")

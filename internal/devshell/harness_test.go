@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -19,10 +20,13 @@ import (
 	"github.com/danielbodart/chase/internal/session"
 )
 
-// A REALISATION, where a test can watch it. nix is this test binary, run by
-// the name of a link to it, as the module runs it at its path. It writes
-// down how it was run, and answers as knobs say. Its environment is the
-// launcher's choice, so what it is told is in a file beside it, fake.json.
+// A REALISATION, where a test can watch it. bwrap and nix are each this
+// test binary, run by the name of a link to it, as the module runs each at
+// its path. bwrap writes down how it was run and runs what follows its
+// `--`, with the environment it was told; every path it binds is bound at
+// its own, so nix reads the real files. nix writes down how it was run, and
+// answers as knobs say. Their environment is cleared, so what they are
+// told is in a file beside them, fake.json.
 
 // knobs is fake.json: where the fakes log, and what nix answers.
 type knobs struct {
@@ -42,6 +46,8 @@ type knobs struct {
 func TestMain(m *testing.M) {
 	gitsafe.MaybeExec()
 	switch filepath.Base(os.Args[0]) {
+	case "bwrap":
+		os.Exit(fakeBwrap())
 	case "nix":
 		os.Exit(fakeNix())
 	case "sleeper":
@@ -78,6 +84,55 @@ func logRun(k knobs, name string, r run) {
 	}
 	defer f.Close()
 	f.Write(append(b, '\n'))
+}
+
+func fakeBwrap() int {
+	k := readKnobs()
+	logRun(k, "bwrap", run{Argv: os.Args, Env: os.Environ()})
+	args := os.Args[1:]
+	env := os.Environ()
+	for len(args) > 0 && args[0] != "--" {
+		switch args[0] {
+		case "--unshare-all", "--share-net", "--die-with-parent", "--new-session":
+			args = args[1:]
+		case "--clearenv":
+			env = nil
+			args = args[1:]
+		case "--tmpfs", "--dev", "--proc":
+			args = args[2:]
+		case "--ro-bind", "--bind", "--ro-bind-try":
+			if args[1] != args[2] {
+				fmt.Fprintf(os.Stderr, "bwrap: %s is bound at %s\n", args[1], args[2])
+				return 1
+			}
+			args = args[3:]
+		case "--setenv":
+			env = append(env, args[1]+"="+args[2])
+			args = args[3:]
+		default:
+			fmt.Fprintf(os.Stderr, "bwrap: unknown option %s\n", args[0])
+			return 1
+		}
+	}
+	err := syscall.Exec(args[1], args[1:], env)
+	fmt.Fprintln(os.Stderr, err)
+	return 1
+}
+
+// binds is each path a bwrap run binds, by how: --ro-bind, --bind or
+// --ro-bind-try.
+func binds(argv []string) map[string][]string {
+	out := map[string][]string{}
+	for i := 0; i+2 < len(argv) && argv[i] != "--"; i++ {
+		switch argv[i] {
+		case "--ro-bind", "--bind", "--ro-bind-try":
+			out[argv[i]] = append(out[argv[i]], argv[i+1])
+			i += 2
+		case "--setenv":
+			i += 2
+		}
+	}
+	return out
 }
 
 func fakeNix() int {
@@ -156,17 +211,19 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(self, filepath.Join(h.bin, "nix")); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"bwrap", "nix"} {
+		if err := os.Symlink(self, filepath.Join(h.bin, name)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	h.k = knobs{Log: dir + "/logs", Store: dir + "/store", Env: envJSON}
 	h.n = session.Nix{
 		Config: gitsafetest.Config(t), Timeout: 60,
 		Nix: h.bin + "/nix", Nixpkgs: "/nix/store/nixpkgs-src", System: "x86_64-linux",
-		CABundle: "/etc/ssl/certs/ca-bundle.crt",
+		Bwrap: h.bin + "/bwrap", CABundle: "/etc/ssl/certs/ca-bundle.crt",
 	}
 	ws := dir + "/w/shop"
-	h.r = Request{Workspace: ws, Home: dir + "/home", State: dir + "/state", Dir: dir + "/state/checkouts/" + key(ws)}
+	h.r = Request{Workspace: ws, State: dir + "/state", Dir: dir + "/state/checkouts/" + key(ws)}
 	return h
 }
 
@@ -224,6 +281,7 @@ func (h *harness) runs(name string) []run {
 // clear forgets what the fakes wrote down.
 func (h *harness) clear() {
 	os.Remove(filepath.Join(h.k.Log, "nix.jsonl"))
+	os.Remove(filepath.Join(h.k.Log, "bwrap.jsonl"))
 }
 
 func (h *harness) mustSay(needle string) {

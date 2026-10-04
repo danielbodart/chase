@@ -89,11 +89,11 @@ func TestAFlakeIsTakenOverAShellNix(t *testing.T) {
 	h.mustSay("realising the devShell of flake.nix")
 }
 
-// NIX RUNS AS THE CALLER, WITH NOTHING OF THE CALLER'S but HOME: a PATH of
-// nix and git alone, the daemon, the machine's CA bundle, and a shell.nix's
-// NIX_PATH; its stdin /dev/null; the caller's nix, at its store path, with
-// flakes and none of a flake's own configuration.
-func TestNixRunsWithNothingOfTheCallersButHome(t *testing.T) {
+// NIX RUNS AS THE CALLER, WITH NOTHING OF THE CALLER'S: a HOME of chase's
+// own, a PATH of nix and git alone, the daemon, the machine's CA bundle,
+// and a shell.nix's NIX_PATH; its stdin /dev/null; the caller's nix, at
+// its store path, with flakes and none of a flake's own configuration.
+func TestNixRunsWithNothingOfTheCallers(t *testing.T) {
 	for _, kind := range []string{flake, shell} {
 		h := newHarness(t)
 		t.Setenv("SECRET_OF_THE_CALLERS", "x")
@@ -111,7 +111,7 @@ func TestNixRunsWithNothingOfTheCallersButHome(t *testing.T) {
 			t.Fatalf("%s: nix ran %d times", kind, len(runs))
 		}
 		r := runs[0]
-		want := []string{"HOME=" + h.r.Home, "PATH=" + h.bin + ":" + filepath.Dir(h.n.Git), "NIX_REMOTE=daemon", "NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"}
+		want := []string{"HOME=" + h.r.State + "/devshell/home", "PATH=" + h.bin + ":" + filepath.Dir(h.n.Git), "NIX_REMOTE=daemon", "NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"}
 		if kind == shell {
 			want = append(want, "NIX_PATH=nixpkgs=/nix/store/nixpkgs-src:"+h.r.Workspace)
 		}
@@ -183,6 +183,70 @@ func TestACheckoutWhosePathNixWouldMisreadIsSaid(t *testing.T) {
 		t.Errorf("%+v, %v, ran %d", ds, err, len(h.runs("nix")))
 	}
 	h.mustSay("nix would read the # or ? in " + ws + " as part of a flake reference")
+
+	// A shell.nix's checkout is an entry of NIX_PATH, which a : or an =
+	// would make more of, every one of them readable under restrict-eval.
+	h = newHarness(t)
+	ws = h.dir + "/w/:x"
+	h.r.Workspace, h.r.Dir = ws, h.dir+"/state/checkouts/"+key(ws)
+	h.checkout(map[string]string{"shell.nix": "{}"})
+	if ds, err := h.realise(); ds != nil || err != nil || h.runs("nix") != nil {
+		t.Errorf("%+v, %v, ran %d", ds, err, len(h.runs("nix")))
+	}
+	h.mustSay("nix would read the : or = in " + ws + " as part of NIX_PATH")
+}
+
+// NIX IS CONFINED: a bubblewrap with nothing of the host's but the store,
+// the daemon's socket, the machine's nix configuration and resolver, read
+// -only, the checkout read-only -- the whole of it and its git, for a
+// flake, and of a worktree its repository's git too -- and nix's own HOME
+// and the devshell directory, writable. Never the caller's home, nor the
+// rest of chase's state.
+func TestNixIsConfinedToTheStoreTheDaemonAndTheCheckout(t *testing.T) {
+	h := newHarness(t)
+	main := h.dir + "/w/main"
+	h.fx.Run("init", "-q", main)
+	h.fx.Run("-C", main, "-c", "user.name=a", "-c", "user.email=a@example.com", "commit", "-q", "--allow-empty", "-m", "x")
+	h.fx.Run("-C", main, "worktree", "add", "-q", h.r.Workspace)
+	h.checkout(map[string]string{"flake.nix": flakeNix})
+	if _, err := h.realise(); err != nil {
+		t.Fatalf("%v: %s", err, h.said)
+	}
+	runs := h.runs("bwrap")
+	if len(runs) != 1 {
+		t.Fatalf("bwrap ran %d times", len(runs))
+	}
+	argv := runs[0].Argv
+	for _, flag := range []string{"--unshare-all", "--share-net", "--die-with-parent", "--new-session", "--clearenv"} {
+		if !slices.Contains(argv[:slices.Index(argv, "--")], flag) {
+			t.Errorf("bwrap is not told %s: %q", flag, argv)
+		}
+	}
+	b := binds(argv)
+	want := map[string][]string{
+		"--ro-bind":     {"/nix/store", h.r.Workspace, main + "/.git", main + "/.git/worktrees/shop"},
+		"--bind":        {"/nix/var/nix/daemon-socket", h.r.State + "/devshell/home", h.r.Dir + "/devshell"},
+		"--ro-bind-try": {"/etc/nix", "/etc/static", "/etc/resolv.conf", "/etc/hosts"},
+	}
+	for how, paths := range want {
+		if !slices.Equal(b[how], paths) {
+			t.Errorf("%s is %q, not %q", how, b[how], paths)
+		}
+	}
+	if args := argv[slices.Index(argv, "--")+1:]; args[0] != h.n.Nix {
+		t.Errorf("bwrap runs %q, not nix", args)
+	}
+
+	// A shell.nix is shown its directory alone, all restrict-eval lets it
+	// read.
+	h = newHarness(t)
+	h.checkout(map[string]string{"shell.nix": "{}"})
+	if _, err := h.realise(); err != nil {
+		t.Fatalf("%v: %s", err, h.said)
+	}
+	if b := binds(h.runs("bwrap")[0].Argv); !slices.Equal(b["--ro-bind"], []string{"/nix/store", h.r.Workspace}) {
+		t.Errorf("a shell.nix is shown %q", b["--ro-bind"])
+	}
 }
 
 // THE CACHE: a second launch of the same files, with the same settings,
@@ -411,6 +475,11 @@ func TestTheEnvironmentIsTheDevShellsExportsWithoutNixsOwn(t *testing.T) {
 		`"SSL_CERT_FILE":{"type":"exported","value":"/no-cert-file.crt"},` +
 		`"TMPDIR":{"type":"exported","value":"/build"},` +
 		`"BASH_ENV":{"type":"exported","value":"/x"},` +
+		`"BASH_COMPAT":{"type":"exported","value":"3.2"},` +
+		`"EXECIGNORE":{"type":"exported","value":"*"},` +
+		`"SHELL":{"type":"exported","value":"/nix/store/bash/bin/bash"},` +
+		`"TERM":{"type":"exported","value":"xterm-256color"},` +
+		`"HOSTTYPE":{"type":"exported","value":"x86_64"},` +
 		`"ENV":{"type":"exported","value":"/x"},` +
 		`"ANTHROPIC_BASE_URL":{"type":"exported","value":"https://evil.test"},` +
 		`"NODE_OPTIONS":{"type":"exported","value":"--require x"},` +
@@ -555,5 +624,5 @@ func TestAFailureTheCleanEnvironmentExplainsIsHinted(t *testing.T) {
 	h.checkout(map[string]string{"shell.nix": "{}"})
 	h.k.Fail, h.k.FailSaid = true, "error: Package 'slack' has an unfree license, refusing to evaluate."
 	h.realise()
-	h.mustSay("refusing to evaluate.; the evaluation sees none of your environment but HOME: set config.allowUnfree in the import, and fetch private inputs over https")
+	h.mustSay("refusing to evaluate.; the evaluation sees none of your environment, nor your home: set config.allowUnfree in the import, and give private inputs access-tokens in the machine's nix configuration")
 }

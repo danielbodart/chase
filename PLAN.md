@@ -504,18 +504,25 @@ session starts without it; the failure is kept an hour. flake.nix and
 shell.nix are never approved: an edit takes effect at the next launch.
 
 What is evaluated is the checkout itself, on the host, as `nix develop`
-would evaluate it there, with none of the caller's environment but `HOME`
-and nothing to confine it but nix's own settings: a flake purely, from what
-git tracks, its `nixConfig` never taken and its lock never written; a
-shell.nix under `restrict-eval`, its `NIX_PATH` the system's nixpkgs and the
-checkout, `allowed-uris` any https. The daemon builds what it must, a
-fixed-output build on the host's own network. That is a session's code
-evaluated unconfined -- `builtins.getFlake`, a `path:` or `git+file` input
-and a pure flake's locked fetches reach past nix's restrictions, and the
-checkout is what the session writes -- which is the cost of one's own code,
-and nobody else's. So the module refuses `apps.nix` in a tier whose egress
-is not direct, and in a bare one, whose agent runs on the host with its own
-`nix develop`.
+would evaluate it there: a flake purely, from what git tracks, its
+`nixConfig` never taken and its lock never written; a shell.nix under
+`restrict-eval`, its `NIX_PATH` the system's nixpkgs and the checkout,
+`allowed-uris` any https. nix's own restrictions do not hold what it reads
+-- `builtins.getFlake` in a shell.nix, a flake's `path:` or `git+file`
+input, is any file of the caller's -- and the checkout is what the session
+writes, so evaluated as it is, a checkout would hand the session, and the
+world-readable store, what the session cannot read: `~/.ssh`, the grant's
+state, another checkout. So nix runs in a bubblewrap with nothing of the
+host's but the store, the daemon's socket, the machine's nix configuration
+and resolver, and the checkout, read-only -- for a flake the checkout it is
+in and its git, a worktree's repository included -- with a `HOME` of
+chase's own and none of the caller's environment. Its network is the
+host's, and the daemon builds what it must, a fixed-output build on the
+host's own network: fetches neither filtered nor logged, which is the cost
+of one's own code, and nobody else's. So the module refuses `apps.nix` in a
+tier whose egress is not direct, or whose `allow` is not `*`, and in a bare
+one, whose agent runs on the host with its own `nix develop`; and a `chase
+record` launch's report never names what a devShell fetched.
 
 Other people's code waits on `nix` inside the session, with a store of its
 own over the host's (below): the session evaluates its devShell itself,
@@ -525,9 +532,10 @@ it on the host, confined -- bubblewrap with nothing of the host but the
 store and the daemon's socket, a lock's inputs prefetched through pasta
 from the allowlist's names alone, nothing of the devShell's built locally,
 a grant key to turn it on -- was built, and is kept on the branch
-devshell-confined: a thousand lines of it existed only because nix's own
-restrictions do not hold a flake, and the overlay store makes them
-unnecessary.
+devshell-confined: the thousand lines of it beyond the bubblewrap kept here
+-- prefetching through pasta from the allowlist, refusing what would build
+locally -- existed only because the code was someone else's, and the
+overlay store makes them unnecessary.
 
 The result is cached in chase's state, `checkouts/<key>/devshell`, bound
 into no session, keyed on flake.nix and flake.lock, or shell.nix, the
