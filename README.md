@@ -10,10 +10,11 @@ which apps run in it, and which credentials they use.
 > [frisket](https://github.com/danielbodart/frisket) masks what the sheet
 > takes, and chase holds the page.
 
-You start `claude`, `codex` or `chase shell` in a checkout. chase picks the
-checkout's tier and runs the agent either on the host or in a flong container
-whose network goes through frisket. The container holds placeholders, never
-credentials: frisket swaps in the real one on each request.
+You start `claude`, `codex`, `deepsec` or `chase shell` in a checkout.
+chase picks the checkout's tier and runs the agent either on the host or in
+a flong container whose network goes through frisket. The container holds
+placeholders, never credentials: frisket swaps in the real one on each
+request.
 
 chase ships no tiers and holds no secrets. The tiers, and where each
 credential comes from, are your configuration; what a project needs on top is
@@ -91,7 +92,7 @@ for each choice.
 
 | Command | Does |
 |---|---|
-| `claude`, `codex` | Run the agent in the current directory's tier. |
+| `claude`, `codex`, `deepsec` | Run the agent in the current directory's tier. |
 | `chase shell` | A login shell in that tier's sandbox, as an agent gets it. |
 | `chase tier --dry-run DIR…` | Show each directory's tier and why. |
 | `chase docker [DIR]` | Show a checkout's project, its address and name, and its approved Docker ports. |
@@ -161,6 +162,7 @@ lives.
 |---|---|---|---|---|---|
 | [claude](docs/apps/claude.md) | Claude Code | always | `session` `workspace` `host` | ✓ | |
 | [codex](docs/apps/codex.md) | codex | always | `session` `workspace` `tier` `host` | ✓ | |
+| [deepsec](docs/apps/deepsec.md) | deepsec, through the tier's Claude Code or codex | always | | | |
 | [git](docs/apps/git.md) | git, over HTTPS to github.com | ✓ | | | ✓ |
 | [github](docs/apps/github.md) | GitHub's API, and gh | ✓ | | | ✓ |
 | [cloudflare](docs/apps/cloudflare.md) | wrangler | ✓ | | | ✓ |

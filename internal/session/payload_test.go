@@ -304,6 +304,53 @@ func TestTheShellIsALoginBash(t *testing.T) {
 	}
 }
 
+// DEEPSEC: deepsec as it is, given no --add-dir, since it reads the
+// checkout it is run in, with the logins the tier's Claude Code is seeded
+// with whatever the agent. Only `deepsec init` is given the tier's backend,
+// and only when it names none: init writes it into the checkout's own
+// configuration, which every later run reads, so nothing is added to those.
+func TestDeepsecInitIsGivenTheTiersBackendUnlessItNamesOne(t *testing.T) {
+	f := newFixture(t)
+	f.c.Tiers["scan"] = Tier{
+		Claude:  &Claude{Scope: "workspace", Settings: f.settings},
+		Deepsec: &Deepsec{Agent: "claude"},
+	}
+	f.c.Tiers["scan-own"] = Tier{Codex: &Codex{Scope: "host"}, Deepsec: &Deepsec{}}
+	for _, c := range []struct {
+		tier string
+		args []string
+		want []string
+	}{
+		{"scan", []string{"deepsec", "init", "--model-auth", "local"}, []string{"deepsec", "init", "--agent", "claude", "--model-auth", "local"}},
+		{"scan", []string{"deepsec", "init", ".deepsec", "."}, []string{"deepsec", "init", "--agent", "claude", ".deepsec", "."}},
+		{"scan", []string{"deepsec", "init", "--agent", "codex"}, []string{"deepsec", "init", "--agent", "codex"}},
+		{"scan", []string{"deepsec", "init", "--model-auth", "local", "--agent=pi"}, []string{"deepsec", "init", "--model-auth", "local", "--agent=pi"}},
+		// After `--`, --agent is an argument, not init's option.
+		{"scan", []string{"deepsec", "init", "--", "--agent"}, []string{"deepsec", "init", "--agent", "claude", "--", "--agent"}},
+		{"scan", []string{"deepsec", "process", "--project-id", "shop"}, []string{"deepsec", "process", "--project-id", "shop"}},
+		{"scan", []string{"deepsec", "revalidate"}, []string{"deepsec", "revalidate"}},
+		{"scan", []string{"deepsec", "--help"}, []string{"deepsec", "--help"}},
+		{"scan", []string{"deepsec"}, []string{"deepsec"}},
+		// A tier that names no backend leaves deepsec's own default.
+		{"scan-own", []string{"deepsec", "init", "--model-auth", "local"}, []string{"deepsec", "init", "--model-auth", "local"}},
+	} {
+		p, said := f.run(t, c.tier, "/w/shop", "/home/alice/Projects/api:rw", Given{}, c.args...)
+		if !slices.Equal(p.argv, c.want) {
+			t.Errorf("%s %q runs %q, not %q", c.tier, c.args, p.argv, c.want)
+		}
+		if said != "" {
+			t.Errorf("%s %q said %q", c.tier, c.args, said)
+		}
+	}
+	p, _ := f.run(t, "scan", "/w/shop", "", Given{}, "deepsec", "process")
+	if len(p.env) != 0 || len(p.files) != 2 || p.files[0].Path != f.home+"/.claude/.credentials.json" || p.files[1].Path != f.home+"/.claude.json" {
+		t.Errorf("deepsec was given %q and %+v, not Claude Code's login and onboarding", p.env, p.files)
+	}
+	if err := Agent(f.c, "scan", []string{"codex"}); err == nil || err.Error() != "unknown agent 'codex': scan runs claude, deepsec, shell" {
+		t.Errorf("Agent(scan, codex): %v", err)
+	}
+}
+
 // A CLOSED LIST: an agent the tier does not run, an agent that is not one,
 // and no agent at all are refused, so no launcher's argument runs anything
 // else on the container's PATH. So is a tier that is not a sandbox's.
@@ -318,6 +365,7 @@ func TestOnlyTheTiersAgentsRun(t *testing.T) {
 		{"plain", []string{"codex", "x"}, "unknown agent 'codex': plain runs shell"},
 		{"strict", []string{"sh", "-c", "id"}, "unknown agent 'sh': strict runs claude, codex, shell"},
 		{"strict", []string{"/bin/bash"}, "unknown agent '/bin/bash': strict runs claude, codex, shell"},
+		{"strict", []string{"deepsec", "init"}, "unknown agent 'deepsec': strict runs claude, codex, shell"},
 		{"strict", nil, "no agent named: the launcher's first argument is the agent, one of claude, codex, shell"},
 		{"host", []string{"shell"}, "host is not a sandbox tier"},
 	} {

@@ -18,8 +18,8 @@ chase record [--default allow|ask|refuse] [--base tier|none] [--] AGENT [ARG...]
 chase record apply [--last | MACHINE]
 ```
 
-`AGENT` is `claude`, `codex` or `shell`, and everything after it is the
-agent's own.
+`AGENT` is `claude`, `codex`, `deepsec` or `shell`, and everything after
+it is the agent's own.
 
 ## Answers
 

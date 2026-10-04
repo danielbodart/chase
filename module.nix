@@ -258,6 +258,7 @@ in
     ./apps/github.nix
     ./apps/claude.nix
     ./apps/codex.nix
+    ./apps/deepsec.nix
     ./apps/cloudflare.nix
     ./apps/huggingface.nix
     ./apps/gcloud.nix

@@ -45,6 +45,8 @@ type Tier struct {
 	Claude *Claude `json:"claude,omitempty"`
 	// Codex is codex in the tier, nil for none.
 	Codex *Codex `json:"codex,omitempty"`
+	// Deepsec is deepsec in the tier, nil for none.
+	Deepsec *Deepsec `json:"deepsec,omitempty"`
 	// Cloudflare is the account the tier's sessions are told, when it has
 	// one.
 	Cloudflare *Cloudflare `json:"cloudflare,omitempty"`
@@ -138,6 +140,19 @@ type Codex struct {
 	// Trust is apps.codex.trust: whether the workspace is trusted, so codex
 	// does not ask.
 	Trust bool `json:"trust,omitempty"`
+}
+
+// Deepsec is deepsec in a tier, run as an agent of its own. Its models are
+// reached through the tier's Claude Code or codex, with the logins a session
+// is seeded with whatever its agent, so it needs nothing of its own here but
+// which of them it is to use when a checkout has not said.
+type Deepsec struct {
+	// Agent is the backend `deepsec init` is given as --agent when its
+	// arguments name none, "" for deepsec's own default. Only init: what it
+	// chooses it writes into the checkout's deepsec.config.ts as
+	// defaultAgent, which every later run reads, so a flag added to those
+	// would override the checkout's own choice.
+	Agent string `json:"agent,omitempty"`
 }
 
 // Cloudflare is the account a tier's sessions use: the user's own file

@@ -360,6 +360,40 @@
               && ! c.selector.tiers.trusted ? trust
               && ! c.session.tiers ? host)
               || throw "assertions: trust was not where the tiers say";
+            # DEEPSEC is an agent of a tier's own, its models reached through
+            # the tier's Claude Code or codex: refused without either, and on
+            # a bare tier, which runs the host's, or with no package. Where
+            # the tier has Claude Code, `deepsec init` is given it, and
+            # deepsec runs the tier's Claude Code with its own sandboxes off;
+            # on the host, `deepsec` runs deepsec-raw, and a machine with no
+            # package has none.
+            assert refused "deepsec with no agent to reach its models"
+              { chase.apps.deepsec.package = pkgs.hello; chase.tiers.strict.apps = { deepsec.enable = true; claude.enable = lib.mkForce false; codex.enable = lib.mkForce false; }; }
+              "neither claude nor codex is";
+            assert refused "deepsec on a bare tier"
+              { chase.apps.deepsec.package = pkgs.hello; chase.tiers.host.apps.deepsec.enable = true; }
+              "chase.tiers.host.apps.deepsec is enabled, and the tier is bare";
+            assert refused "deepsec with no package"
+              { chase.tiers.strict.apps.deepsec.enable = true; }
+              "chase.tiers.strict.apps.deepsec is enabled, and there is no deepsec to run";
+            assert
+              (let
+                config = configWith { chase.apps.deepsec.package = pkgs.hello; chase.tiers.strict.apps.deepsec.enable = true; };
+                codexOnly = configWith { chase.apps.deepsec.package = pkgs.hello; chase.tiers.strict.apps = { deepsec.enable = true; claude.enable = lib.mkForce false; }; };
+                c = config.chase.internal.config;
+                env = c.session.tiers.strict.environment;
+              in
+              lib.all (a: a.assertion) config.assertions
+              && c.session.tiers.strict.deepsec == { agent = "claude"; }
+              && codexOnly.chase.internal.config.session.tiers.strict.deepsec == { }
+              && ! c.session.tiers.trusted ? deepsec
+              && env.DEEPSEC_INSIDE_SANDBOX == "1"
+              && lib.hasSuffix "/bin/claude" env.CLAUDE_CODE_EXECUTABLE
+              && ! codexOnly.chase.internal.config.session.tiers.strict.environment ? CLAUDE_CODE_EXECUTABLE
+              && ! c.session.tiers.trusted.environment ? DEEPSEC_INSIDE_SANDBOX
+              && lib.hasSuffix "-deepsec-raw/bin/deepsec" (lib.head c.wrappers.deepsec.hostCommand)
+              && ! (configWith { }).chase.internal.config.wrappers ? deepsec)
+              || throw "assertions: deepsec is not where the tiers say";
             # Codex's homes are chase's state, and the codex commands move
             # them from where an earlier chase kept them, with sqlite3 to
             # repoint their thread indexes.

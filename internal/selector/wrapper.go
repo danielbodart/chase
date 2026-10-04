@@ -5,12 +5,12 @@ import (
 	"os"
 )
 
-// Wrapper is one of the commands mkWrapper made: `claude` or `codex` on the
-// host, or `chase shell`. It picks the tier, then runs bare or in its
-// container.
+// Wrapper is one of the commands mkWrapper made: `claude`, `codex` or
+// `deepsec` on the host, or `chase shell`. It picks the tier, then runs
+// bare or in its container.
 type Wrapper struct {
-	// Agent is the name the launcher's command is given: claude, codex or
-	// shell.
+	// Agent is the name the launcher's command is given: claude, codex,
+	// deepsec or shell.
 	Agent string
 	// HostCommand is what a bare tier runs, with the wrapper's arguments
 	// after it: the agent itself as it runs on the host, e.g.

@@ -5,9 +5,9 @@
 // every hook it gives flong, every unit it gives systemd, and the agents a
 // person runs on the host run this one binary.
 //
-// It is one binary with many names. Run as `claude` or `codex` (the links
-// the module puts on the person's PATH), it is that agent's wrapper; run as
-// anything else, the first argument names the command.
+// It is one binary with many names. Run as `claude`, `codex` or `deepsec`
+// (the links the module puts on the person's PATH), it is that agent's
+// wrapper; run as anything else, the first argument names the command.
 package main
 
 import (
@@ -59,12 +59,13 @@ const usage = `chase -- which sandbox a checkout gets, and which credential each
         the tier it would run in has them.
 
   chase record [--default allow|ask|refuse] [--base tier|none] [--] AGENT [ARG...]
-        AGENT -- claude, codex or shell -- in this checkout's tier, as a
-        recording: what the tier would refuse or ask about is put to you,
-        or answered by --default, and written down; once it ends, a report
-        of what it needed and a proposal of the grant entries that would
-        give it. --base none learns syscalls against nothing but the
-        calls every process makes, rather than the tier's filter.
+        AGENT -- claude, codex, deepsec or shell -- in this checkout's
+        tier, as a recording: what the tier would refuse or ask about is
+        put to you, or answered by --default, and written down; once it
+        ends, a report of what it needed and a proposal of the grant
+        entries that would give it. --base none learns syscalls against
+        nothing but the calls every process makes, rather than the tier's
+        filter.
 
   chase record apply [--last | MACHINE]
         A recording's proposal, the last one's by default, added to its
@@ -78,7 +79,7 @@ const usage = `chase -- which sandbox a checkout gets, and which credential each
   chase version
         The version this binary was built as.
 
-  claude [ARG...], codex [ARG...]
+  claude [ARG...], codex [ARG...], deepsec [ARG...]
         The agents, as the links the module installs: each picks the tier
         of the checkout it is run in and runs there.
 
@@ -130,7 +131,7 @@ func main() {
 	args := os.Args[1:]
 	cfgPath := config.Default
 	switch name {
-	case "claude", "codex":
+	case "claude", "codex", "deepsec":
 		exit(wrap(ctx, cfgPath, name, args))
 	}
 

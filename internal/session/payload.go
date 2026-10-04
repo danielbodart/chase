@@ -83,9 +83,9 @@ const never = 4102444800000
 // or PATH:rw a line, and given what the launch's grant adds. What it says
 // to a person, it says on stderr: stdout is the payload's.
 //
-// The agent is one of a closed list -- claude and codex where the tier has
-// them, and shell -- so a launcher's argument can never run anything else
-// on the container's PATH:
+// The agent is one of a closed list -- claude, codex and deepsec where the
+// tier has them, and shell -- so a launcher's argument can never run
+// anything else on the container's PATH:
 //
 //   - claude: Claude Code with the tier's settings, which outrank the
 //     user's and the project's, its permission prompts skippable, and
@@ -94,6 +94,9 @@ const never = 4102444800000
 //     sandbox, the workspace trusted by a -c override rather than in
 //     config.toml, which is the host's, where the tier trusts it, and
 //     --add-dir for every read-write bind;
+//   - deepsec: deepsec, as it is, but that `deepsec init` given no --agent
+//     is given the tier's (Deepsec.Agent), which it keeps in the checkout's
+//     own configuration for every later run;
 //   - shell: `bash -l`, what `chase shell` gets, the session as an agent
 //     gets it with no agent. A session with Docker is told, on stderr, where
 //     its containers' ports are.
@@ -223,6 +226,14 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 		for _, d := range dirs {
 			e.Argv = append(e.Argv, "--add-dir", d)
 		}
+	case agent == "deepsec" && t.Deepsec != nil:
+		e.Argv = []string{"deepsec"}
+		if t.Deepsec.Agent != "" && len(rest) > 0 && rest[0] == "init" && !namesAgent(rest[1:]) {
+			// Straight after the subcommand, ahead of its positional
+			// workspace and target, where commander takes it as init's.
+			e.Argv = append(e.Argv, "init", "--agent", t.Deepsec.Agent)
+			rest = rest[1:]
+		}
 	case agent == "shell":
 		e.Argv = []string{"bash", "-l"}
 	default:
@@ -311,7 +322,27 @@ func agents(t Tier) []string {
 	if t.Codex != nil {
 		out = append(out, "codex")
 	}
+	if t.Deepsec != nil {
+		out = append(out, "deepsec")
+	}
 	return append(out, "shell")
+}
+
+// namesAgent is whether deepsec's arguments args choose its backend
+// themselves, as --agent TYPE or --agent=TYPE, before a `--` ends its
+// options. It does not tell an option's value from an option, so
+// `init --id --agent` counts as naming one: that misses the default, and
+// never overrides a choice the arguments make.
+func namesAgent(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if a == "--agent" || strings.HasPrefix(a, "--agent=") {
+			return true
+		}
+	}
+	return false
 }
 
 // CodexTrust is the override that has codex trust workspace without asking,

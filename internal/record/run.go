@@ -115,7 +115,7 @@ func ParseArgs(args []string) (Args, error) {
 		return Args{}, errors.New("--default refuse learns no syscalls, so --base none would only refuse every call the session makes")
 	}
 	if len(args) == 0 || args[0] == "" || strings.HasPrefix(args[0], "-") {
-		return Args{}, errors.New("no agent: name claude, codex or shell")
+		return Args{}, errors.New("no agent: name claude, codex, deepsec or shell")
 	}
 	a.Agent, a.Args = args[0], args[1:]
 	return a, nil
