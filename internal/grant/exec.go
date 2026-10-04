@@ -32,7 +32,7 @@ import (
 //     and seeds handed to the payload, with nothing written for a session
 //     to source;
 //   - the checkout's devShell, where its tier has nix (internal/devshell),
-//     realised as the caller and handed to the payload as the least of its
+//     realised as the caller, confined, and handed to the payload as the least of its
 //     environment;
 //   - the payload itself (session.Payload), printed.
 //
@@ -80,7 +80,7 @@ func execute(ctx context.Context, s session.Config, e *Config, registry map[stri
 	if t := s.Tiers[tier]; t.Nix != nil {
 		var err error
 		given.DevShell, err = devshell.Realise(ctx, *t.Nix, devshell.Request{
-			Workspace: ws, Home: s.Home, State: stateOf(s, e), Dir: checkoutOf(s, e, ws),
+			Workspace: ws, State: stateOf(s, e), Dir: checkoutOf(s, e, ws),
 		}, stderr)
 		if err != nil {
 			term.Say(stderr, "%v", err)

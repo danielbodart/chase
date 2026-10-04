@@ -103,6 +103,9 @@ type Nix struct {
 	Nixpkgs string `json:"nixpkgs"`
 	// System is the devShells.<system> a flake's is taken from.
 	System string `json:"system"`
+	// Bwrap confines nix's run: bubblewrap, showing it nothing of the
+	// host's but the store, the daemon and the checkout.
+	Bwrap string `json:"bwrap"`
 	// CABundle is the machine's, for the evaluation's https.
 	CABundle string `json:"caBundle"`
 }
@@ -112,7 +115,7 @@ type Nix struct {
 // PATH, and a path left out would be read as the working directory.
 func (n Nix) Validate() error {
 	for _, p := range []struct{ name, path string }{
-		{"git", n.Git}, {"nix", n.Nix}, {"nixpkgs", n.Nixpkgs}, {"caBundle", n.CABundle},
+		{"git", n.Git}, {"nix", n.Nix}, {"nixpkgs", n.Nixpkgs}, {"bwrap", n.Bwrap}, {"caBundle", n.CABundle},
 	} {
 		if !filepath.IsAbs(p.path) {
 			return fmt.Errorf("nix.%s is %q, which is not an absolute path", p.name, p.path)

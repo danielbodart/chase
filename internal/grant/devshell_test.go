@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"testing"
 
 	"github.com/danielbodart/chase/internal/session"
@@ -13,8 +14,18 @@ import (
 // A DEVSHELL, AS EXEC REALISES IT, where a test can watch it: nix is this
 // binary, which writes down how it was run and answers as print-dev-env
 // would, with an environment rooted at the profile it is told. Its
-// environment is the launcher's, so it logs beside the link to it, in
-// ../logs.
+// environment is cleared, so it logs beside the link to it, in ../logs.
+// bwrap is this binary too, which runs what follows its `--`, every path
+// bound at its own.
+
+func fakeBwrap() int {
+	args := os.Args[1:]
+	for len(args) > 0 && args[0] != "--" {
+		args = args[1:]
+	}
+	syscall.Exec(args[1], args[1:], nil)
+	return 1
+}
 
 func fakeNix() int {
 	logs := filepath.Join(filepath.Dir(os.Args[0]), "..", "logs")
@@ -32,14 +43,16 @@ func fakeNix() int {
 
 // nixOf is a tier's apps.nix whose nix is the fake.
 func (h *harness) nixOf() *session.Nix {
-	if _, err := os.Lstat(h.dir + "/bin/nix"); err != nil {
-		self, _ := os.Executable()
-		os.Symlink(self, h.dir+"/bin/nix")
+	self, _ := os.Executable()
+	for _, name := range []string{"bwrap", "nix"} {
+		if _, err := os.Lstat(h.dir + "/bin/" + name); err != nil {
+			os.Symlink(self, h.dir+"/bin/"+name)
+		}
 	}
 	return &session.Nix{
 		Config: h.cfg.Config, Timeout: 60,
 		Nix: h.dir + "/bin/nix", Nixpkgs: "/nix/store/nixpkgs", System: "x86_64-linux",
-		CABundle: "/etc/ssl/certs/ca-bundle.crt",
+		Bwrap: h.dir + "/bin/bwrap", CABundle: "/etc/ssl/certs/ca-bundle.crt",
 	}
 }
 

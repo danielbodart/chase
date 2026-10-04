@@ -224,7 +224,11 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 	}
 	if len(overridden) > 0 {
 		slices.Sort(overridden)
-		term.Say(stderr, "%s: the devShell's %s are the session's own", workspace, strings.Join(overridden, ", "))
+		verb := "are"
+		if len(overridden) == 1 {
+			verb = "is"
+		}
+		term.Say(stderr, "%s: the devShell's %s %s the session's own", workspace, strings.Join(overridden, ", "), verb)
 	}
 	env := e.Env[:0]
 	for _, v := range e.Env {

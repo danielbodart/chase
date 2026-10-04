@@ -553,10 +553,12 @@
             # realises it with; the setuid wrappers first on every sandbox's
             # PATH, mise's shims next where it has mise, a devShell's behind
             # both; no nix where no tier enables it; and none where egress is
-            # not direct, or the tier is bare, since it is evaluated on the
-            # host, unconfined.
+            # not direct and unfiltered, or the tier is bare, since its
+            # fetches are the host's.
             assert refused "nix in a tier whose egress is not direct"
-              { chase.tiers.strict.apps.nix.enable = true; } "chase.tiers.strict.apps.nix is enabled, but the tier's egress is not direct";
+              { chase.tiers.strict.apps.nix.enable = true; } "chase.tiers.strict.apps.nix is enabled, but the tier's egress is not direct and unfiltered";
+            assert refused "nix in a direct tier whose names are filtered"
+              { chase.tiers.trusted.allow = lib.mkForce [ "github.com" ]; } "chase.tiers.trusted.apps.nix is enabled, but the tier's egress is not direct and unfiltered";
             assert refused "nix in a bare tier"
               { chase.tiers.host.apps.nix.enable = true; } "chase.tiers.host.apps.nix is enabled, but the tier is bare";
             assert
@@ -572,6 +574,7 @@
                 nix = lib.getExe config.nix.package;
                 nixpkgs = "${pkgs.path}";
                 inherit system;
+                bwrap = lib.getExe pkgs.bubblewrap;
                 caBundle = "${config.security.pki.caBundle}";
               }
               && ! c.session.tiers.strict ? nix

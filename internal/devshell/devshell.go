@@ -11,16 +11,19 @@
 // (session.DevShell), whose wrapper orders PATH and runs the shellHook in
 // the session.
 //
-// It is for a tier of one's own code alone, whose egress is direct: the
-// module refuses it in any other. What is evaluated is the checkout itself,
-// as `nix develop` would evaluate it, by the caller's nix with none of the
-// caller's environment but HOME, and nothing that confines it beyond what
-// nix's own settings do: a flake purely, never taking its nixConfig or
-// writing its lock; a shell.nix under restrict-eval, its NIX_PATH the
-// system's nixpkgs and the checkout. Someone else's checkout would need it
-// evaluated where it cannot reach the host, which waits on a store of the
-// session's own (flong's PLAN §3); the confined design is kept on the
-// branch devshell-confined.
+// It is for a tier of one's own code alone, whose egress is direct and
+// unfiltered: the module refuses it in any other. What is evaluated is the
+// checkout itself, as `nix develop` would evaluate it, by the caller's nix:
+// a flake purely, never taking its nixConfig or writing its lock; a
+// shell.nix under restrict-eval, its NIX_PATH the system's nixpkgs and the
+// checkout. nix's own settings do not hold what it reads, and the checkout
+// is what a session writes, so nix runs in a bubblewrap that shows it
+// nothing of the host's but the store, the daemon's socket, the machine's
+// nix configuration and the checkout (job.confine): no environment of the
+// caller's, and no file the session could not read itself. Someone else's
+// checkout would need its fetches through frisket too, which waits on a
+// store of the session's own (flong's PLAN §3); the design that did that
+// on the host is kept on the branch devshell-confined.
 //
 // The result is cached on what was evaluated -- flake.nix and flake.lock,
 // or shell.nix, and every setting the evaluation is run with -- under
@@ -30,7 +33,6 @@
 package devshell
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -47,11 +49,11 @@ import (
 	"github.com/danielbodart/chase/internal/term"
 )
 
-// Request is one launch's: the checkout; the caller's home, nix's; chase's
-// state directory; and the checkout's own directory there
+// Request is one launch's: the checkout; chase's state directory, where
+// nix's HOME is kept; and the checkout's own directory there
 // (<state>/checkouts/<key>), bound into no session.
 type Request struct {
-	Workspace, Home, State, Dir string
+	Workspace, State, Dir string
 }
 
 // The kinds of devShell, by the file that has it.
@@ -107,7 +109,7 @@ func Realise(ctx context.Context, n session.Nix, r Request, stderr io.Writer) (*
 // have in common, and so what a reason matching hintable is told.
 var (
 	hintable = regexp.MustCompile(`unfree|--impure|getEnv|ssh`)
-	hint     = "; the evaluation sees none of your environment but HOME: set config.allowUnfree in the import, and fetch private inputs over https"
+	hint     = "; the evaluation sees none of your environment, nor your home: set config.allowUnfree in the import, and give private inputs access-tokens in the machine's nix configuration"
 )
 
 func hinted(reason string) string {
@@ -121,9 +123,10 @@ func hinted(reason string) string {
 // realised.
 //
 // A flake.nix is taken where git tracks it, as nix develop takes it from a
-// git checkout, and one that is not tracked is said rather than evaluated;
-// in a directory that is no git checkout, as it is, as nix develop takes
-// it there. A shell.nix is taken as nix-shell takes it, tracked or not.
+// git checkout, and one that is not tracked is said rather than evaluated,
+// the checkout's shell.nix taken instead when it has one; in a directory
+// that is no git checkout, as it is, as nix develop takes it there. A
+// shell.nix is taken as nix-shell takes it, tracked or not.
 func realise(ctx context.Context, n session.Nix, r Request, stderr io.Writer) (*session.DevShell, error) {
 	ws := r.Workspace
 	if !exists(ws+"/"+flake) && !exists(ws+"/"+shell) {
@@ -131,10 +134,14 @@ func realise(ctx context.Context, n session.Nix, r Request, stderr io.Writer) (*
 		return nil, &none{}
 	}
 	kind, untracked := "", ""
+	var c checkout.Checkout
 	if exists(ws + "/" + flake) {
-		files, err := tracked(ctx, n, ws)
+		var files []string
+		var err error
+		c, files, err = tracked(ctx, n, ws)
+		var u *checkout.Unsortable
 		switch {
-		case err != nil && err.Error() == "not a git repository":
+		case errors.As(err, &u) && u.Reason == "not a git repository":
 			kind = flake
 		case err != nil:
 			return nil, fmt.Errorf("what %s tracks cannot be read, and a flake is what git tracks: %v", ws, err)
@@ -159,10 +166,17 @@ func realise(ctx context.Context, n session.Nix, r Request, stderr io.Writer) (*
 	if strings.ContainsAny(ws, "#?") {
 		return nil, fmt.Errorf("nix would read the # or ? in %s as part of a flake reference", ws)
 	}
+	if kind == shell && strings.ContainsAny(ws, ":=") {
+		return nil, fmt.Errorf("nix would read the : or = in %s as part of NIX_PATH, which restrict-eval allows", ws)
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	j := &job{n: n, r: r, kind: kind, dir: dir, stderr: stderr}
+	binds := []string{ws}
+	if kind == flake {
+		binds = bindsOf(ws, c)
+	}
+	j := &job{n: n, r: r, kind: kind, dir: dir, stderr: stderr, binds: binds}
 	if err := j.plan(); err != nil {
 		return nil, err
 	}
@@ -198,23 +212,50 @@ func realise(ctx context.Context, n session.Nix, r Request, stderr io.Writer) (*
 	return ds, err
 }
 
-// tracked is what the checkout tracks, relative to it, read by
-// checkout.RunLsFiles from the index alone: never by a git in the
-// checkout, whose config a session writes.
-func tracked(ctx context.Context, n session.Nix, ws string) ([]string, error) {
+// tracked is the checkout ws is in, and what of ws it tracks, relative to
+// it, read by checkout.Finder from the index alone: never by a git in the
+// checkout, whose config a session writes. ws in no checkout is an
+// *checkout.Unsortable, "not a git repository".
+func tracked(ctx context.Context, n session.Nix, ws string) (checkout.Checkout, []string, error) {
 	g, err := gitsafe.New(n.Config)
 	if err != nil {
-		return nil, err
+		return checkout.Checkout{}, nil, err
 	}
-	var list, why bytes.Buffer
-	if rc := checkout.RunLsFiles(ctx, g, []string{ws}, &list, &why); rc != 0 {
-		return nil, errors.New(gitsafe.Output(list.Bytes()))
+	defer g.Close()
+	f := &checkout.Finder{Git: g}
+	c, err := f.Find(ctx, checkout.Query{Dir: ws})
+	if err != nil {
+		return checkout.Checkout{}, nil, err
 	}
-	paths := strings.Split(list.String(), "\x00")
+	list, err := f.LsFiles(ctx, ws)
+	if err != nil {
+		return checkout.Checkout{}, nil, err
+	}
+	paths := strings.Split(string(list), "\x00")
 	if paths[len(paths)-1] == "" {
 		paths = paths[:len(paths)-1]
 	}
-	return paths, nil
+	return c, paths, nil
+}
+
+// bindsOf is what of the host nix is shown of a flake at ws, at their own
+// paths: the checkout it is in, whose git nix reads it from, and that
+// checkout's git directories, which a worktree's or a submodule's are not
+// under it; or ws alone, in no checkout. A shell.nix is shown ws alone,
+// all restrict-eval lets it read. Each is bound after any it is under, so
+// none is hidden.
+func bindsOf(ws string, c checkout.Checkout) []string {
+	if c.Root == "" {
+		return []string{ws}
+	}
+	var binds []string
+	for _, p := range []string{c.Root, c.GitCommon, c.GitDir} {
+		if p != "" && !slices.Contains(binds, p) {
+			binds = append(binds, p)
+		}
+	}
+	slices.SortStableFunc(binds, func(a, b string) int { return len(a) - len(b) })
+	return binds
 }
 
 // exists is whether anything is at p, a link included.
