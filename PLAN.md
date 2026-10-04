@@ -483,6 +483,41 @@ local network, which frisket dials outside a recording only for a name in
 its document's `lan`, is proposed for the grant's `network.lan` with the
 ports it was dialled at. See [docs/record.md](docs/record.md).
 
+**21. A checkout's devShell is realised by the launcher, and loaded by the
+session.** The files are not the problem: flong binds the whole of
+`/nix/store` read-only, so every library a devShell names is already there in
+every tier. Its environment is: flong starts a session clean, so the
+`PATH`, `PKG_CONFIG_PATH` and the rest of a `nix develop` on the host never
+reach it. Passing the caller's environment through was considered and not
+taken: it works only from a terminal that already ran `nix develop`, never
+from an editor (decision 11), it is fixed at launch, and for someone else's
+checkout it is the wrong order, since `nix develop` on the host runs their
+`shellHook` as you, unsandboxed.
+
+So the launcher, as the caller, runs `nix print-dev-env` for the checkout
+before the session starts, cached on `flake.nix` and `flake.lock` as
+nix-direnv's is, holds a GC root for the result in chase's state (not the
+checkout, which the session can write), and binds the script read-only into
+the session, beside the checkout's `env` directory. The session's shell loads
+it, so the `shellHook` runs inside the sandbox, not on the host.
+
+Realising it is still the host's daemon building and fetching, and a
+fixed-output derivation fetches on the host's network, outside frisket. In a
+tier for one's own code that is the caller's own flake, and it is automatic
+when the checkout has a devShell. In a tier for other people's code it is a
+grant key, approved as any is (decision 17), realised from the binary cache
+alone: a dry run that would build anything locally is refused, and a
+flake's `nixConfig` is never accepted. Open: whether the devShell's `PATH`
+goes ahead of mise's shims or behind them, as nix-config keeps mise's
+ahead on the host.
+
+`nix` itself inside a session is a later extension, flong's (its PLAN §3):
+either the host daemon's socket, or a store of the session's own over the
+host's, whose builds and fetches are the session's and so frisket's to see.
+The second is preferred, and its spike works (flong's PLAN §3): the store
+it needs is a cache, kept per session in a tier for other people's code,
+and a GC root on the host for each host path it uses is the launcher's.
+
 ## Recording: possible follow-ups (not decided)
 
 Thoughts kept from the design of `chase record` so they are not lost. None
