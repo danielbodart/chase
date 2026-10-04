@@ -461,3 +461,47 @@ func TestTheDevShellsDataDirsReachTheAgent(t *testing.T) {
 		t.Errorf("XDG_DATA_DIRS is %q", v)
 	}
 }
+
+// A STORE OF THE SESSION'S OWN, AND A DEVSHELL IT EVALUATES ITSELF: what its
+// nix is told of the store is chase's, set as chase's own are, and
+// chase-devshell runs ahead of the agent, given pathFront and every name a
+// devShell may not set -- PATH among them, which it orders itself -- and
+// then, after "--", the agent's argument list as it would be without it.
+func TestAStoreOfTheSessionsOwnAndTheDevshellAheadOfTheAgent(t *testing.T) {
+	f := newFixture(t)
+	tier := f.c.Tiers["trusted"]
+	tier.PathFront = []string{"/run/wrappers/bin", "/mise/shims"}
+	f.c.Tiers["trusted"] = tier
+	store := []Var{{"NIX_REMOTE", "local-overlay://?real=/nix/store"}, {"NIX_USER_CONF_FILES", ""}}
+	devshell := []string{"/nix/store/chase/bin/chase-devshell", "-checkout", "/w/shop", "-kind", "shell.nix"}
+	keep := "CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN COLORTERM FLONG_BINDS HOME LOGNAME NIX_REMOTE NIX_USER_CONF_FILES PATH PWD SHELL SSL_CERT_FILE TERM TMPDIR USER XDG_RUNTIME_DIR container"
+	for _, args := range [][]string{{"claude", "-p", "hi"}, {"shell"}} {
+		bare, _ := f.run(t, "trusted", "/w/shop", "", Given{}, args...)
+		p, _ := f.run(t, "trusted", "/w/shop", "", Given{InSession: &InSession{Env: store, Devshell: devshell}}, args...)
+		want := slices.Concat(devshell, []string{"-front", "/run/wrappers/bin:/mise/shims", "-keep", keep, "--"}, bare.argv)
+		if !slices.Equal(p.argv, want) {
+			t.Errorf("%q is run as %q, not %q", args, p.argv, want)
+		}
+		if !slices.Equal(p.env, append(slices.Clone(bare.env), "NIX_REMOTE=local-overlay://?real=/nix/store", "NIX_USER_CONF_FILES=")) {
+			t.Errorf("the session's environment is %q", p.env)
+		}
+		// The store alone: no chase-devshell.
+		p, _ = f.run(t, "trusted", "/w/shop", "", Given{InSession: &InSession{Env: store}}, args...)
+		if !slices.Equal(p.argv, bare.argv) {
+			t.Errorf("%q with the store alone is run as %q", args, p.argv)
+		}
+	}
+}
+
+// A container that sets a name of the store's otherwise refuses the
+// launch, naming it, as for any name of chase's.
+func TestAContainerThatSetsTheStoresNamesRefusesTheLaunch(t *testing.T) {
+	f := newFixture(t)
+	tier := f.c.Tiers["trusted"]
+	tier.Environment = map[string]string{"NIX_REMOTE": "daemon"}
+	f.c.Tiers["trusted"] = tier
+	_, err := Payload(f.c, "trusted", "/w/shop", "", []string{"shell"}, Given{InSession: &InSession{Env: []Var{{"NIX_REMOTE", "local-overlay://"}}}}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), `trusted's container sets NIX_REMOTE to "daemon"`) {
+		t.Errorf("%v", err)
+	}
+}

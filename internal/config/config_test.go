@@ -60,11 +60,56 @@ func TestLoadRefusesNoTimeoutNoSystemOrAnUnknownSetting(t *testing.T) {
 	}{
 		{"timeout", 0, "nix.timeout is 0"},
 		{"system", "", "nix.system is empty"},
-		{"devShell", "automatic", `unknown field "devShell"`},
+		{"pasta", "/nix/store/passt/bin/pasta", `unknown field "pasta"`},
+		{"devShell", "sometimes", `nix.devShell is "sometimes", neither automatic nor granted`},
+		{"devShell", "granted", "nix.devShell is granted, and the store is the host's"},
+		{"store", "tier", `nix.store is "tier", neither host nor session`},
+		{"store", "session", "nix.store is session, and nix.session is missing"},
 	} {
 		_, err := config.Load(file(t, func(n map[string]any) { n[c.key] = c.v }))
 		if err == nil || !strings.Contains(err.Error(), c.said) {
 			t.Errorf("%s = %v: %v", c.key, c.v, err)
+		}
+	}
+}
+
+// sessionStore is a session's own store, as the module writes it.
+func sessionStore(n map[string]any) {
+	delete(n, "bwrap")
+	delete(n, "caBundle")
+	n["store"] = "session"
+	n["devShell"] = "granted"
+	n["session"] = map[string]any{
+		"root": "/home/alice/.cache/chase/nix/sessions", "nix": "/nix/store/nix-ro/bin/nix",
+		"devshell": "/nix/store/chase/bin/chase-devshell", "nixStore": "/nix/store/nix/bin/nix-store",
+		"sqlite": "/nix/store/sqlite/bin/sqlite3", "systemdRun": "/nix/store/systemd/bin/systemd-run",
+		"confDir": "/etc/nix", "maxBytes": 8 << 30, "maxInodes": 500000, "maxRoots": 20000, "promote": true,
+	}
+}
+
+// A store of the session's own needs no bubblewrap and no CA bundle of
+// the host's, which nothing runs on the host with; but each of its own
+// tools absolutely, and some of every limit.
+func TestLoadTakesASessionStoreAndRefusesOneHalfWritten(t *testing.T) {
+	if _, err := config.Load(file(t, sessionStore)); err != nil {
+		t.Fatalf("the module's own was refused: %v", err)
+	}
+	for _, key := range []string{"root", "nix", "devshell", "nixStore", "sqlite", "systemdRun", "confDir"} {
+		_, err := config.Load(file(t, func(n map[string]any) {
+			sessionStore(n)
+			n["session"].(map[string]any)[key] = "relative"
+		}))
+		if err == nil || !strings.Contains(err.Error(), "nix.session."+key+` is "relative", which is not an absolute path`) {
+			t.Errorf("a relative %s: %v", key, err)
+		}
+	}
+	for _, key := range []string{"maxBytes", "maxInodes", "maxRoots"} {
+		_, err := config.Load(file(t, func(n map[string]any) {
+			sessionStore(n)
+			n["session"].(map[string]any)[key] = 0
+		}))
+		if err == nil || !strings.Contains(err.Error(), "a store is given some of each") {
+			t.Errorf("no %s: %v", key, err)
 		}
 	}
 }

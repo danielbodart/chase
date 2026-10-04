@@ -537,6 +537,17 @@ devshell-confined: the thousand lines of it beyond the bubblewrap kept here
 locally -- existed only because the code was someone else's, and the
 overlay store makes them unnecessary.
 
+An experiment, on the branch nix-overlay-store, gives a tier that
+`apps.nix.store = "session"`: flong's kept overlay over `/nix/store`, its
+upper per session in `~/.cache/chase/nix/sessions/<machine>`, a
+local-overlay store over it whose lower is the host's database read live
+by a nix patched to read it `mode=ro`, and `chase-devshell` ahead of the
+agent to evaluate the devShell in the session. The host roots what the
+session's store looks at, bounds its upper, promotes what it substituted by
+name from the host's own caches, and removes it at postStop. A tier whose
+devShell is `granted` -- turned on by an approved grant's
+`apps.nix.devShell` -- must take that store. Trusted keeps the host's.
+
 The result is cached in chase's state, `checkouts/<key>/devshell`, bound
 into no session, keyed on flake.nix and flake.lock, or shell.nix, the
 system, the nix, the nixpkgs and every setting it was evaluated with; its

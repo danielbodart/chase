@@ -176,6 +176,23 @@ func init() {
 // container's and chase's, never PATH or XDG_DATA_DIRS, which the script
 // orders itself.
 func wrap(argv []string, ds *DevShell, front, keep []string) []string {
+	out := []string{"bash", "--noprofile", "--norc", "-c", devShellScript, "chase-devshell",
+		strings.Join(front, ":"), strings.Join(ds.Path, ":"), strings.Join(ds.DataDirs, ":"),
+		strings.Join(keepNames(keep), " "), ds.Hook, strconv.Itoa(len(ds.Declarations))}
+	out = append(out, ds.Declarations...)
+	return append(out, argv...)
+}
+
+// Wrap is wrap, for chase-devshell, which runs it inside the session with
+// the devShell it evaluated there, the bash it names found on the
+// session's PATH.
+func Wrap(argv []string, ds *DevShell, front, keep []string) []string {
+	return wrap(argv, ds, front, keep)
+}
+
+// keepNames is keep as the script is given it: each a name bash takes,
+// PATH and XDG_DATA_DIRS left out, sorted, each once.
+func keepNames(keep []string) []string {
 	var names []string
 	for _, k := range keep {
 		if VarName.MatchString(k) && k != "PATH" && k != "XDG_DATA_DIRS" {
@@ -183,11 +200,25 @@ func wrap(argv []string, ds *DevShell, front, keep []string) []string {
 		}
 	}
 	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// inSession is argv run by chase-devshell inside the session: its program
+// and data, then pathFront and the names a hook may not change -- flong's,
+// the container's and chase's, PATH and XDG_DATA_DIRS among them, since
+// what of a devShell chase-devshell gives the agent is every one of its
+// variables but those -- and then, after "--", argv.
+func inSession(argv []string, in *InSession, front, keep []string) []string {
+	var names []string
+	for _, k := range keep {
+		if VarName.MatchString(k) {
+			names = append(names, k)
+		}
+	}
+	slices.Sort(names)
 	names = slices.Compact(names)
-	out := []string{"bash", "--noprofile", "--norc", "-c", devShellScript, "chase-devshell",
-		strings.Join(front, ":"), strings.Join(ds.Path, ":"), strings.Join(ds.DataDirs, ":"),
-		strings.Join(names, " "), ds.Hook, strconv.Itoa(len(ds.Declarations))}
-	out = append(out, ds.Declarations...)
+	out := slices.Clone(in.Devshell)
+	out = append(out, "-front", strings.Join(front, ":"), "-keep", strings.Join(names, " "), "--")
 	return append(out, argv...)
 }
 

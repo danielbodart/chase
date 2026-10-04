@@ -552,15 +552,20 @@
             # A CHECKOUT'S DEVSHELL (PLAN.md, decision 21): what exec
             # realises it with; the setuid wrappers first on every sandbox's
             # PATH, mise's shims next where it has mise, a devShell's behind
-            # both; no nix where no tier enables it; and none where egress is
-            # not direct and unfiltered, or the tier is bare, since its
-            # fetches are the host's.
-            assert refused "nix in a tier whose egress is not direct"
-              { chase.tiers.strict.apps.nix.enable = true; } "chase.tiers.strict.apps.nix is enabled, but the tier's egress is not direct and unfiltered";
-            assert refused "nix in a direct tier whose names are filtered"
-              { chase.tiers.trusted.allow = lib.mkForce [ "github.com" ]; } "chase.tiers.trusted.apps.nix is enabled, but the tier's egress is not direct and unfiltered";
+            # both; no nix where no tier enables it; none evaluated on the
+            # host where egress is not direct and unfiltered, or the tier is
+            # bare, since its fetches are the host's; and none waiting on a
+            # grant where it would be.
+            assert refused "nix on the host's store in a tier whose egress is not direct"
+              { chase.tiers.strict.apps.nix.enable = true; } "chase.tiers.strict.apps.nix is enabled with the host's store, but the tier's egress is not direct and unfiltered";
+            assert refused "nix on the host's store in a direct tier whose names are filtered"
+              { chase.tiers.trusted.allow = lib.mkForce [ "github.com" ]; } "chase.tiers.trusted.apps.nix is enabled with the host's store, but the tier's egress is not direct and unfiltered";
             assert refused "nix in a bare tier"
               { chase.tiers.host.apps.nix.enable = true; } "chase.tiers.host.apps.nix is enabled, but the tier is bare";
+            assert refused "a granted devShell on the host's store"
+              { chase.tiers.trusted.apps.nix.devShell = "granted"; } "chase.tiers.trusted.apps.nix.devShell is `granted`, and its store is the host's";
+            assert refused "a granted devShell in a tier that takes no grants"
+              { chase.tiers.strict.apps.nix = { enable = true; devShell = "granted"; store = "session"; }; } "chase.tiers.strict.apps.nix.devShell is `granted`, and strict takes no grants";
             assert
               (let
                 config = configWith { chase.tiers.trusted.apps.mise.enable = true; };
@@ -571,6 +576,8 @@
               && c.session.tiers.trusted.nix == {
                 inherit (c.selector) git emptySha1 emptySha256;
                 timeout = 1200;
+                store = "host";
+                devShell = "automatic";
                 nix = lib.getExe config.nix.package;
                 nixpkgs = "${pkgs.path}";
                 inherit system;
@@ -580,8 +587,58 @@
               && ! c.session.tiers.strict ? nix
               && c.session.tiers.strict.pathFront == [ "/run/wrappers/bin" ]
               && c.session.tiers.trusted.pathFront == [ "/run/wrappers/bin" "/home/alice/.cache/chase/mise/trusted/all/data/shims" ]
-              && lib.all (t: ! t ? nix) (lib.attrValues none))
+              && lib.all (t: ! t ? nix) (lib.attrValues none)
+              && ! lib.elem [ (lib.getExe config.chase.package) "hook" "nix-poststart" "trusted" ] config.flong.chase-trusted.postStart
+              && ! lib.elem [ (lib.getExe config.chase.package) "hook" "nix-poststop" "trusted" ] config.flong.chase-trusted.postStop)
               || throw "assertions: a checkout's devShell did not hold together";
+            # A STORE OF THE SESSION'S OWN (flong's PLAN §3), for a tier of
+            # other people's code whose grant asks: what exec gives the
+            # session of it, the container's nix and how it is set, and the
+            # hooks that make, watch and remove it, on the tier's launcher
+            # and its recording's.
+            assert
+              (let
+                config = configWith {
+                  chase.tiers.strict = {
+                    grants = true;
+                    record.enable = true;
+                    apps.nix = { enable = true; devShell = "granted"; store = "session"; maxRoots = 100; };
+                  };
+                };
+                c = config.chase.internal.config;
+                chase = lib.getExe config.chase.package;
+                n = c.session.tiers.strict.nix;
+                conf = config.containers.chase-strict.config.nix;
+                hooks = l: lib.elem [ chase "hook" "nix-poststart" "strict" ] l.postStart && lib.elem [ chase "hook" "nix-poststop" "strict" ] l.postStop;
+              in
+              lib.all (a: a.assertion) config.assertions
+              && n.store == "session" && n.devShell == "granted" && ! n ? bwrap && ! n ? caBundle
+              && n.nix == lib.getExe config.nix.package
+              && n.session == {
+                root = "/home/alice/.cache/chase/nix/sessions";
+                nix = lib.getExe config.chase.tiers.strict.apps.nix.sessionPackage;
+                devshell = "${config.chase.package}/bin/chase-devshell";
+                nixStore = "${config.nix.package}/bin/nix-store";
+                sqlite = "${lib.getBin pkgs.sqlite}/bin/sqlite3";
+                systemdRun = "${config.systemd.package}/bin/systemd-run";
+                confDir = "/etc/nix";
+                maxBytes = 8 * 1024 * 1024 * 1024;
+                maxInodes = 500000;
+                maxRoots = 100;
+                promote = true;
+              }
+              && conf.package == config.chase.tiers.strict.apps.nix.sessionPackage
+              && lib.elem "local-overlay-store" conf.settings.experimental-features
+              && lib.elem "read-only-local-store" conf.settings.experimental-features
+              && conf.settings.sandbox == false && conf.settings.build-users-group == ""
+              && conf.settings.accept-flake-config == false && conf.settings.require-sigs
+              && conf.settings.substituters == config.nix.settings.substituters
+              && ! c.session.tiers.strict.environment ? NIX_REMOTE
+              && c.session.tiers.trusted.environment.NIX_REMOTE == "daemon"
+              && hooks config.flong.chase-strict && hooks config.flong.chase-strict-record
+              && config.home-manager.users.alice.systemd.user.timers ? chase-nix-sweep
+              && ! lib.elem "local-overlay-store" (config.containers.chase-trusted.config.nix.settings.experimental-features or [ ]))
+              || throw "assertions: a store of the session's own did not hold together";
             # Claude Code's managed settings are each sandbox container's,
             # never the host's: the container the only boundary, a key a
             # tier sets kept beside the others, and none at all when forced
@@ -996,6 +1053,7 @@
           ssh-session = pkgs.testers.runNixOSTest (import ./tests/ssh-session.nix { inherit self home-manager; });
           record-session = pkgs.testers.runNixOSTest (import ./tests/record-session.nix { inherit self home-manager; });
           devshell-session = pkgs.testers.runNixOSTest (import ./tests/devshell-session.nix { inherit self home-manager; });
+          nix-store-session = pkgs.testers.runNixOSTest (import ./tests/nix-store-session.nix { inherit self home-manager; });
         } // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
           # Only where the pinned postgres:18 runs: the image is amd64's.
           docker-session = pkgs.testers.runNixOSTest (import ./tests/docker-session.nix { inherit self home-manager; });

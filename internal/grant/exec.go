@@ -31,9 +31,12 @@ import (
 //     session's policy document written for frisket -- and what it exports
 //     and seeds handed to the payload, with nothing written for a session
 //     to source;
-//   - the checkout's devShell, where its tier has nix (internal/devshell),
-//     realised as the caller, confined, and handed to the payload as the least of its
-//     environment;
+//   - the checkout's devShell, where its tier has nix (internal/devshell):
+//     realised as the caller, confined, and handed to the payload as the
+//     least of its environment, where the tier's store is the host's; or,
+//     where it is the session's own, the store given to the session, and
+//     chase-devshell put ahead of the agent to evaluate the devShell
+//     there;
 //   - the payload itself (session.Payload), printed.
 //
 // Anything that goes wrong ends the launch with nothing on stdout, flong's
@@ -76,8 +79,20 @@ func execute(ctx context.Context, s session.Config, e *Config, registry map[stri
 	}
 	// The devShell, last before the payload. One that cannot be realised
 	// is said, and the session starts without it; only a launch stopped
-	// while it is realised ends here.
-	if t := s.Tiers[tier]; t.Nix != nil {
+	// while it is realised ends here. Where the tier's store is the
+	// session's own, nothing is realised here: the session is given the
+	// store, and evaluates the devShell itself, ahead of the agent.
+	switch t := s.Tiers[tier]; {
+	case t.Nix.InSession():
+		var err error
+		given.InSession, err = devshell.InSession(ctx, *t.Nix, devshell.SessionRequest{
+			Workspace: ws, Machine: machine, Binds: binds, Asked: given.Nix, Recording: rec != nil,
+		}, stderr)
+		if err != nil {
+			term.Say(stderr, "%v", err)
+			return 1
+		}
+	case t.Nix != nil:
 		var err error
 		given.DevShell, err = devshell.Realise(ctx, *t.Nix, devshell.Request{
 			Workspace: ws, State: stateOf(s, e), Dir: checkoutOf(s, e, ws),
@@ -86,6 +101,8 @@ func execute(ctx context.Context, s session.Config, e *Config, registry map[stri
 			term.Say(stderr, "%v", err)
 			return 1
 		}
+	case given.Nix != nil:
+		term.Say(stderr, "%s: nix ignored: %s has no nix", ws, tier)
 	}
 	p, err := session.Payload(s, tier, ws, binds, args, given, stderr)
 	if err != nil {

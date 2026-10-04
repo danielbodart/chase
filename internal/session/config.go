@@ -77,7 +77,8 @@ type Tier struct {
 	// project's, which flong is given as `forward:ADDRESS`.
 	Forward bool `json:"forward,omitempty"`
 	// Nix is the tier's apps.nix, nil for none: a checkout's devShell,
-	// realised on the host before the session starts (internal/devshell).
+	// realised on the host before the session starts, or evaluated by the
+	// session over a store of its own (internal/devshell).
 	Nix *Nix `json:"nix,omitempty"`
 	// PathFront are the entries of the container's PATH that a devShell's
 	// go behind: /run/wrappers/bin, and an app's that must find a tool
@@ -87,36 +88,112 @@ type Tier struct {
 	PathFront []string `json:"pathFront,omitempty"`
 }
 
-// Nix is a tier's apps.nix: how a checkout's devShell is realised on the
-// host (internal/devshell), as the caller.
+// Nix is a tier's apps.nix: how a checkout's devShell is given to its
+// sessions -- realised on the host, as the caller (internal/devshell), or
+// by the session itself, over a store of its own (Session).
 type Nix struct {
 	// Git lists what a checkout tracks, from its index alone
 	// (internal/gitsafe).
 	gitsafe.Config
 	// Timeout is how many seconds a realisation may take.
 	Timeout int `json:"timeout"`
-	// Nix is the nix that realises it, absolute: never looked up on PATH,
-	// which is the caller's.
+	// Nix is the host's nix, absolute: never looked up on PATH, which is
+	// the caller's. It realises the devShell where the store is the
+	// host's, and roots and promotes what a session's store looks at
+	// where it is the session's.
 	Nix string `json:"nix"`
 	// Nixpkgs is what <nixpkgs> is to a checkout's shell.nix: the
 	// system's own, a store path.
 	Nixpkgs string `json:"nixpkgs"`
 	// System is the devShells.<system> a flake's is taken from.
 	System string `json:"system"`
-	// Bwrap confines nix's run: bubblewrap, showing it nothing of the
-	// host's but the store, the daemon and the checkout.
-	Bwrap string `json:"bwrap"`
-	// CABundle is the machine's, for the evaluation's https.
-	CABundle string `json:"caBundle"`
+	// Bwrap confines nix's run on the host: bubblewrap, showing it nothing
+	// of the host's but the store, the daemon and the checkout. The host's
+	// store's alone.
+	Bwrap string `json:"bwrap,omitempty"`
+	// CABundle is the machine's, for the evaluation's https on the host.
+	// The host's store's alone.
+	CABundle string `json:"caBundle,omitempty"`
+	// Store is apps.nix.store: "host", "" too, where the launcher realises
+	// the devShell and the session has no nix of its own; or "session",
+	// where the session runs nix itself over a store of its own, made at
+	// binds and gone at postStop, and evaluates the devShell there.
+	Store string `json:"store,omitempty"`
+	// DevShell is apps.nix.devShell: "automatic", a devShell whenever the
+	// checkout has one, "" too; or "granted", only when the approved
+	// grant asks.
+	DevShell string `json:"devShell,omitempty"`
+	// Session is the session's own store, for Store "session".
+	Session *NixSession `json:"session,omitempty"`
 }
+
+// NixSession is a tier's store of the session's own (internal/nixstore):
+// an overlay of the host's store, its upper a directory of the caller's
+// kept for one launch, where the session runs nix single-user.
+type NixSession struct {
+	// Root is where each session's directory is made, by its machine:
+	// ~/.cache/chase/nix/sessions.
+	Root string `json:"root"`
+	// Nix is the nix the session runs, absolute: the one whose read-only
+	// local store reads the host's database as any other reader does.
+	Nix string `json:"nix"`
+	// Devshell is chase-devshell, which runs ahead of the agent, inside the
+	// session, to evaluate the checkout's devShell there.
+	Devshell string `json:"devshell"`
+	// NixStore is the host's nix-store, which promotes what a session
+	// substituted.
+	NixStore string `json:"nixStore"`
+	// Sqlite is the sqlite3 that reads a session's database, read-only and
+	// defensively, for the names it holds.
+	Sqlite string `json:"sqlite"`
+	// SystemdRun starts the promotion, a unit of the user's own.
+	SystemdRun string `json:"systemdRun"`
+	// ConfDir is the container's nix configuration, which the session's
+	// nix reads: never the user's.
+	ConfDir string `json:"confDir"`
+	// MaxBytes and MaxInodes bound the upper: past either, the session is
+	// stopped.
+	MaxBytes  int64 `json:"maxBytes"`
+	MaxInodes int64 `json:"maxInodes"`
+	// MaxRoots caps the host's paths rooted for one session.
+	MaxRoots int `json:"maxRoots"`
+	// Promote is whether what a session's store holds of the binary
+	// caches' is realised on the host after it, by name, from the host's
+	// own substituters.
+	Promote bool `json:"promote,omitempty"`
+}
+
+// InSession is whether the store is the session's own.
+func (n *Nix) InSession() bool { return n != nil && n.Store == "session" }
+
+// Granted is whether the devShell waits on the grant.
+func (n *Nix) Granted() bool { return n != nil && n.DevShell == "granted" }
 
 // Validate refuses a Nix the module did not write, rather than half obey
 // it: a tool named without a slash would be looked up on the caller's
 // PATH, and a path left out would be read as the working directory.
 func (n Nix) Validate() error {
-	for _, p := range []struct{ name, path string }{
-		{"git", n.Git}, {"nix", n.Nix}, {"nixpkgs", n.Nixpkgs}, {"bwrap", n.Bwrap}, {"caBundle", n.CABundle},
-	} {
+	paths := []struct{ name, path string }{{"git", n.Git}, {"nix", n.Nix}, {"nixpkgs", n.Nixpkgs}}
+	switch n.Store {
+	case "", "host":
+		paths = append(paths, struct{ name, path string }{"bwrap", n.Bwrap}, struct{ name, path string }{"caBundle", n.CABundle})
+	case "session":
+		s := n.Session
+		if s == nil {
+			return fmt.Errorf("nix.store is session, and nix.session is missing")
+		}
+		paths = append(paths, []struct{ name, path string }{
+			{"session.root", s.Root}, {"session.nix", s.Nix}, {"session.devshell", s.Devshell},
+			{"session.nixStore", s.NixStore}, {"session.sqlite", s.Sqlite}, {"session.systemdRun", s.SystemdRun},
+			{"session.confDir", s.ConfDir},
+		}...)
+		if s.MaxBytes <= 0 || s.MaxInodes <= 0 || s.MaxRoots <= 0 {
+			return fmt.Errorf("nix.session's limits are %d bytes, %d inodes and %d roots: a store is given some of each", s.MaxBytes, s.MaxInodes, s.MaxRoots)
+		}
+	default:
+		return fmt.Errorf("nix.store is %q, neither host nor session", n.Store)
+	}
+	for _, p := range paths {
 		if !filepath.IsAbs(p.path) {
 			return fmt.Errorf("nix.%s is %q, which is not an absolute path", p.name, p.path)
 		}
@@ -126,6 +203,10 @@ func (n Nix) Validate() error {
 		return fmt.Errorf("nix.timeout is %d: a realisation is given some seconds", n.Timeout)
 	case n.System == "":
 		return fmt.Errorf("nix.system is empty")
+	case n.DevShell != "" && n.DevShell != "automatic" && n.DevShell != "granted":
+		return fmt.Errorf("nix.devShell is %q, neither automatic nor granted", n.DevShell)
+	case n.DevShell == "granted" && n.Store != "session":
+		return fmt.Errorf("nix.devShell is granted, and the store is the host's: a tier that takes grants for its devShell evaluates it in the session")
 	}
 	return nil
 }

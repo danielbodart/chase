@@ -1,13 +1,18 @@
 package grant_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"testing"
 
+	"github.com/danielbodart/chase/internal/grant"
 	"github.com/danielbodart/chase/internal/session"
 )
 
@@ -121,5 +126,158 @@ func TestATierWithoutNixRealisesNothing(t *testing.T) {
 	}
 	if got := h.fields(); !slices.Equal(got[:2], []string{"arg:bash", "arg:-l"}) || h.log("nix.jsonl") != nil {
 		t.Errorf("the payload is %q", got)
+	}
+}
+
+// sessionNixOf is a tier's apps.nix whose store is the session's own, its
+// devShell's setting devShell.
+func (h *harness) sessionNixOf(devShell string) *session.Nix {
+	n := h.nixOf()
+	n.Bwrap, n.CABundle = "", ""
+	n.Store, n.DevShell = "session", devShell
+	n.Session = &session.NixSession{
+		Root: h.cfg.Home + "/.cache/chase/nix/sessions", Nix: "/nix/store/nix-ro/bin/nix", Devshell: "/nix/store/chase/bin/chase-devshell",
+		NixStore: "/nix/store/nix/bin/nix-store", Sqlite: "/nix/store/sqlite/bin/sqlite3", SystemdRun: "/nix/store/systemd/bin/systemd-run",
+		ConfDir: "/etc/nix", MaxBytes: 1 << 30, MaxInodes: 1000, MaxRoots: 100,
+	}
+	return n
+}
+
+// execBinds is exec, with flong's $binds binds.
+func (h *harness) execBinds(s session.Config, tier, ws, machine, binds string, args ...string) int {
+	h.t.Helper()
+	registry := grant.DefaultApps(h.cfg, &bytes.Buffer{})
+	maps.Copy(registry, h.registry)
+	var out, errb bytes.Buffer
+	rc := grant.Exec(context.Background(), s, &h.cfg, registry, tier, ws, machine, binds, args, &out, &errb)
+	h.out, h.err = out.String(), errb.String()
+	return rc
+}
+
+const madeBinds = "/nix/store:overlay\n/home/alice/.cache/chase/nix/sessions/m1/state:rw\n/home/alice/.cache/chase/nix/sessions/m1/lower"
+
+// Where the tier's store is the session's own, nothing of the checkout's
+// Nix is evaluated on the host: the grant's devShell is the session's
+// store, told to its nix, and chase-devshell ahead of the agent, which
+// ends the session if it cannot evaluate it.
+func TestAGrantsDevShellIsEvaluatedInTheSessionOverItsOwnStore(t *testing.T) {
+	h, _, ws := newProjectLaunch(t)
+	s := sessionConfig(h)
+	s.Tiers["trusted"] = session.Tier{Nix: h.sessionNixOf("granted")}
+	h.tracked(ws, map[string]string{"shell.nix": "{}"})
+	h.approved(ws, "m1", "trusted", `{"apps": {"nix": {"devShell": true}}}`)
+	if rc := h.execBinds(s, "trusted", ws, "m1", madeBinds, "shell"); rc != 0 {
+		t.Fatalf("refused: %s", h.err)
+	}
+	got := h.fields()
+	if !slices.ContainsFunc(got, func(f string) bool {
+		return strings.HasPrefix(f, "env:NIX_REMOTE=local-overlay://?real=/nix/store&state="+h.cfg.Home+"/.cache/chase/nix/sessions/m1/state&")
+	}) || !slices.Contains(got, "env:NIX_USER_CONF_FILES=") {
+		t.Errorf("the session's nix is not told its store: %q", got)
+	}
+	at := slices.Index(got, "arg:/nix/store/chase/bin/chase-devshell")
+	if at < 0 || !slices.Contains(got[at:], "arg:granted") || got[len(got)-4] != "arg:--" || got[len(got)-3] != "arg:bash" {
+		t.Errorf("chase-devshell is not ahead of the agent: %q", got)
+	}
+	if h.log("nix.jsonl") != nil || h.log("bwrap.jsonl") != nil {
+		t.Error("nix ran on the host")
+	}
+}
+
+// A grant that does not ask gives no store in a tier whose devShell waits
+// on it; one that asks and finds no store binds made refuses the launch,
+// with nothing printed for flong to run.
+func TestAGrantedDevShellWithoutTheGrantOrTheStore(t *testing.T) {
+	h, _, ws := newProjectLaunch(t)
+	s := sessionConfig(h)
+	s.Tiers["trusted"] = session.Tier{Nix: h.sessionNixOf("granted")}
+	h.tracked(ws, map[string]string{"shell.nix": "{}"})
+	h.approved(ws, "m1", "trusted", `{}`)
+	if rc := h.execBinds(s, "trusted", ws, "m1", madeBinds, "shell"); rc != 0 {
+		t.Fatalf("refused: %s", h.err)
+	}
+	if got := h.fields(); !slices.Equal(got[:2], []string{"arg:bash", "arg:-l"}) || slices.ContainsFunc(got, func(f string) bool { return strings.HasPrefix(f, "env:NIX_") }) {
+		t.Errorf("the payload is %q", got)
+	}
+	h.approved(ws, "m2", "trusted", `{"apps": {"nix": {"devShell": true}}}`)
+	if rc := h.execBinds(s, "trusted", ws, "m2", "", "shell"); rc != 1 || h.out != "" {
+		t.Errorf("status %d, printed %q", rc, h.out)
+	}
+	h.mustSay("the grant asks for a devShell, and binds made the session no nix store of its own")
+}
+
+// A grant's nix in a tier that has none is said, and the session starts as
+// the tier has it.
+func TestAGrantsNixInATierWithoutNixIsIgnoredAndSaid(t *testing.T) {
+	h, _, ws := newProjectLaunch(t)
+	h.approved(ws, "m1", "trusted", `{"apps": {"nix": {"store": true}}}`)
+	if rc := h.exec(sessionConfig(h), true, "trusted", ws, "m1", "shell"); rc != 0 {
+		t.Fatalf("refused: %s", h.err)
+	}
+	h.mustSay("nix ignored: trusted has no nix")
+}
+
+// What binds, before the grant is approved, takes to ask for a store: the
+// checkout's chase.jsonc as it is, a devShell or the store alone; nothing
+// in a tier that takes no checkout's grant, nor from a file that is no
+// grant, a link, or missing.
+func TestWhatAsksForANixStoreBeforeTheApproval(t *testing.T) {
+	h, _, ws := newProjectLaunch(t)
+	for doc, want := range map[string]bool{
+		`{"apps": {"nix": {"devShell": true}}}`:                    true,
+		`{"apps": {"nix": {"store": true}}}`:                       true,
+		`/* a comment */ {"apps": {"nix": {"devShell": true,},},}`: true,
+		`{"apps": {"nix": {"devShell": false}}}`:                   false,
+		`{"apps": {"nix": {}}}`:                                    false,
+		`{}`:                                                       false,
+		`{"apps": {"nix": {"devShell": "yes"}}}`:                   false,
+		`not a grant`:                                              false,
+	} {
+		write(t, ws+"/chase.jsonc", doc)
+		if got := grant.AsksForNixStore(h.cfg, ws, "trusted"); got != want {
+			t.Errorf("%s: %v", doc, got)
+		}
+	}
+	write(t, ws+"/chase.jsonc", `{"apps": {"nix": {"devShell": true}}}`)
+	h.cfg.Ungranted = []string{"trusted"}
+	if grant.AsksForNixStore(h.cfg, ws, "trusted") {
+		t.Error("a tier that takes no checkout's grant asked")
+	}
+	h.cfg.Ungranted = nil
+	os.Rename(ws+"/chase.jsonc", ws+"/real.jsonc")
+	os.Symlink(ws+"/real.jsonc", ws+"/chase.jsonc")
+	if grant.AsksForNixStore(h.cfg, ws, "trusted") {
+		t.Error("a link asked")
+	}
+	os.Remove(ws + "/chase.jsonc")
+	if grant.AsksForNixStore(h.cfg, ws, "trusted") {
+		t.Error("no file asked")
+	}
+}
+
+// WHAT A GRANT MAY NAME FOR NIX: whether the devShell is evaluated in the
+// session, and whether the store is given alone, booleans and nothing
+// else; and nothing of the flake's beside them.
+func TestWhatAGrantMayNameForNix(t *testing.T) {
+	for _, g := range []string{
+		`{"apps": {"nix": {"devShell": "yes"}}}`,
+		`{"apps": {"nix": {"store": 1}}}`,
+		`{"apps": {"nix": {"devShells": true}}}`,
+		`{"apps": {"nix": {"flake": "./other.nix"}}}`,
+		`{"apps": {"nix": true}}`,
+	} {
+		if _, err := grant.ParseFile([]byte(g)); err == nil {
+			t.Errorf("%s was taken", g)
+		}
+	}
+	for g, want := range map[string]string{
+		`{"apps": {"nix": {"devShell": true}}}`:                 `{"apps":{"nix":{"devShell":true}}}`,
+		`{"apps": {"nix": {"devShell": false, "store": true}}}`: `{"apps":{"nix":{"devShell":false,"store":true}}}`,
+		`{"apps": {"nix": {}}}`:                                 `{"apps":{"nix":{}}}`,
+	} {
+		got, err := grant.ParseFile([]byte(g))
+		if err != nil || string(got) != want {
+			t.Errorf("%s was read as %s, %v, not %s", g, got, err, want)
+		}
 	}
 }

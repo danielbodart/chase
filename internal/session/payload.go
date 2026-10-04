@@ -51,6 +51,32 @@ type Given struct {
 	// least of the session's environment, and what the argument list is
 	// wrapped in; nil for none.
 	DevShell *DevShell
+	// Nix is what the approved grant says of Nix, nil for nothing.
+	Nix *NixAsked
+	// InSession is the session's own nix store, and the devShell it
+	// evaluates there, as exec gives them (internal/devshell); nil for
+	// none.
+	InSession *InSession
+}
+
+// NixAsked is what a grant says of Nix: whether the checkout's devShell is
+// given, and the store of the session's own with it, and whether the store
+// is given alone; nil for nothing said.
+type NixAsked struct {
+	DevShell *bool
+	Store    *bool
+}
+
+// InSession is a session's own nix store, and the devShell evaluated in
+// it: what the session's nix is told of its store, and chase-devshell's
+// argument list, ahead of the agent's, nil for no devShell.
+type InSession struct {
+	Env []Var
+	// Devshell is chase-devshell and its data: the program, then flags,
+	// every one a word of data alone. The names a hook may not change and
+	// pathFront are Payload's to add, then "--" and the agent's argument
+	// list.
+	Devshell []string
 }
 
 // Exec is the payload, as flong's exec prints it (Write): its whole
@@ -217,6 +243,13 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 	for _, v := range given.Env {
 		set(v.Name, v.Value)
 	}
+	// What the session's nix is told of its own store: chase's, as the
+	// store is.
+	if in := given.InSession; in != nil {
+		for _, v := range in.Env {
+			set(v.Name, v.Value)
+		}
+	}
 	for _, v := range e.Env {
 		if was, ok := shell[v.Name]; ok && own[v.Name] && was != v.Value {
 			overridden = append(overridden, v.Name)
@@ -292,6 +325,12 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 	// it execs once both are done (wrap).
 	if ds := given.DevShell; ds != nil {
 		e.Argv = wrap(e.Argv, ds, t.PathFront, keepOf(t, own))
+	}
+	// A devShell the session evaluates itself: chase-devshell ahead of
+	// the agent, which does there what is done here for one the launcher
+	// realised, and then the same bash.
+	if in := given.InSession; in != nil && in.Devshell != nil {
+		e.Argv = inSession(e.Argv, in, t.PathFront, keepOf(t, own))
 	}
 
 	if cl := t.Claude; cl != nil {

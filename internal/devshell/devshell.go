@@ -120,39 +120,12 @@ func hinted(reason string) string {
 }
 
 // realise is Realise's devShell, a *none for none, or why it could not be
-// realised.
-//
-// A flake.nix is taken where git tracks it, as nix develop takes it from a
-// git checkout, and one that is not tracked is said rather than evaluated,
-// the checkout's shell.nix taken instead when it has one; in a directory
-// that is no git checkout, as it is, as nix develop takes it there. A
-// shell.nix is taken as nix-shell takes it, tracked or not.
+// realised: the checkout's, as kindOf finds it.
 func realise(ctx context.Context, n session.Nix, r Request, stderr io.Writer) (*session.DevShell, error) {
 	ws := r.Workspace
-	if !exists(ws+"/"+flake) && !exists(ws+"/"+shell) {
-		os.RemoveAll(r.Dir + "/devshell")
-		return nil, &none{}
-	}
-	kind, untracked := "", ""
-	var c checkout.Checkout
-	if exists(ws + "/" + flake) {
-		var files []string
-		var err error
-		c, files, err = tracked(ctx, n, ws)
-		var u *checkout.Unsortable
-		switch {
-		case errors.As(err, &u) && u.Reason == "not a git repository":
-			kind = flake
-		case err != nil:
-			return nil, fmt.Errorf("what %s tracks cannot be read, and a flake is what git tracks: %v", ws, err)
-		case slices.Contains(files, flake):
-			kind = flake
-		default:
-			untracked = fmt.Sprintf("%s: flake.nix is not tracked by git, and nix evaluates what git tracks: `git add` it", ws)
-		}
-	}
-	if kind == "" && exists(ws+"/"+shell) {
-		kind = shell
+	kind, c, untracked, err := kindOf(ctx, n, ws)
+	if err != nil {
+		return nil, err
 	}
 	dir := r.Dir + "/devshell"
 	if kind == "" {
@@ -163,11 +136,8 @@ func realise(ctx context.Context, n session.Nix, r Request, stderr io.Writer) (*
 	if untracked != "" {
 		term.Say(stderr, "%s", untracked)
 	}
-	if strings.ContainsAny(ws, "#?") {
-		return nil, fmt.Errorf("nix would read the # or ? in %s as part of a flake reference", ws)
-	}
-	if kind == shell && strings.ContainsAny(ws, ":=") {
-		return nil, fmt.Errorf("nix would read the : or = in %s as part of NIX_PATH, which restrict-eval allows", ws)
+	if err := readable(ws, kind); err != nil {
+		return nil, err
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
@@ -210,6 +180,48 @@ func realise(ctx context.Context, n session.Nix, r Request, stderr io.Writer) (*
 		j.record("env", "")
 	}
 	return ds, err
+}
+
+// kindOf is the kind of devShell the checkout at ws has -- flake.nix, or
+// shell.nix, or "" for none -- and the checkout it is in. A flake.nix is
+// taken where git tracks it, as nix develop takes it from a git checkout,
+// and one that is not tracked is said (untracked) rather than evaluated,
+// the checkout's shell.nix taken instead when it has one; in a directory
+// that is no git checkout, as it is, as nix develop takes it there. A
+// shell.nix is taken as nix-shell takes it, tracked or not.
+func kindOf(ctx context.Context, n session.Nix, ws string) (kind string, c checkout.Checkout, untracked string, err error) {
+	if exists(ws + "/" + flake) {
+		var files []string
+		c, files, err = tracked(ctx, n, ws)
+		var u *checkout.Unsortable
+		switch {
+		case errors.As(err, &u) && u.Reason == "not a git repository":
+			kind = flake
+		case err != nil:
+			return "", c, "", fmt.Errorf("what %s tracks cannot be read, and a flake is what git tracks: %v", ws, err)
+		case slices.Contains(files, flake):
+			kind = flake
+		default:
+			untracked = fmt.Sprintf("%s: flake.nix is not tracked by git, and nix evaluates what git tracks: `git add` it", ws)
+		}
+	}
+	if kind == "" && exists(ws+"/"+shell) {
+		kind = shell
+	}
+	return kind, c, untracked, nil
+}
+
+// readable refuses a checkout whose path nix would read as something
+// else: a # or ? as part of a flake reference, and, for a shell.nix, a :
+// or = as more of NIX_PATH, which restrict-eval allows.
+func readable(ws, kind string) error {
+	if strings.ContainsAny(ws, "#?") {
+		return fmt.Errorf("nix would read the # or ? in %s as part of a flake reference", ws)
+	}
+	if kind == shell && strings.ContainsAny(ws, ":=") {
+		return fmt.Errorf("nix would read the : or = in %s as part of NIX_PATH, which restrict-eval allows", ws)
+	}
+	return nil
 }
 
 // tracked is the checkout ws is in, and what of ws it tracks, relative to

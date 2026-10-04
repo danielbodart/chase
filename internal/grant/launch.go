@@ -263,6 +263,9 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 	// app's are: to a tier that allows every name, nothing.
 	var named struct {
 		Network *Network `json:"network"`
+		Apps    struct {
+			Nix *Nix `json:"nix"`
+		} `json:"apps"`
 	}
 	if err := json.Unmarshal([]byte(result.compact()), &named); err != nil {
 		return given, err
@@ -286,6 +289,11 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 		}
 		policydoc.Merge(pd, apps.Patch{Allow: names})
 		pd.LAN = append(pd.LAN, named.Network.LAN...)
+	}
+	// What it says of Nix is exec's, which gives the session its store and
+	// its devShell (internal/devshell): nothing of it is prepared here.
+	if n := named.Apps.Nix; n != nil {
+		given.Nix = &session.NixAsked{DevShell: n.DevShell, Store: n.Store}
 	}
 	return given, nil
 }

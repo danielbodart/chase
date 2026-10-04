@@ -3,36 +3,47 @@
 A checkout's devShell in its sessions, as `nix develop` would give it on the
 host: flake.nix's `devShells.<system>.default`, or its shell.nix, flake.nix's
 when it has both and git tracks it. The store is in every session already; the environment is
-not, since a session starts clean. So the launcher realises the devShell
-before the session starts, as you, keeps it rooted in chase's state, gives
-the session its variables and its PATH, and runs its shellHook inside the
-session. `nix` itself in a session is not this; it is flong's to give.
+not, since a session starts clean. So the devShell is evaluated -- by the
+launcher, as you, before the session starts, or by the session itself, over
+a store of its own -- and the session is given its variables and its PATH,
+and runs its shellHook.
 
-It is for your own code alone: a tier whose `egress` is `direct` and whose
-`allow` is `[ "*" ]`, and never a bare one, whose agent runs on the host with
-its own `nix develop`. What is evaluated is the checkout itself, on the host,
-and the checkout is what a session writes; nix runs in a bubblewrap that
-shows it nothing of the host's but the store, the nix daemon and the
-checkout, and its fetches are the host's own, neither filtered nor logged.
-Someone else's code waits on a store of the session's own, where the session
-evaluates its devShell itself, its fetches through frisket (flong's PLAN
-§3); until then, a tier of other egress, or a filtered allowlist, is refused
-with nix enabled. For the same reason a `chase record` launch's report never
-names what a devShell fetched: that was the host, not the session.
+Where it is evaluated is the tier's `store`. With the host's (`host`, the
+default) it is for your own code alone: a tier whose `egress` is `direct`
+and whose `allow` is `[ "*" ]`, and never a bare one, whose agent runs on
+the host with its own `nix develop`. What is evaluated is the checkout
+itself, on the host, and the checkout is what a session writes; nix runs in
+a bubblewrap that shows it nothing of the host's but the store, the nix
+daemon and the checkout, and its fetches are the host's own, neither
+filtered nor logged. For the same reason a `chase record` launch's report
+never names what a devShell fetched: that was the host, not the session.
+
+Someone else's code takes a store of the session's own (`session`, below):
+the session runs nix itself over it, evaluates its devShell there, ahead of
+the agent, and every fetch is the session's, through frisket and on its
+allowlist. Nothing of the checkout's Nix is evaluated on the host at all.
 
 | `chase.apps.nix.…` | Default | |
 |---|---|---|
-| `package` | `config.nix.package` | The nix that realises it, as you. |
+| `package` | `config.nix.package` | The host's nix: it realises the devShell, as you, where the store is the host's, and roots what a session's own store looks at where it is the session's. |
+| `sessionPackage` | `nixVersions.latest`, patched | The nix a session whose store is its own runs: the container's, on its `PATH`. Its read-only local store reads the host's database as any reader does, not as immutable, which upstream nix does not yet do (below). |
 | `nixpkgs` | `pkgs.path` | What `<nixpkgs>` is to a shell.nix: the system's own, so importing it fetches nothing. |
 | `timeout` | `1200` | Seconds a realisation may take before it is killed and counts as a failure. |
 
 | `chase.tiers.<name>.apps.nix.…` | Default | |
 |---|---|---|
-| `enable` | `false` | The checkout's devShell, whenever it has one. Only where `egress = "direct"` and `allow = [ "*" ]`, and not in a bare tier. |
-| `package`, `nixpkgs`, `timeout` | the machine's | |
+| `enable` | `false` | The checkout's devShell. Not in a bare tier; with the host's store, only where `egress = "direct"` and `allow = [ "*" ]`. |
+| `devShell` | `automatic` | `automatic`: whenever the checkout has one. `granted`: only when its approved grant asks (`apps.nix.devShell`), which takes `grants = true` and `store = "session"`. |
+| `store` | `host` | `host`: realised by the launcher, as you. `session`: a store of the session's own, where the session evaluates it. |
+| `maxBytes` | 8 GiB | Bytes a session's own store may hold before the session is stopped. |
+| `maxInodes` | `500000` | Inodes a session's own store may hold before the session is stopped. |
+| `maxRoots` | `20000` | Most of the host's paths rooted for one session's store. |
+| `promote` | `true` | Whether what a session's store substituted is realised on the host after it, from the host's own caches. |
+| `package`, `sessionPackage`, `nixpkgs`, `timeout` | the machine's | |
 
 ```nix
 chase.tiers.trusted.apps.nix.enable = true;
+chase.tiers.strict.apps.nix = { enable = true; devShell = "granted"; store = "session"; };
 ```
 
 flake.nix, flake.lock and shell.nix are the checkout's, never approved: an
@@ -172,3 +183,69 @@ go of them all:
 ```sh
 rm -r ~/.local/state/chase/checkouts/*/devshell
 ```
+
+## A store of the session's own
+
+With `store = "session"` the session runs `nix` itself, single-user, as
+you, over a store of its own (flong's PLAN §3): an overlay of the host's
+`/nix/store`, its writes kept on disk in
+`~/.cache/chase/nix/sessions/<machine>` for this one launch, and a
+local-overlay store over it, whose lower is the host's store, read-only,
+its database the host's, read live. What the host's store has, the session
+has; what the session fetches or builds goes into its upper alone, and the
+host's store is never written by it. A path of the host's store cannot be
+unlinked in it: flong gives the upper's root the lower's mode and owner.
+
+- **At binds**, before the grant is approved, chase makes the store, for a
+  tier whose devShell is `automatic`, or for a checkout whose chase.jsonc
+  asks for it as it is then; what it says decides only whether an empty
+  store is made, and nothing uses it unless the grant approved after it
+  asks too.
+- **At exec**, the session's nix is told its store -- `NIX_REMOTE`, its log,
+  the container's nix configuration and no user's -- and, where the
+  checkout has a devShell, `chase-devshell` runs ahead of the agent. It
+  evaluates the devShell with the session's nix, as the launcher does on
+  the host -- a flake purely, a shell.nix restricted, nothing of the
+  session's environment but what reaches its store and frisket's CA bundle
+  -- gives the agent its variables behind the session's own, and execs the
+  same bash. A path of the host's store being substituted by the host at
+  that moment is waited on, after 1, 3 and 9 s.
+- **While it runs**, `chase nix-watch`, in the session's cgroup, roots on
+  the host every path of the host's that the session's database holds,
+  read by sqlite3, read-only and defensively, each checked valid by the
+  host's own daemon, at most `maxRoots` of them, as one indirect root, so the
+  host's garbage collection takes nothing from under it; and stops the
+  session once its upper is past `maxBytes` or `maxInodes`, saying so.
+- **At postStop**, what the upper holds is promoted, where the tier
+  promotes, by name alone -- never a derivation or a lock -- as a unit of
+  your own: the host's daemon realises each from its own substituters, with
+  no build, so nothing the session built, nor anything unsigned, reaches the
+  host, and the next session finds the rest in the lower. Then the store is
+  removed, its root last. A store a killed launcher left is removed by the
+  next launch's binds, and hourly by `chase-nix-sweep.timer`.
+
+The container's nix is `sessionPackage`, set for the local-overlay store and
+the read-only one beneath it, with no sandbox -- nix turns it off itself in a
+user namespace it cannot nest another in, and the build is the session's own
+process, under its own filter -- no build users, a flake's own
+configuration never taken, and the machine's caches, signatures required.
+Its read-only local store is patched to read the host's database with
+`mode=ro`, through its WAL, as any other reader: upstream opens it
+immutable, which misses what the WAL holds and fails while the host
+checkpoints, so a path the host added during the session could not be
+read. Its schema must be the host's.
+
+`caches` does not govern this store: it is always the session's alone, since
+one shared would let one checkout plant a path the next one trusts.
+
+The grant turns it on in a tier whose devShell is `granted`:
+
+```jsonc
+{ "apps": { "nix": { "devShell": true } } }   // the devShell, and the store
+{ "apps": { "nix": { "store": true } } }      // the store alone
+```
+
+A devShell the grant asks for that cannot be evaluated ends the session
+before its agent starts, with status 125 and the reason said; a recording
+is never ended for it. In an `automatic` tier, `"devShell": false` leaves it
+out.

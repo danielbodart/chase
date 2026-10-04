@@ -17,11 +17,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"syscall"
 
 	"github.com/danielbodart/chase/internal/apps/claude"
@@ -31,6 +33,7 @@ import (
 	"github.com/danielbodart/chase/internal/gcloud"
 	"github.com/danielbodart/chase/internal/gitsafe"
 	"github.com/danielbodart/chase/internal/grant"
+	"github.com/danielbodart/chase/internal/nixstore"
 	"github.com/danielbodart/chase/internal/projectaddr"
 	"github.com/danielbodart/chase/internal/record"
 	"github.com/danielbodart/chase/internal/selector"
@@ -98,6 +101,15 @@ What the module runs, rather than a person:
                                    print the payload, its environment and the
                                    files seeded into its home
   chase hook poststop TIER         flong's postStop: release and remove it
+  chase hook nix-poststart TIER    flong's postStart where the tier's nix
+                                   store is the session's: watch it
+  chase hook nix-poststop TIER     flong's postStop there: promote and
+                                   remove it
+  chase nix-watch TIER MACHINE LEADER
+                                   a session's nix store, rooted on the
+                                   host and kept within the tier's limits
+  chase nix-sweep                  systemd: remove the nix stores of
+                                   sessions no container holds
   chase grant approve|project|docker ...
                                    the grant's steps, as a person uses them
   chase checkout [--ignoring ROOT] [DIR]
@@ -188,6 +200,10 @@ func main() {
 		exit(gcloud.Run(ctx, args, os.Getenv, os.Stderr, cfg.GCloudRenew))
 	case "ssh-check":
 		err = runSSHCheck(cfgPath)
+	case "nix-watch":
+		exit(runNixWatch(ctx, cfgPath, args))
+	case "nix-sweep":
+		err = runNixSweep(cfgPath)
 	case "version":
 		fmt.Println(version)
 	case "-h", "--help", "help":
@@ -364,7 +380,7 @@ func wrap(ctx context.Context, cfgPath, agent string, args []string) int {
 // and its arguments.
 func runHook(ctx context.Context, cfgPath string, args []string) int {
 	if len(args) < 2 {
-		fmt.Fprint(os.Stderr, "usage: chase hook binds|approve|exec|record-approve|record-exec|poststop TIER\n")
+		fmt.Fprint(os.Stderr, "usage: chase hook binds|approve|exec|record-approve|record-exec|poststop|nix-poststart|nix-poststop TIER\n")
 		return 2
 	}
 	hook, tier := args[0], args[1]
@@ -381,7 +397,20 @@ func runHook(ctx context.Context, cfgPath string, args []string) int {
 			term.Say(os.Stderr, "%s: %v", ws, err)
 			return 1
 		}
+		// A store of the session's own, where the tier's nix has one: for
+		// every session where its devShell is automatic, and otherwise
+		// where the checkout's grant asks for it -- read as it is now,
+		// before it is approved, to make an empty store nothing uses unless
+		// the grant approved after it asks too (internal/devshell).
+		if n := cfg.Session.Tiers[tier].Nix; n.InSession() && (!n.Granted() || takes && grant.AsksForNixStore(*cfg.Grant, ws, tier)) {
+			if err := nixstore.Binds(n.Session, machine, os.Stdout, os.Stderr); err != nil {
+				term.Say(os.Stderr, "%s: the session's nix store: %v", ws, err)
+				return 1
+			}
+		}
 		return 0
+	case "nix-poststart", "nix-poststop":
+		return runNixHook(ctx, cfgPath, cfg, hook, tier, machine)
 	case "exec":
 		return runExec(ctx, cfg, tier, ws, machine, takes, args[2:])
 	case "record-exec", "record-approve":
@@ -433,6 +462,98 @@ func runExec(ctx context.Context, cfg config.Config, tier, ws, machine string, t
 		e = cfg.Grant
 	}
 	return grant.Exec(ctx, cfg.Session, e, nil, tier, ws, machine, os.Getenv("binds"), args, os.Stdout, os.Stderr)
+}
+
+// runNixHook is a hook of a tier whose nix store is the session's own
+// (internal/nixstore). postStart starts its watcher, `chase nix-watch`,
+// for a session whose binds made one: in the session's cgroup, which
+// postStart runs in, so it ends with the session, apart from the hook,
+// which the entrypoint waits on, its stderr the launcher's, where it says
+// what it does. postStop promotes what the store substituted and removes
+// it, keyed by $machine alone.
+func runNixHook(ctx context.Context, cfgPath string, cfg config.Config, hook, tier, machine string) int {
+	n := cfg.Session.Tiers[tier].Nix
+	if !n.InSession() {
+		fmt.Fprintf(os.Stderr, "chase hook %s: %s's nix store is not the session's\n", hook, tier)
+		return 1
+	}
+	if hook == "nix-poststop" {
+		if err := nixstore.PostStop(ctx, *n, machine, cfg.Session.Runtime, os.Stderr); err != nil {
+			term.Say(os.Stderr, "the nix store of %s: %v", machine, err)
+			return 1
+		}
+		return 0
+	}
+	dir, err := nixstore.Dir(n.Session, machine)
+	if err != nil {
+		term.Say(os.Stderr, "%v", err)
+		return 1
+	}
+	if _, err := os.Lstat(dir); err != nil {
+		return 0
+	}
+	self, err := os.Executable()
+	if err != nil {
+		term.Say(os.Stderr, "%v", err)
+		return 1
+	}
+	cmd := exec.Command(self, "-config", cfgPath, "nix-watch", tier, machine, os.Getenv("leader"))
+	cmd.Env = []string{}
+	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		term.Say(os.Stderr, "the nix store of %s is not watched: %v", machine, err)
+		return 1
+	}
+	cmd.Process.Release()
+	return 0
+}
+
+// runNixWatch is `chase nix-watch TIER MACHINE LEADER` (nixstore.Watch):
+// until the session ends, which ends it too, or it ends the session.
+func runNixWatch(ctx context.Context, cfgPath string, args []string) int {
+	if len(args) != 3 {
+		fmt.Fprint(os.Stderr, "usage: chase nix-watch TIER MACHINE LEADER\n")
+		return 2
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "chase nix-watch: %v\n", err)
+		return 1
+	}
+	n := cfg.Session.Tiers[args[0]].Nix
+	if !n.InSession() {
+		fmt.Fprintf(os.Stderr, "chase nix-watch: %s's nix store is not the session's\n", args[0])
+		return 1
+	}
+	leader, err := strconv.Atoi(args[2])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "chase nix-watch: the leader %q is no pid\n", args[2])
+		return 2
+	}
+	if err := nixstore.Watch(ctx, *n, args[1], leader, os.Stderr); err != nil {
+		term.Say(os.Stderr, "%v", err)
+		return 1
+	}
+	return 0
+}
+
+// runNixSweep is `chase nix-sweep`, the hourly timer's: the stores of
+// sessions no container holds, removed, for every tier whose nix store is
+// the session's own, as each launch's binds removes them.
+func runNixSweep(cfgPath string) error {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, name := range slices.Sorted(maps.Keys(cfg.Session.Tiers)) {
+		if n := cfg.Session.Tiers[name].Nix; n.InSession() && !seen[n.Session.Root] {
+			seen[n.Session.Root] = true
+			nixstore.Sweep(n.Session, os.Stderr)
+		}
+	}
+	return nil
 }
 
 // runRecord is `chase record`: a session of the checkout's own tier, as

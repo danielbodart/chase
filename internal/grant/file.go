@@ -100,9 +100,37 @@ type Apps struct {
 	Git         *Lists      `json:"git,omitempty"`
 	Github      *Lists      `json:"github,omitempty"`
 	Huggingface *Lists      `json:"huggingface,omitempty"`
+	Nix         *Nix        `json:"nix,omitempty"`
 	// SSH is the machines the project's sessions run commands on, each
 	// with its own lists (internal/apps/ssh).
 	SSH *appsssh.Binding `json:"ssh,omitempty"`
+}
+
+// Nix is what a project's sessions are given of Nix, in a tier whose
+// apps.nix waits on the grant (devShell "granted"), where the session runs
+// nix over a store of its own (internal/nixstore): nothing in a tier that
+// gives it whenever a checkout has a devShell, but DevShell false, which
+// leaves that out.
+type Nix struct {
+	// DevShell is whether the checkout's devShell -- flake.nix's
+	// devShells.<system>.default, or shell.nix's -- is evaluated in the
+	// session, over its own store, and its environment given to the agent;
+	// and with it the store. True makes one that cannot be evaluated end
+	// the session, rather than be said.
+	//
+	// The flake's files are not approved with it: the devShell is what the
+	// checkout's flake.nix or shell.nix says at each launch, the session
+	// that evaluates it standing in for an approval (PLAN.md, decision 21).
+	DevShell *bool `json:"devShell,omitempty"`
+	// Store is whether the session runs nix over a store of its own, with
+	// no devShell evaluated for it: true gives the store alone.
+	Store *bool `json:"store,omitempty"`
+}
+
+// asks is whether n asks for the session's store: its devShell, or the
+// store alone.
+func (n *Nix) asks() bool {
+	return n != nil && (n.DevShell != nil && *n.DevShell || n.Store != nil && *n.Store)
 }
 
 // Lists is an app's lists (PLAN.md, decision 18). What a project names
