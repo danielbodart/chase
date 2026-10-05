@@ -48,7 +48,7 @@ does not trust its checkouts, the container is the only boundary around it.
 
 | `chase.apps.deepsec.…` | Default | |
 |---|---|---|
-| `package` | | deepsec. No default: the package must carry fixes for running in a session -- frisket's CA passed to its agents, its codex sandbox under `DEEPSEC_INSIDE_SANDBOX`, a workspace's `deepsec/config` import resolved to the package, its Claude Code's queries reading no settings files, and `local` the model route given none. Without one there is no `deepsec` on the host. |
+| `package` | | deepsec. No default: the package must carry fixes for running in a session -- frisket's CA passed to its agents, its codex sandbox under `DEEPSEC_INSIDE_SANDBOX`, a workspace's `deepsec/config` import resolved to the package, its Claude Code's queries reading no settings files, `local` the model route given none, Claude Code with Opus 5.5 at medium the model given none, and 150 turns for its analysis of a repository. Without one there is no `deepsec` on the host. |
 
 | `chase.tiers.<name>.apps.deepsec.…` | Default | |
 |---|---|---|
