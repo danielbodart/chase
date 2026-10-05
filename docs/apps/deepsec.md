@@ -39,8 +39,11 @@ and caps what deepsec itself writes to stdout and stderr: long lines are
 cut short, and after 8 MiB it writes no more. `CLAUDE_CODE_EXECUTABLE` is
 the tier's Claude Code, which runs under the tier's managed settings and
 nothing else: not the tier's `--settings`, not the person's, not the
-checkout's `.claude`. So where they deny Bash, deepsec's investigations read
-and search but run no commands.
+checkout's `.claude`. Those ignore the tools deepsec allows, and by
+default start Claude Code in auto mode, which decides each command as it
+would a session's: so deepsec's Bash runs where auto mode lets it. On the
+host, where deepsec keeps Claude Code's own sandbox, its Bash runs in that,
+which the package gives bubblewrap and socat.
 
 deepsec runs the checkout's own code. It loads the `deepsec.config.ts` it
 finds, which a checkout can ship, and runs it as JavaScript: in a tier that
