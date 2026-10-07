@@ -96,9 +96,13 @@ in
 
   config = {
     # On the host: a bind's or an overlay's source must exist, and flong
-    # makes none for it.
-    systemd.tmpfiles.rules = mkIf (enabled != { }) (map
-      (p: "d ${p} 0755 ${cfg.user} ${toString cfg.gid} -")
+    # makes none for it. The user's own tmpfiles, not the system's: they run
+    # as the user when the user's manager starts, so a parent they have to
+    # make -- ~/.local, ~/.config on a fresh machine -- is the user's. The
+    # system's run as root, make such a parent root's, and leave a home
+    # with directories its owner cannot write in.
+    systemd.user.tmpfiles.users.${cfg.user}.rules = mkIf (enabled != { }) (map
+      (p: "d ${p} 0755 - - -")
       (lib.unique (lib.attrValues dirs ++ lib.concatMap (t: t.apps.mise.config) (lib.attrValues enabled))));
 
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" (mkIf tier.apps.mise.enable {

@@ -115,10 +115,11 @@ in
 
     # On the host: a bind's source must exist, and flong makes none for it.
     # The parent too, which is where the host's token is, and so the user's
-    # alone.
-    systemd.tmpfiles.rules = mkIf (lib.any (t: t.apps.huggingface.enable && t.apps.huggingface.scope == "host") (lib.attrValues cfg.tiers))
-      ([ "d ${cfg.home}/.cache/huggingface 0700 ${cfg.user} ${toString cfg.gid} -" ]
-        ++ map (p: "d ${p} 0755 ${cfg.user} ${toString cfg.gid} -") cache);
+    # alone. The user's own tmpfiles, as mise's are (./mise.nix), so that
+    # ~/.cache, if they have to make it, is the user's too.
+    systemd.user.tmpfiles.users.${cfg.user}.rules = mkIf (lib.any (t: t.apps.huggingface.enable && t.apps.huggingface.scope == "host") (lib.attrValues cfg.tiers))
+      ([ "d ${cfg.home}/.cache/huggingface 0700 - - -" ]
+        ++ map (p: "d ${p} 0755 - - -") cache);
 
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" (mkIf tier.apps.huggingface.enable {
       bindMounts = mkIf (tier.apps.huggingface.scope == "host")

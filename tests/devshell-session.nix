@@ -232,10 +232,13 @@ in
       machine.wait_for_unit("frisket.service")
       machine.wait_for_unit("user@1000.service")
       machine.succeed("runuser -u alice -- sh -c 'echo the-users-bashrc > ${home}/.bashrc'")
-      # mise's directories and chase's state, alice's own, as on a desk:
-      # tmpfiles makes none of them in a home that is hers.
-      machine.succeed("mkdir -p ${home}/.config/mise ${home}/.local/share/mise ${home}/.local/state/mise ${home}/.cache/mise ${home}/.local/state/chase"
-                      " && chown -R alice:users ${home}")
+      # mise's directories come from alice's own tmpfiles, run as her when her
+      # manager started: hers, and so is every parent they had to make in a
+      # home where none existed yet -- as on a freshly installed machine.
+      machine.succeed("test \"$(stat -c %U ${home}/.config ${home}/.config/mise ${home}/.local ${home}/.local/share/mise"
+                      " ${home}/.local/state/mise ${home}/.cache ${home}/.cache/mise | sort -u)\" = alice")
+      # chase's state, which nothing declares.
+      machine.succeed("runuser -u alice -- mkdir -p ${home}/.local/state/chase")
 
       with subtest("in a tier of one's own code, no devShell but the grant's"):
           checkout("mine-nogrant", "${shellNix}", "shell.nix")
