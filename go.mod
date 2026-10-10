@@ -5,7 +5,7 @@ module github.com/danielbodart/chase
 go 1.26.0
 
 require (
-	github.com/danielbodart/frisket v0.105.66-0.20261002234001-97fb0203f30c
+	github.com/danielbodart/frisket v0.126.78-0.20261010082055-07667e35cf6a
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
 	github.com/vektah/gqlparser/v2 v2.5.58
 	go.yaml.in/yaml/v3 v3.0.5
