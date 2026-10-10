@@ -70,7 +70,7 @@
         # frisket's own code; and golang.org/x/crypto's ssh, which reads an SSH
         # grant's host keys as frisket does. The frisket-pin check holds
         # go.mod's frisket to the one flake.lock pins.
-        vendorHash = "sha256-8v2n1eYmo5qepiAjmZ3YjnMJ3pVOG4SLi+zQ1kErpE0=";
+        vendorHash = "sha256-AckJFxNwYAiVSxRChlJM+Wcvj7Jmz5EQAKitiKwf+y8=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -316,6 +316,7 @@
                           claude.package = nixpkgs.legacyPackages.${system}.hello;
                           codex.package = nixpkgs.legacyPackages.${system}.hello;
                           github.credentialFile = "/run/secrets/gh_token";
+                          ssh.agentSocket = lib.mkDefault "/run/user/1000/gcr/ssh";
                         };
                       };
                     }
@@ -412,6 +413,32 @@
               && config.containers ? chase-strict && config.flong ? chase-trusted
               && config.services.frisket.policies ? strict)
               || throw "assertions: a bare tier was given a sandbox, or a sandbox was not";
+            # GIT SIGNING follows authenticated: trusted's sessions sign
+            # through frisket's agent for the tier, strict's have none.
+            assert refused "signing with no agent"
+              { chase.apps.ssh.agentSocket = null; }
+              "chase.tiers.trusted.apps.git.sign is on, and chase.apps.ssh.agentSocket names no agent";
+            assert
+              (let
+                config = configWith { };
+                off = configWith { chase.tiers.trusted.apps.git.sign = false; };
+                p = config.services.frisket.policies;
+                c = config.containers;
+                dir = "/run/frisket-sign/trusted";
+              in
+              p.trusted.gitSigning && ! p.strict.gitSigning
+              && config.services.frisket.gitSigning.agent == "/run/user/1000/gcr/ssh"
+              && c.chase-trusted.bindMounts.${dir} == { hostPath = dir; isReadOnly = true; mountPoint = dir; }
+              && c.chase-trusted.config.environment.variables.SSH_AUTH_SOCK == "${dir}/agent"
+              && config.chase.internal.config.session.tiers.trusted.environment.SSH_AUTH_SOCK == "${dir}/agent"
+              && lib.any (p: p.pname or "" == "openssh") c.chase-trusted.config.environment.systemPackages
+              && ! lib.any (lib.hasPrefix "/run/frisket-sign") (lib.attrNames c.chase-strict.bindMounts)
+              && ! c.chase-strict.config.environment.variables ? SSH_AUTH_SOCK
+              && ! off.services.frisket.policies.trusted.gitSigning
+              && off.services.frisket.gitSigning.agent == null
+              && ! off.containers.chase-trusted.bindMounts ? ${dir}
+              && ! off.containers.chase-trusted.config.environment.variables ? SSH_AUTH_SOCK)
+              || throw "assertions: git signing is not where the tiers say";
             # RECORDING (record.nix) is a tier's own second launcher: on its
             # container, with its guard, binds and filter, but every
             # connection steered to frisket and chase's record hooks in
@@ -702,7 +729,7 @@
             assert refused "SSH in a bare tier"
               { chase.tiers.host.apps.ssh.enable = true; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; } "chase.tiers.host.apps.ssh is enabled, but the tier is bare";
             assert refused "SSH with nothing to log in with"
-              { chase.tiers.trusted.apps.ssh.enable = true; } "chase.apps.ssh needs exactly one of agentSocket and keyFile";
+              { chase.tiers.trusted.apps.ssh.enable = true; chase.apps.ssh.agentSocket = null; chase.tiers.trusted.apps.git.sign = false; } "chase.apps.ssh needs exactly one of agentSocket and keyFile";
             assert refused "SSH with two things to log in with"
               { chase.tiers.trusted.apps.ssh.enable = true; chase.apps.ssh = { agentSocket = "/run/user/1000/gcr/ssh"; keyFile = "/home/alice/.ssh/k"; }; } "exactly one of agentSocket and keyFile";
             assert refused "an agent under /tmp, which the daemon's PrivateTmp hides"
@@ -714,7 +741,7 @@
             assert refused "a key file that is not clean"
               { chase.tiers.trusted.apps.ssh.enable = true; chase.apps.ssh.keyFile = "/home/alice/../bob/k"; } "is not a clean path";
             assert refused "an identity with no agent"
-              { chase.tiers.trusted.apps.ssh.enable = true; chase.apps.ssh = { keyFile = "/home/alice/.ssh/k"; identity = "SHA256:${lib.fixedWidthString 43 "A" ""}"; }; } "identity names a key of an agent's";
+              { chase.tiers.trusted.apps.ssh.enable = true; chase.apps.ssh = { agentSocket = null; keyFile = "/home/alice/.ssh/k"; identity = "SHA256:${lib.fixedWidthString 43 "A" ""}"; }; } "identity names a key of an agent's";
             # A Nix path is no string: it would copy the key into the store.
             assert ! (builtins.tryEval (configWith { chase.apps.ssh.keyFile = ./flake.nix; }).chase.apps.ssh.keyFile).success
               || throw "assertions: a key file given as a Nix path was taken";
@@ -751,6 +778,8 @@
               (let
                 key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHp6lanvRi86XJnpME3lUbtyAWnykpE7SwLQXBzaXa/F";
                 config = configWith {
+                  chase.apps.ssh.agentSocket = null;
+                  chase.tiers.trusted.apps.git.sign = false;
                   chase.tiers.strict.apps.ssh = {
                     enable = true;
                     hosts.modem = { address = "192.168.1.1"; user = "admin"; hostKeys = [ key ]; passwordFile = "/run/secrets/modem-password"; shell = true; };
@@ -781,7 +810,7 @@
             assert refused "a tier machine with an upper-case name"
               { chase.tiers.trusted.apps.ssh = { enable = true; hosts.M = { address = "10.0.0.9"; user = "u"; hostKeys = [ "k" ]; }; }; chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh"; } "'M' is not a host's name";
             assert refused "a tier machine logging in with the machine's credential, which it has not"
-              { chase.tiers.strict.apps.ssh = { enable = true; hosts.m = { address = "10.0.0.9"; user = "u"; hostKeys = [ "k" ]; }; }; } "a tier's that names none of its own";
+              { chase.apps.ssh.agentSocket = null; chase.tiers.strict.apps.ssh = { enable = true; hosts.m = { address = "10.0.0.9"; user = "u"; hostKeys = [ "k" ]; }; }; } "a tier's that names none of its own";
             # A MACHINE'S OWN CATALOGUE: a name the machine offers, each in
             # the store, and the machine's build checks every one, and every
             # tier's own machines, as a launch would.

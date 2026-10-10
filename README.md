@@ -80,6 +80,7 @@ its grant. The design and its decisions are in [PLAN.md](PLAN.md).
       claude.package = inputs.claude-code.packages.${system}.default;
       codex.package = inputs.codex-cli.packages.${system}.default;
       github.credentialFile = config.sops.secrets.gh_token.path;
+      ssh.agentSocket = "/run/user/1000/gcr/ssh";
     };
   };
 }

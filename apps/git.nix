@@ -66,6 +66,9 @@ let
   # Where a clone's other bytes come from: archives, raw files, release
   # assets and LFS objects. Allowed by name and spliced, never intercepted.
   hosts = [ host "codeload.github.com" "*.githubusercontent.com" ];
+
+  signing = lib.filterAttrs (_: t: !t.bare && t.apps.git.enable && t.apps.git.sign) cfg.tiers;
+  signDir = name: "/run/frisket-sign/${name}";
 in
 {
   options.chase.apps.git = {
@@ -108,19 +111,40 @@ in
         authenticated = mkEnableOption ''
           git with the credential: a clone or fetch goes straight through,
           and a push -- a write -- is answered as `writes` says'';
+        sign = mkOption {
+          type = types.bool;
+          default = config.apps.git.authenticated;
+          defaultText = lib.literalExpression "config.apps.git.authenticated";
+          description = ''
+            Sign commits: SSH_AUTH_SOCK in a session is frisket's agent at
+            /run/frisket-sign/<tier>/agent, which signs git's SSHSIGs with
+            `chase.apps.ssh.agentSocket`'s keys and refuses anything else.
+            Which key, and that git signs at all, is the user's git config's
+            to say.
+          '';
+        };
       };
     }));
   };
 
   config = {
-    assertions = apps.credentialAssertions cfg.tiers "git";
+    assertions = apps.credentialAssertions cfg.tiers "git"
+      ++ lib.mapAttrsToList (name: _: {
+        assertion = cfg.apps.ssh.agentSocket != null;
+        message = "chase.tiers.${name}.apps.git.sign is on, and chase.apps.ssh.agentSocket names no agent to sign with.";
+      }) signing;
+
+    services.frisket.gitSigning.agent = mkIf (signing != { }) cfg.apps.ssh.agentSocket;
 
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" (mkIf tier.apps.git.enable {
       # Read-only: a session uses the user's configuration and cannot change
       # it.
-      bindMounts = mkIf tier.apps.git.authenticated (lib.listToAttrs (map
-        (p: lib.nameValuePair p { hostPath = p; isReadOnly = true; })
-        tier.apps.git.config));
+      bindMounts = mkMerge [
+        (mkIf tier.apps.git.authenticated (lib.listToAttrs (map
+          (p: lib.nameValuePair p { hostPath = p; isReadOnly = true; })
+          tier.apps.git.config)))
+        (mkIf (signing ? ${name}) { ${signDir name} = { hostPath = signDir name; isReadOnly = true; }; })
+      ];
       config = mkMerge [
         # git-lfs on the PATH: a repository's LFS hooks look for it there.
         { programs.git = { enable = true; inherit (tier.apps.git) package; config = https; }; environment.systemPackages = [ pkgs.git-lfs ]; }
@@ -129,6 +153,9 @@ in
         (mkIf tier.apps.git.authenticated {
           programs.git.config.credential."https://${host}".helper =
             "!f() { if [ \"$1\" = get ]; then printf 'username=x-access-token\\npassword=%s\\n' ${lib.escapeShellArg cfg.placeholder}; fi; }; f";
+        })
+        (mkIf (signing ? ${name}) {
+          environment.variables.SSH_AUTH_SOCK = "${signDir name}/agent";
         })
       ];
     })) cfg.tiers;
@@ -155,6 +182,6 @@ in
           placeholder = cfg.placeholder;
           basicUser = "x-access-token";
         };
-      })) cfg.tiers;
+      } // lib.optionalAttrs (signing ? ${name}) { gitSigning = true; })) cfg.tiers;
   };
 }
