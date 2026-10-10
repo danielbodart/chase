@@ -70,7 +70,7 @@
         # frisket's own code; and golang.org/x/crypto's ssh, which reads an SSH
         # grant's host keys as frisket does. The frisket-pin check holds
         # go.mod's frisket to the one flake.lock pins.
-        vendorHash = "sha256-AckJFxNwYAiVSxRChlJM+Wcvj7Jmz5EQAKitiKwf+y8=";
+        vendorHash = "sha256-94AZ4z027jy26NmiFOIGcSm+sVSuqdKNRyIzuiSumnc=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
