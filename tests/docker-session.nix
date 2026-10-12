@@ -179,6 +179,7 @@ in
       import shlex
       from datetime import timedelta
 
+      ${builtins.readFile ./vm-read.py}
       def as_user(script):
           inner = "export PATH=/run/wrappers/bin:/run/current-system/sw/bin; " + script
           return ("systemd-run -M alice@ --user --wait --pipe --quiet --collect "
@@ -261,7 +262,7 @@ in
           run = f"/run/user/1000/chase/{name}"
           approvals = machine.succeed("journalctl -t chase-test-approver -o cat --no-pager")
           assert '\\"dockerProject\\": \\"${project}\\"' in approvals, approvals
-          policy = json.loads(machine.succeed(f"cat {run}/policy.json"))
+          policy = vm_json(machine, f"{run}/policy.json")
           [route] = [r for r in policy["routes"] if r["name"] == "docker"]
           d = route["docker"]
           assert d["project"] == "${project}" and d["address"] == "${address}" and d["ports"] == [64320], d

@@ -209,6 +209,7 @@ in
       import json
       import shlex
 
+      ${builtins.readFile ./vm-read.py}
       def as_user(script):
           inner = "export PATH=/run/wrappers/bin:/run/current-system/sw/bin; " + script
           return ("systemd-run -M alice@ --user --wait --pipe --quiet --collect "
@@ -219,7 +220,7 @@ in
           return [json.loads(l) for l in out.splitlines() if l.startswith("{")]
 
       def result(run, name):
-          return machine.succeed(f"cat ${ws}/out/{run}/{name}")
+          return vm_read(machine, f"${ws}/out/{run}/{name}")
 
       start_all()
       upstream.wait_for_unit("upstream.service")
@@ -257,9 +258,9 @@ in
 
           [kept] = machine.succeed("ls /home/alice/.local/state/chase/records").split()
           at = f"/home/alice/.local/state/chase/records/{kept}"
-          meta = json.loads(machine.succeed(f"cat {at}/meta.json"))
+          meta = vm_json(machine, f"{at}/meta.json")
           assert (meta["tier"], meta["workspace"], meta["options"]) == ("recorded", "${ws}", {"default": "allow", "base": "tier"}), meta
-          lines = [json.loads(l) for l in machine.succeed(f"cat {at}/record.jsonl").splitlines()]
+          lines = [json.loads(l) for l in vm_read(machine, f"{at}/record.jsonl").splitlines()]
           http = [l for l in lines if l["kind"] == "http"]
           assert [(l["route"], l["method"], l.get("operation"), l["answer"], l["source"]) for l in http] == \
               [("github", "DELETE", "git/delete-ref", "allow", "default")], http
@@ -271,7 +272,7 @@ in
           machine.succeed(f"test ! -e /var/lib/frisket/records/{kept}.jsonl")
           machine.fail("ls /run/user/1000/chase/.record/* 2>/dev/null | grep .")
 
-          proposal = machine.succeed(f"cat {at}/proposal.jsonc")
+          proposal = vm_read(machine, f"{at}/proposal.jsonc")
           print(proposal)
           for needle in ['"git/delete-ref"', '"plain.test"', '{"name":"nas.test","ports":[80]}', '"ptrace"', "loosens"]:
               assert needle in proposal, (needle, proposal)
@@ -282,17 +283,17 @@ in
           print(report)
           assert result("scratch", "strace").splitlines()[-1] == "0", result("scratch", "strace")
           at = machine.succeed("ls -td /home/alice/.local/state/chase/records/* | head -1").strip()
-          assert json.loads(machine.succeed(f"cat {at}/meta.json"))["options"] == {"default": "allow", "base": "none"}
-          calls = {json.loads(l)["name"] for l in machine.succeed(f"cat {at}/record.jsonl").splitlines() if '"syscall"' in l}
+          assert vm_json(machine, f"{at}/meta.json")["options"] == {"default": "allow", "base": "none"}
+          calls = {json.loads(l)["name"] for l in vm_read(machine, f"{at}/record.jsonl").splitlines() if '"syscall"' in l}
           # The tier's own calls are seen, its filter's exceptions proposed.
           assert {"execve", "ptrace"} <= calls, calls
-          proposal = machine.succeed(f"cat {at}/proposal.jsonc")
+          proposal = vm_read(machine, f"{at}/proposal.jsonc")
           assert '"ptrace"' in proposal and '"execve"' not in proposal, proposal
 
       with subtest("chase record apply adds the proposal to the checkout's grant"):
           out = machine.succeed(as_user(f"cd ${ws} && ${chase} record apply {kept}"))
           print(out)
-          grant = machine.succeed("cat ${ws}/chase.jsonc")
+          grant = vm_read(machine, "${ws}/chase.jsonc")
           print(grant)
           for needle in ['"git/delete-ref"', '"plain.test"', '"nas.test"', '"lan"', '"ptrace"']:
               assert needle in grant, (needle, grant)

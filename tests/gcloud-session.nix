@@ -410,6 +410,7 @@ in
       import shlex
       from datetime import timedelta
 
+      ${builtins.readFile ./vm-read.py}
       def as_user(script):
           inner = "export PATH=/run/wrappers/bin:/run/current-system/sw/bin; " + script
           return ("systemd-run -M alice@ --user --wait --pipe --quiet --collect "
@@ -477,10 +478,10 @@ in
           assert user_unit("is-active", f"chase-gcloud-renew@{name}.service") == "active"
           issued = [l["issued"] for l in google_log() if "issued" in l]
           assert len(issued) >= 1, google_log()
-          token_file = json.loads(machine.succeed(f"cat {run}/gcloud-token.json"))
+          token_file = vm_json(machine, f"{run}/gcloud-token.json")
           assert token_file["access_token"] in issued, token_file
           machine.succeed(f"test \"$(stat -c %a {run}/secrets/gcloud)\" = 600")
-          policy = json.loads(machine.succeed(f"cat {run}/policy.json"))
+          policy = vm_json(machine, f"{run}/policy.json")
           routes = {r["name"]: r for r in policy["routes"]}
           ids = {p["operation"]["id"] for p in routes["gcloud"]["paths"] if "operation" in p}
           assert {"storage.objects.get", "pubsub.projects.topics.get"} <= ids and "bigquery.datasets.get" not in ids, sorted(ids)[:40]
@@ -496,7 +497,7 @@ in
           key_path = env["GOOGLE_APPLICATION_CREDENTIALS"]
           assert key_path.startswith("/home/alice/.config/chase/gcloud-key-") and key_path.endswith(".json"), key_path
           kept = machine.succeed(f"ls /home/alice/.local/state/chase/checkouts/*/{key_path.rsplit('/', 1)[1]}").strip()
-          assert machine.succeed(f"cat {kept}") == machine.succeed(f"cat {out}/key.json"), kept
+          assert vm_read(machine, kept) == vm_read(machine, f"{out}/key.json"), kept
           assert machine.succeed(f"cat {out}/key-mode").strip() == "600", machine.succeed(f"cat {out}/key-mode")
           machine.fail(f"test -e {key_path}")
           assert env["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"] == key_path, env
@@ -505,8 +506,8 @@ in
           for v in ["CLOUDSDK_CORE_CUSTOM_CA_CERTS_FILE", "GRPC_DEFAULT_SSL_ROOTS_FILE_PATH"]:
               assert env[v] == "/etc/frisket/ca-bundle.crt", (v, env)
           assert not [k for k in env if k in ("GOOGLE_CLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT")], env
-          fake = json.loads(machine.succeed(f"cat {out}/key.json"))
-          real = json.loads(machine.succeed("cat /root/real/key.json"))
+          fake = vm_json(machine, f"{out}/key.json")
+          real = vm_json(machine, "/root/real/key.json")
           assert fake["type"] == "service_account" and fake["client_email"] == "${sa}" and fake["project_id"] == "chase-test", fake
           assert fake["private_key_id"] != real["private_key_id"] and fake["private_key"] != real["private_key"]
           assert "client_id" not in fake, fake

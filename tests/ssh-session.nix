@@ -171,6 +171,7 @@ in
       import shlex
       from datetime import timedelta
 
+      ${builtins.readFile ./vm-read.py}
       def as_user(script):
           inner = "export PATH=/run/wrappers/bin:/run/current-system/sw/bin; " + script
           return ("systemd-run -M alice@ --user --wait --pipe --quiet --collect "
@@ -222,7 +223,7 @@ in
           name = machine.succeed("cat /tmp/last-session").strip()
           approvals = machine.succeed("journalctl -t chase-test-approver -o cat --no-pager")
           assert "${address}" in approvals, approvals
-          policy = json.loads(machine.succeed(f"cat /run/user/1000/chase/{name}/policy.json"))
+          policy = vm_json(machine, f"/run/user/1000/chase/{name}/policy.json")
           routes = {r["name"]: r for r in policy["ssh"]}
           assert sorted(routes) == ["box", "server"], routes
           route = routes["server"]
