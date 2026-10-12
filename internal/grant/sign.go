@@ -84,7 +84,11 @@ func (c Config) signerAgent() string {
 // what a process's working directory reads as, and so what the signer and
 // the courier name its namespace by.
 func Root(ws string) (string, error) {
-	r, err := filepath.EvalSymlinks(ws)
+	abs, err := filepath.Abs(ws)
+	if err != nil {
+		return "", err
+	}
+	r, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return "", err
 	}

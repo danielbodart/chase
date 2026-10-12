@@ -562,3 +562,18 @@ func TestTheFlongSectionIsCheckedByFlong(t *testing.T) {
 		t.Skip("no sh")
 	}
 }
+
+// `chase sign` and `chase migrate` with no DIR name the working directory
+// ".", which the signer's namespace needs absolute, as the kernel names it.
+func TestTheRootOfTheWorkingDirectoryIsAbsolute(t *testing.T) {
+	ws := t.TempDir()
+	t.Chdir(ws)
+	root, err := grant.Root(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := filepath.EvalSymlinks(ws)
+	if root != want || !filepath.IsAbs(root) {
+		t.Fatalf("Root(\".\") = %q, want %q", root, want)
+	}
+}
