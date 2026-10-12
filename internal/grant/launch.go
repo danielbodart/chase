@@ -3,10 +3,9 @@ package grant
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"os"
@@ -17,11 +16,11 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/danielbodart/frisket/hostpattern"
 	"github.com/danielbodart/frisket/policy"
 
 	"github.com/danielbodart/chase/internal/apps"
 	"github.com/danielbodart/chase/internal/files"
-	"github.com/danielbodart/chase/internal/policydoc"
 	"github.com/danielbodart/chase/internal/session"
 	"github.com/danielbodart/chase/internal/term"
 )
@@ -74,20 +73,20 @@ func launch(ctx context.Context, c Config, registry map[string]apps.App, rec *Re
 	if err != nil {
 		return session.Given{}, err
 	}
-	var pd policy.Document
-	if err := policy.Decode(pb, &pd); err != nil {
-		return session.Given{}, err
+	pd, err := policy.DecodeV2(pb)
+	if err != nil {
+		return session.Given{}, fmt.Errorf("%s/%s.json: %w", c.Policies, tier, err)
 	}
 	// The tier's own machines, in every session of it, before any app a
-	// grant binds: SSH's Prepare refuses a grant's machine of the same name
-	// or address, so none of them is replaced.
+	// project binds: SSH's Prepare refuses a project's machine of the same
+	// name or address, so none of them is replaced.
 	if c.SSH != nil {
 		routes, err := c.SSH.TierRoutes(tier)
 		if err != nil {
 			return session.Given{}, refuse("%s: ssh: %v", ws, err)
 		}
 		if len(routes) > 0 {
-			policydoc.Merge(&pd, apps.Patch{SSH: routes})
+			merge(&pd, apps.Patch{SSH: routes})
 		}
 	}
 	var given session.Given
@@ -96,10 +95,6 @@ func launch(ctx context.Context, c Config, registry map[string]apps.App, rec *Re
 			return session.Given{}, err
 		}
 	}
-	var out bytes.Buffer
-	enc := json.NewEncoder(&out)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
 	// A recording's block, in the document frisket serves the session
 	// under; any the tier's own document had is replaced, as only a
 	// recording has one.
@@ -107,6 +102,10 @@ func launch(ctx context.Context, c Config, registry map[string]apps.App, rec *Re
 	if rec != nil {
 		pd.Record = rec.block(c, machine)
 	}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
 	if err := enc.Encode(pd); err != nil {
 		return session.Given{}, err
 	}
@@ -119,68 +118,94 @@ func launch(ctx context.Context, c Config, registry map[string]apps.App, rec *Re
 	return given, nil
 }
 
-// apply is the staged approval b, applied to the tier's document pd for the
-// session whose directory is run: its secrets decrypted there, each bound
-// app prepared and merged in, and the project's lists applied last.
-func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *policy.Document, b []byte, run, tier, ws string, stderr io.Writer) (session.Given, error) {
+// merge is an app's patch, a layer of the host's, applied to the session's
+// document: its routes and machines in place of any of the same names the
+// tier had, whole, and its names added to the allowlist, unless that
+// allows every name already.
+func merge(pd *policy.DocumentV2, p apps.Patch) {
+	if len(p.Routes) > 0 && pd.Routes == nil {
+		pd.Routes = map[string]policy.RouteV2{}
+	}
+	maps.Copy(pd.Routes, p.Routes)
+	if len(p.SSH) > 0 && pd.SSH == nil {
+		pd.SSH = map[string]policy.SSHRouteV2{}
+	}
+	maps.Copy(pd.SSH, p.SSH)
+	if pd.Allow["**"] {
+		return
+	}
+	for _, n := range p.Allow {
+		if pd.Allow == nil {
+			pd.Allow = map[string]bool{}
+		}
+		pd.Allow[n] = true
+	}
+}
+
+// staging is what approve stages for exec: the project's chase.json, as
+// it was signed or approved, and the snapshot's sops file it names.
+type staging struct {
+	File    map[string]any `json:"file"`
+	Secrets *stagedSecrets `json:"secrets"`
+}
+
+// apply is the staged file, applied to the tier's document pd for the
+// session whose directory is run: its secrets decrypted there, each app it
+// binds prepared and merged in, and its frisket section merged last.
+func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *policy.DocumentV2, b []byte, run, tier, ws string, stderr io.Writer) (session.Given, error) {
 	var given session.Given
-	doc, err := parseJSON(b)
+	var st staging
+	if err := json.Unmarshal(b, &st); err != nil {
+		return given, err
+	}
+	encoded, err := encodeDoc(st.File)
 	if err != nil {
 		return given, err
 	}
-	result, err := doc.index("result")
+	doc, generic, err := ParseDoc(encoded)
 	if err != nil {
-		return given, err
+		return given, refuse("%s: the staged %s: %v", ws, FileName, err)
 	}
-	secrets, err := result.optional("secrets")
-	if err != nil {
-		return given, err
+	section := Section{}
+	if doc.Chase != nil {
+		section = *doc.Chase
+	}
+	sectionApps := SectionApps{}
+	if section.Apps != nil {
+		sectionApps = *section.Apps
 	}
 	if err := os.Mkdir(run+"/secrets", 0o700); err != nil {
 		return given, err
 	}
 	file := ""
-	if secrets != "" {
+	if section.Secrets != "" {
+		if st.Secrets == nil {
+			return given, refuse("%s: %s names %s, and none was staged", ws, FileName, section.Secrets)
+		}
 		dir, err := os.MkdirTemp(run, "sops.")
 		if err != nil {
 			return given, err
 		}
-		staged, err := doc.index("secrets")
-		if err != nil {
+		file = dir + "/" + st.Secrets.Name
+		if err := os.WriteFile(file, []byte(st.Secrets.Text), 0o666); err != nil {
 			return given, err
 		}
-		name, err := staged.optional("name")
-		if err != nil {
-			return given, err
-		}
-		text, err := staged.index("text")
-		if err != nil {
-			return given, err
-		}
-		file = dir + "/" + name
-		if err := os.WriteFile(file, []byte(text.raw()), 0o666); err != nil {
-			return given, err
-		}
-		approved, err := result.optional("secretsSHA256")
-		if err != nil {
-			return given, err
-		}
-		d := sha256.Sum256([]byte(text.raw()))
-		if hex.EncodeToString(d[:]) != approved {
-			return given, refuse("%s: the staged %s is not the one approved", ws, secrets)
+		if sha256Hex64([]byte(st.Secrets.Text)) != section.SecretsSHA256 {
+			return given, refuse("%s: the staged %s is not the one signed", ws, section.Secrets)
 		}
 	}
 
-	// The Docker project approve derived and staged, which is what was
-	// approved: read, never derived again here. An app is given it, and the
-	// session is not.
-	project, err := result.optional("dockerProject")
-	if err != nil {
-		return given, err
+	// The Docker project the file says, which approve held to the one the
+	// checkout's origin names: an app is given it, and the session is not.
+	project := ""
+	if sectionApps.Docker != nil {
+		project = sectionApps.Docker.Project
 	}
-	bindings, err := result.index("apps")
-	if err != nil {
-		return given, err
+	bindings := map[string]any{}
+	if cs, ok := generic.(map[string]any)["chase"].(map[string]any); ok {
+		if a, ok := cs["apps"].(map[string]any); ok {
+			bindings = a
+		}
 	}
 	names := slices.Sorted(maps.Keys(c.Apps))
 	for name := range registry {
@@ -190,12 +215,13 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 	}
 	slices.Sort(names)
 	for _, app := range names {
-		binding, err := bindings.index(app)
+		raw, ok := bindings[app]
+		if !ok || raw == nil {
+			continue
+		}
+		binding, err := parseJSON([]byte(compactJSON(raw)))
 		if err != nil {
 			return given, err
-		}
-		if !binding.truthy() {
-			continue
 		}
 		code, isCode := registry[app]
 		conf := c.Apps[app]
@@ -218,20 +244,22 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 			if err := decrypt(ctx, c, ws, file, secret, run+"/secrets/"+app, stderr); err != nil {
 				return given, err
 			}
-			from = secrets + ":" + secret
-		} else {
-			if !isCode {
-				return given, refuse("%s: %s has no credential and no prepare", ws, app)
-			}
+			from = section.Secrets + ":" + secret
+		} else if !isCode {
+			return given, refuse("%s: %s has no credential and no prepare", ws, app)
 		}
 		// The app's routes, in place of any of the same names the tier had:
 		// what its code made of the binding, or its own with the project's
 		// credential.
 		var patch apps.Patch
 		if isCode {
+			appBinding, err := bindingOf(app, raw)
+			if err != nil {
+				return given, refuse("%s: %s: %v", ws, app, err)
+			}
 			patch, err = code.Prepare(ctx, apps.Request{
 				Tier: tier, Workspace: ws, Run: run, Dir: checkoutDir(c, ws), Home: c.Home,
-				Project: project, Binding: json.RawMessage(binding.compact()),
+				Project: project, Binding: appBinding,
 			})
 			if err != nil {
 				// What the app's own prepare said as it died, and then the
@@ -239,10 +267,10 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 				term.Say(stderr, "%v", err)
 				return given, refuse("%s: %s could not be prepared", ws, app)
 			}
-		} else if patch, err = staticPatch(conf, tier, run+"/secrets/"+app); err != nil {
-			return given, err
+		} else {
+			patch = staticPatch(conf, tier, run+"/secrets/"+app)
 		}
-		policydoc.Merge(pd, patch)
+		merge(pd, patch)
 		vars, err := exportsOf(conf, patch, binding)
 		if err != nil {
 			return given, err
@@ -256,50 +284,101 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 	if file != "" {
 		os.RemoveAll(filepath.Dir(file))
 	}
-	if err := applyLists(pd, bindings, ws, tier, stderr); err != nil {
-		return given, err
-	}
-	// The names the project reaches beyond its apps', added last, as an
-	// app's are: to a tier that allows every name, nothing.
-	var named struct {
-		Network *Network `json:"network"`
-		Apps    struct {
-			Nix *Nix `json:"nix"`
-		} `json:"apps"`
-	}
-	if err := json.Unmarshal([]byte(result.compact()), &named); err != nil {
-		return given, err
-	}
 	// The devShell, which exec realises once the document is written:
 	// nothing of it is prepared here.
-	given.DevShellGranted = named.Apps.Nix != nil && named.Apps.Nix.DevShell
-	if named.Network != nil && len(named.Network.Allow) > 0 {
-		policydoc.Merge(pd, apps.Patch{Allow: named.Network.Allow})
-	}
-	// The names on the local network it reaches, each on the allowlist as
-	// frisket requires, and none a route's host, which the session's DNS
-	// answers with frisket's own address: refused here, with the grant's
-	// words, rather than by frisket when the session starts.
-	if named.Network != nil && len(named.Network.LAN) > 0 {
-		var names []string
-		for _, h := range named.Network.LAN {
-			for _, r := range pd.Routes {
-				if routeServes(r.Host, h.Name) {
-					return given, refuse("%s: network.lan %s is the %s route's host, which frisket answers with its own address", ws, h.Name, r.Name)
-				}
-			}
-			names = append(names, h.Name)
+	given.DevShellGranted = sectionApps.Nix != nil && sectionApps.Nix.DevShell
+	if doc.Frisket != nil {
+		if err := applyLayer(c, pd, doc.Frisket, ws, tier, stderr); err != nil {
+			return given, err
 		}
-		policydoc.Merge(pd, apps.Patch{Allow: names})
-		pd.LAN = append(pd.LAN, named.Network.LAN...)
 	}
 	return given, nil
 }
 
+// applyLayer is the project's frisket section merged over the session's
+// document, as frisket's own project-layer check merges it
+// (policy.CheckProjectLayer): a host field set, a pattern that can never
+// match, an operation id the route has not, all refuse the launch. What it
+// answers for a route or machine the tier does not have here, or a route
+// with no credential -- an anonymous app has nobody to ask on its behalf,
+// so a project answers none of its requests -- is said and left out
+// (PLAN.md, decision 8), as a session of another tier would leave it; and
+// so is what it answers for a route that is no app a project answers
+// (Config.Answerable): Claude Code's, Codex's, Docker's, whose answers are
+// the machine's alone.
+func applyLayer(c Config, pd *policy.DocumentV2, layer map[string]any, ws, tier string, stderr io.Writer) error {
+	l := maps.Clone(layer)
+	// To a tier that allows every name, a name adds nothing.
+	if allow, ok := l["allow"].(map[string]any); ok && pd.Allow["**"] {
+		kept := map[string]any{}
+		for k, v := range allow {
+			if v != true {
+				kept[k] = v
+			}
+		}
+		l["allow"] = kept
+	}
+	if routes, ok := l["routes"].(map[string]any); ok {
+		kept := map[string]any{}
+		for _, name := range slices.Sorted(maps.Keys(routes)) {
+			r, ok := pd.Routes[name]
+			switch {
+			case !slices.Contains(c.Answerable, name):
+				term.Say(stderr, "%s: frisket.routes.%s ignored: a project answers none of %s's requests", ws, name, name)
+			case !ok:
+				term.Say(stderr, "%s: frisket.routes.%s ignored: %s has no %s", ws, name, tier, name)
+			case r.CredentialFile == "":
+				term.Say(stderr, "%s: frisket.routes.%s ignored: %s is anonymous in %s", ws, name, name, tier)
+			default:
+				kept[name] = routes[name]
+			}
+		}
+		l["routes"] = kept
+	}
+	if ssh, ok := l["ssh"].(map[string]any); ok {
+		kept := map[string]any{}
+		for _, name := range slices.Sorted(maps.Keys(ssh)) {
+			p, err := hostpattern.Compile(name)
+			if _, ok := pd.SSH[name]; err == nil && p.Literal() && !ok {
+				term.Say(stderr, "%s: frisket.ssh.%s ignored: %s has no such machine", ws, name, tier)
+				continue
+			}
+			kept[name] = ssh[name]
+		}
+		l["ssh"] = kept
+	}
+	base, err := json.Marshal(pd)
+	if err != nil {
+		return err
+	}
+	merged, err := policy.CheckProjectLayer([]byte(compactJSON(l)), base)
+	if err != nil {
+		term.Say(stderr, "%v", err)
+		return refuse("%s: its frisket section does not apply in %s", ws, tier)
+	}
+	d, err := policy.DecodeV2(merged)
+	if err != nil {
+		return err
+	}
+	// A name on the local network that is a route's host, which the
+	// session's DNS answers with frisket's own address: refused here,
+	// with the file's words, rather than by frisket when the session
+	// starts.
+	for name := range d.LAN {
+		for rname, r := range d.Routes {
+			if routeServes(r.Host, name) {
+				return refuse("%s: frisket.lan %s is the %s route's host, which frisket answers with its own address", ws, name, rname)
+			}
+		}
+	}
+	*pd = d
+	return nil
+}
+
 // routeServes is whether a route whose host is host serves name: the host
-// itself, or a name below a "*.suffix" host.
+// itself, or a name below a "**.suffix" host.
 func routeServes(host, name string) bool {
-	if suffix, ok := strings.CutPrefix(host, "*"); ok && strings.HasPrefix(suffix, ".") {
+	if suffix, ok := strings.CutPrefix(host, "**"); ok && strings.HasPrefix(suffix, ".") {
 		return strings.HasSuffix(name, suffix)
 	}
 	return host == name
@@ -334,29 +413,16 @@ func decrypt(ctx context.Context, c Config, ws, file, secret, out string, stderr
 
 // staticPatch is an app's own routes for tier, each with the project's
 // decrypted credential, and the names it adds to allow.
-func staticPatch(a App, tier, cred string) (apps.Patch, error) {
+func staticPatch(a App, tier, cred string) apps.Patch {
 	p := apps.Patch{Allow: a.Allow}
-	raw, ok := a.Routes[tier]
-	if !ok || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return p, nil
-	}
-	var routes []policy.Route
-	if t := bytes.TrimSpace(raw); len(t) > 0 && t[0] == '[' {
-		if err := policy.Decode(t, &routes); err != nil {
-			return apps.Patch{}, err
+	for name, r := range a.Routes[tier] {
+		if p.Routes == nil {
+			p.Routes = map[string]policy.RouteV2{}
 		}
-	} else {
-		var r policy.Route
-		if err := policy.Decode(t, &r); err != nil {
-			return apps.Patch{}, err
-		}
-		routes = []policy.Route{r}
+		r.CredentialFile = cred
+		p.Routes[name] = r
 	}
-	for i := range routes {
-		routes[i].CredentialFile = cred
-	}
-	p.Routes = routes
-	return p, nil
+	return p
 }
 
 // exportsOf is what an app puts in the session's environment: its own env,
@@ -393,69 +459,6 @@ func exportsOf(a App, patch apps.Patch, binding *value) ([]session.Var, error) {
 		env = append(env, session.Var{Name: k, Value: merged.members[k].tostring()})
 	}
 	return env, nil
-}
-
-// applyLists is what the project names in each app's lists, applied to the
-// app's route in this tier: one with the project's credential or the tier's.
-// Not to an app the tier does not have, or has anonymously -- with no
-// credential, and no one to ask for someone else's code -- which is said
-// rather than refused (PLAN.md, decision 8).
-func applyLists(pd *policy.Document, bindings *value, ws, tier string, stderr io.Writer) error {
-	// `.apps // {} | to_entries[]`.
-	keys, vals, err := bindings.or(jobject()).entries()
-	if err != nil {
-		return err
-	}
-	for i, app := range keys {
-		lists, err := listsOf(vals[i])
-		if err != nil {
-			return err
-		}
-		n := 0.0
-		for _, l := range lists {
-			k, err := l.length()
-			if err != nil {
-				return err
-			}
-			n += k
-		}
-		if n <= 0 {
-			continue
-		}
-		at := slices.IndexFunc(pd.Routes, func(r policy.Route) bool { return r.Name == app })
-		switch {
-		case at < 0:
-			term.Say(stderr, "%s: %s's lists ignored: %s has no %s", ws, app, tier, app)
-			continue
-		// Anonymous is an empty credentialFile as well as none. jq's
-		// `.credentialFile` was true of any string, "" too, so a tier route
-		// written with `"credentialFile": ""` had the project's lists
-		// applied; frisket's Document cannot tell "" from absent, and the
-		// document is written without it, so that route IS anonymous in what
-		// frisket loads, and its lists are said to be ignored, as any
-		// anonymous route's are. A deliberate change, of an edge the module
-		// never writes.
-		case pd.Routes[at].CredentialFile == "":
-			term.Say(stderr, "%s: %s's lists ignored: %s is anonymous in %s", ws, app, app, tier)
-			continue
-		}
-		// `{allow, ask, refuse} | map_values(. // [])`.
-		given := jobject()
-		for _, k := range []string{"allow", "ask", "refuse"} {
-			l, _ := vals[i].index(k)
-			given.set(k, l.or(&value{kind: '['}))
-		}
-		var ls policydoc.Lists
-		err = json.Unmarshal([]byte(given.compact()), &ls)
-		if err == nil {
-			err = policydoc.Apply(pd, app, ls)
-		}
-		if err != nil {
-			term.Say(stderr, "%v", err)
-			return refuse("%s: its %s lists do not apply", ws, app)
-		}
-	}
-	return nil
 }
 
 // PostStop is the session's end: each app's Stop, to release what its

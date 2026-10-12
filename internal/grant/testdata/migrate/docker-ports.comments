@@ -1,0 +1,4 @@
+// What chase lets this project's sessions do beyond their tier.
+// Every compose file's database.
+// The host ports the docker-compose*.yaml files publish, one per
+// database.

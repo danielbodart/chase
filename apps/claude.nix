@@ -1,6 +1,7 @@
 { config, options, lib, pkgs, ... }:
 
 let
+  ops = import ../lib/operations.nix { inherit lib; };
   inherit (lib) mkEnableOption mkIf mkMerge mkOption types;
   cfg = config.chase;
   apps = import ../lib/apps.nix { inherit lib; };
@@ -24,13 +25,14 @@ let
       token = "claudeAiOauth.accessToken";
       expiresMillis = "claudeAiOauth.expiresAt";
     };
-    paths = [{ methods = every; prefix = "/"; }];
+    operations."${lib.concatStringsSep "," every} /**" = "allow";
+    unmatched = "refuse";
   };
 
   # Token refresh and the Console: logged and refused, so no response can hand
   # the sandbox a real token.
   claudeRefusedRoute = claudeRoute "platform.claude.com" // {
-    paths = [{ methods = every; prefix = "/"; refuse = true; }];
+    operations."${lib.concatStringsSep "," every} /**" = "refuse";
   };
 
   # The plugins the host's Claude Code enables, for a tier to turn some off.
@@ -222,9 +224,9 @@ in
         overlays."${claudeDir}/plugins" = "${claudeDir}/plugins";
       })) cfg.tiers;
 
-    services.frisket.policies = lib.mapAttrs (name: tier:
-      mkIf tier.apps.claude.enable {
-        allow = lib.mkAfter allow;
+    chase.internal.policies = lib.mapAttrs (name: tier:
+      mkIf (!tier.bare && tier.apps.claude.enable) {
+        allow = ops.allowOf allow;
         routes = {
           claude = claudeRoute "api.anthropic.com";
           claude-platform = claudeRefusedRoute;

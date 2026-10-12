@@ -52,13 +52,37 @@ func config() Config {
 	}
 }
 
-func prepare(t *testing.T, c Config, tier, binding string) (apps.Patch, string, error) {
+// v1Patch is a patch with its machines as frisket lowers them: version
+// 1's routes, in name order, whose rules execrule decides, as frisket's
+// gateway does a version 2 document's.
+type v1Patch struct {
+	apps.Patch
+	SSH []policy.SSHRoute
+}
+
+func prepare(t *testing.T, c Config, tier, binding string) (v1Patch, string, error) {
 	t.Helper()
 	var stderr bytes.Buffer
 	p, err := (&App{Config: c, Stderr: &stderr}).Prepare(context.Background(), apps.Request{
 		Tier: tier, Workspace: "/w", Binding: json.RawMessage(binding),
 	})
-	return p, stderr.String(), err
+	if err != nil {
+		return v1Patch{Patch: p}, stderr.String(), err
+	}
+	return v1Patch{Patch: p, SSH: lower(t, p.SSH)}, stderr.String(), nil
+}
+
+// lower is machines as frisket's gateway builds a version 2 document's.
+func lower(t *testing.T, machines map[string]policy.SSHRouteV2) []policy.SSHRoute {
+	t.Helper()
+	if len(machines) == 0 {
+		return nil
+	}
+	l, err := policy.Lower(policy.DocumentV2{Version: 2, SSH: machines})
+	if err != nil {
+		t.Fatalf("frisket would not lower the machines: %v", err)
+	}
+	return l.Policy.SSH
 }
 
 // binding is one machine, server, with what else is given of it.
@@ -816,7 +840,7 @@ func TestEachMachineIsARouteWithTheMachinesCredential(t *testing.T) {
 		if r.Agent != "/run/user/1000/gcr/ssh" || r.KeyFile != "" || r.Identity != c.Identity || r.Unmatched != "ask" {
 			t.Errorf("%s does not log in as the machine says: %+v", r.Name, r)
 		}
-		if !slices.Equal(r.Env, defaultEnv) {
+		if !slices.Equal(r.Env, slices.Sorted(slices.Values(defaultEnv))) {
 			t.Errorf("%s's env is not the tier's: %q", r.Name, r.Env)
 		}
 	}

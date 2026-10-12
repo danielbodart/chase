@@ -1,0 +1,5 @@
+// `ssh server …` in the session
+// a literal IP, v4:port or [v6]:port; 22 by default
+// operation ids, category:<name>,
+//   or command patterns
+/* in place of the tier's */

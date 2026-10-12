@@ -29,7 +29,7 @@ type Report struct {
 	// Notes are what went wrong on the way, or is worth knowing.
 	Notes []string
 	// Dir is where the recording is kept; Diff what applying the
-	// proposal would do to the checkout's chase.jsonc.
+	// proposal would do to the checkout's chase.json.
 	Dir  string
 	Diff string
 }
@@ -128,8 +128,8 @@ func (r Report) Write(w io.Writer) {
 	// said: a recording proposes widening alone.
 	proposed := map[string]bool{}
 	for _, e := range r.Proposal.Entries {
-		if n, ok := e.Value.(string); ok && e.Path[0] == "seccomp" {
-			proposed[n] = true
+		if e.Path[0] == "flong" {
+			proposed[e.Key] = true
 		}
 	}
 	scratch := m.Options.Base == "none"
@@ -186,7 +186,7 @@ func (r Report) Write(w io.Writer) {
 				b.WriteString("\n")
 			}
 		}
-		fmt.Fprintf(&b, "Add it to %s/chase.jsonc with: chase record apply %s\n", m.Workspace, m.Machine)
+		fmt.Fprintf(&b, "Add it to %s/chase.json, and sign it, with: chase record apply %s\n", m.Workspace, m.Machine)
 	}
 	io.WriteString(w, term.Clean(b.String()))
 }

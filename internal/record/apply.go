@@ -1,34 +1,33 @@
 package record
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
 
-	"github.com/tailscale/hujson"
+	"github.com/danielbodart/frisket/projpolicy"
 
 	"github.com/danielbodart/chase/internal/grant"
 )
 
-// MERGING A PROPOSAL into the checkout's chase.jsonc is an edit of the
-// file a person keeps, not a rewrite of it: it is parsed as HuJSON and each
-// entry patched in where it goes, so the file's own comments stay, as do
-// the comments beside each entry the proposal holds -- a person may have
-// edited the proposal, and what they wrote there comes too. The result is
-// formatted as HuJSON formats, and must be a grant chase reads, or nothing
-// is written.
+// MERGING A PROPOSAL into the checkout's chase.json: each entry its
+// proposal.json proposes is put where it goes in the file, which is then
+// written in its canonical form and must be a chase.json chase reads, or
+// nothing is written. A person may have edited the proposal: what is in
+// its `propose` is what is merged, and nothing else of it.
 //
-// An entry already in its list is left. One in another of the same lists
-// -- an operation the grant asks about, now allowed -- is moved: a name in
-// two lists is a grant approve refuses.
+// An entry already there is left. An answer of another word for the same
+// operation, or call, is replaced, and a command in another of the same
+// machine's lists moved: a name in two lists is one the file refuses. A
+// name on the local network the file has already is given the ports it
+// lacked.
 
 // Change is what a merge did with one entry: added it, moved it from
-// another list (From), widened the entry already there (Widened, a name on
-// the local network given ports it lacked), or found it there already
+// another answer (From), widened the entry already there (Widened, a name
+// on the local network given ports it lacked), or found it there already
 // (Kept).
 type Change struct {
 	Path    []string
@@ -38,466 +37,339 @@ type Change struct {
 	Kept    bool
 }
 
-// lists are the lists each place in a grant has, and so the shape a
-// proposal may have: under apps, each app with lists, and ssh's hosts;
-// network's allow and lan; seccomp's allow and deny.
-var (
-	appLists     = []string{"allow", "ask", "refuse"}
-	networkLists = []string{"allow", "lan"}
-	seccompLists = []string{"allow", "deny"}
-)
+// sshLists are a machine's lists in chase.json.
+var sshLists = []string{"allow", "ask", "refuse"}
 
-// item is one entry of a proposal: the list it goes in, the lists it may
-// be in instead, and its value, with the comments before it.
+// item is one entry of a proposal's `propose`: where it goes, its key
+// there or "" in a list, and its value.
 type item struct {
-	path     []string
-	siblings []string
-	value    hujson.Value
+	path  []string
+	key   string
+	value any
 }
 
-// items is every entry of proposal, or why proposal is not one: anything
-// but the lists a grant has is refused, so an apply never writes to a
-// grant what a proposal could not have held.
+// items is every entry of a proposal's `propose`, or why it is not a
+// proposal: anything but the entries a recording proposes is refused, so
+// an apply never writes to a file what a proposal could not have held.
 func items(proposal []byte) ([]item, error) {
-	v, err := hujson.Parse(proposal)
+	v, err := projpolicy.Decode(proposal)
 	if err != nil {
 		return nil, err
 	}
-	root, ok := v.Value.(*hujson.Object)
+	root, ok := v.(map[string]any)
 	if !ok {
 		return nil, errors.New("a proposal is an object")
 	}
+	propose, ok := root["propose"].(map[string]any)
+	if !ok {
+		return nil, errors.New("a proposal's propose is an object of what it adds")
+	}
 	var out []item
-	var walkLists func(at []string, o *hujson.Object, lists []string) error
-	walkLists = func(at []string, o *hujson.Object, lists []string) error {
-		for _, m := range o.Members {
-			name := m.Name.Value.(hujson.Literal).String()
-			if !slices.Contains(lists, name) {
-				return fmt.Errorf("%s: a proposal holds only %s", strings.Join(append(at, name), "."), strings.Join(lists, ", "))
-			}
-			a, ok := m.Value.Value.(*hujson.Array)
-			if !ok {
-				return fmt.Errorf("%s is not a list", strings.Join(append(at, name), "."))
-			}
-			for _, e := range a.Elements {
-				out = append(out, item{path: append(slices.Clone(at), name), siblings: lists, value: e})
+	object := func(v any, at ...string) (map[string]any, error) {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("%s is not an object", strings.Join(at, "."))
+		}
+		return m, nil
+	}
+	only := func(m map[string]any, at string, keys ...string) error {
+		for _, k := range slices.Sorted(maps.Keys(m)) {
+			if !slices.Contains(keys, k) {
+				return fmt.Errorf("%s.%s: a proposal holds only %s there", at, k, strings.Join(keys, ", "))
 			}
 		}
 		return nil
 	}
-	object := func(at []string, v hujson.Value) (*hujson.Object, error) {
-		o, ok := v.Value.(*hujson.Object)
-		if !ok {
-			return nil, fmt.Errorf("%s is not an object", strings.Join(at, "."))
-		}
-		return o, nil
+	if err := only(propose, "propose", "frisket", "flong", "chase"); err != nil {
+		return nil, err
 	}
-	for _, m := range root.Members {
-		name := m.Name.Value.(hujson.Literal).String()
-		o, err := object([]string{name}, m.Value)
+	if f, ok := propose["frisket"]; ok {
+		fm, err := object(f, "frisket")
 		if err != nil {
 			return nil, err
 		}
-		switch name {
-		case "network":
-			// Neither list is the other's alternative: a name on the local
-			// network is on the allowlist too, which the launch makes so.
-			from := len(out)
-			err = walkLists([]string{name}, o, networkLists)
-			for i := from; i < len(out); i++ {
-				out[i].siblings = out[i].path[len(out[i].path)-1:]
+		if err := only(fm, "frisket", "allow", "lan", "routes"); err != nil {
+			return nil, err
+		}
+		if a, ok := fm["allow"]; ok {
+			am, err := object(a, "frisket", "allow")
+			if err != nil {
+				return nil, err
 			}
-		case "seccomp":
-			err = walkLists([]string{name}, o, seccompLists)
-		case "apps":
-			for _, am := range o.Members {
-				app := am.Name.Value.(hujson.Literal).String()
-				ao, err := object([]string{name, app}, am.Value)
+			for _, k := range slices.Sorted(maps.Keys(am)) {
+				if am[k] != true {
+					return nil, fmt.Errorf("frisket.allow.%s: a name is allowed with true", k)
+				}
+				out = append(out, item{[]string{"frisket", "allow"}, k, true})
+			}
+		}
+		if l, ok := fm["lan"]; ok {
+			lm, err := object(l, "frisket", "lan")
+			if err != nil {
+				return nil, err
+			}
+			for _, k := range slices.Sorted(maps.Keys(lm)) {
+				h, err := object(lm[k], "frisket", "lan", k)
 				if err != nil {
 					return nil, err
 				}
-				switch {
-				case slices.Contains(grantApps, app):
-					err = walkLists([]string{name, app}, ao, appLists)
-				case app == "ssh":
-					for _, hm := range ao.Members {
-						if hm.Name.Value.(hujson.Literal).String() != "hosts" {
-							return nil, errors.New("apps.ssh: a proposal holds only hosts")
-						}
-						hosts, err := object([]string{name, app, "hosts"}, hm.Value)
-						if err != nil {
-							return nil, err
-						}
-						for _, h := range hosts.Members {
-							host := h.Name.Value.(hujson.Literal).String()
-							ho, err := object([]string{name, app, "hosts", host}, h.Value)
-							if err != nil {
-								return nil, err
-							}
-							if err := walkLists([]string{name, app, "hosts", host}, ho, appLists); err != nil {
-								return nil, err
-							}
-						}
+				if err := only(h, "frisket.lan."+k, "ports"); err != nil {
+					return nil, err
+				}
+				out = append(out, item{[]string{"frisket", "lan"}, k, h})
+			}
+		}
+		if r, ok := fm["routes"]; ok {
+			rm, err := object(r, "frisket", "routes")
+			if err != nil {
+				return nil, err
+			}
+			for _, route := range slices.Sorted(maps.Keys(rm)) {
+				one, err := object(rm[route], "frisket", "routes", route)
+				if err != nil {
+					return nil, err
+				}
+				if err := only(one, "frisket.routes."+route, "operations"); err != nil {
+					return nil, err
+				}
+				ops, err := object(one["operations"], "frisket", "routes", route, "operations")
+				if err != nil {
+					return nil, err
+				}
+				for _, k := range slices.Sorted(maps.Keys(ops)) {
+					if a, ok := ops[k].(string); !ok || rank(a) < 0 {
+						return nil, fmt.Errorf("frisket.routes.%s.operations.%s: not allow, ask or refuse", route, k)
 					}
-				default:
-					err = fmt.Errorf("apps.%s: a proposal holds only %s and ssh", app, strings.Join(grantApps, ", "))
-				}
-				if err != nil {
-					return nil, err
+					out = append(out, item{[]string{"frisket", "routes", route, "operations"}, k, ops[k]})
 				}
 			}
-		default:
-			err = fmt.Errorf("%s: a proposal holds only apps, network and seccomp", name)
 		}
+	}
+	if f, ok := propose["flong"]; ok {
+		fm, err := object(f, "flong")
 		if err != nil {
 			return nil, err
+		}
+		if err := only(fm, "flong", "seccomp"); err != nil {
+			return nil, err
+		}
+		sm, err := object(fm["seccomp"], "flong", "seccomp")
+		if err != nil {
+			return nil, err
+		}
+		if err := only(sm, "flong.seccomp", "syscalls"); err != nil {
+			return nil, err
+		}
+		calls, err := object(sm["syscalls"], "flong", "seccomp", "syscalls")
+		if err != nil {
+			return nil, err
+		}
+		for _, k := range slices.Sorted(maps.Keys(calls)) {
+			out = append(out, item{[]string{"flong", "seccomp", "syscalls"}, k, calls[k]})
+		}
+	}
+	if c, ok := propose["chase"]; ok {
+		cm, err := object(c, "chase")
+		if err != nil {
+			return nil, err
+		}
+		if err := only(cm, "chase", "apps"); err != nil {
+			return nil, err
+		}
+		am, err := object(cm["apps"], "chase", "apps")
+		if err != nil {
+			return nil, err
+		}
+		if err := only(am, "chase.apps", "ssh"); err != nil {
+			return nil, err
+		}
+		sm, err := object(am["ssh"], "chase", "apps", "ssh")
+		if err != nil {
+			return nil, err
+		}
+		if err := only(sm, "chase.apps.ssh", "hosts"); err != nil {
+			return nil, err
+		}
+		hosts, err := object(sm["hosts"], "chase", "apps", "ssh", "hosts")
+		if err != nil {
+			return nil, err
+		}
+		for _, h := range slices.Sorted(maps.Keys(hosts)) {
+			lists, err := object(hosts[h], "chase", "apps", "ssh", "hosts", h)
+			if err != nil {
+				return nil, err
+			}
+			if err := only(lists, "chase.apps.ssh.hosts."+h, sshLists...); err != nil {
+				return nil, err
+			}
+			for _, l := range sshLists {
+				entries, ok := lists[l]
+				if !ok {
+					continue
+				}
+				a, ok := entries.([]any)
+				if !ok {
+					return nil, fmt.Errorf("chase.apps.ssh.hosts.%s.%s is not a list", h, l)
+				}
+				for _, e := range a {
+					if _, ok := e.(string); !ok {
+						return nil, fmt.Errorf("chase.apps.ssh.hosts.%s.%s: %v is not an id or a pattern", h, l, e)
+					}
+					out = append(out, item{[]string{"chase", "apps", "ssh", "hosts", h, l}, "", e})
+				}
+			}
 		}
 	}
 	return out, nil
 }
 
-// pointer is path as a JSON pointer.
-func pointer(path []string) string {
-	var b strings.Builder
+// object is the object at path in v, made where it is not there.
+func objectAt(v map[string]any, path []string) map[string]any {
+	m := v
 	for _, k := range path {
-		b.WriteString("/" + strings.NewReplacer("~", "~0", "/", "~1").Replace(k))
-	}
-	return b.String()
-}
-
-// standard is v as compact JSON, its comments gone: what two entries are
-// compared by.
-func standard(v hujson.Value) string {
-	// Standardize on a copy of the bytes: a Value's comments are slices of
-	// the text it was parsed from, which Standardize blanks in place.
-	s, err := hujson.Standardize(hujson.Value{Value: v.Value}.Pack())
-	if err != nil {
-		return ""
-	}
-	var b bytes.Buffer
-	json.Compact(&b, s)
-	return b.String()
-}
-
-// remove takes the entry at i out of the list at path, by an RFC 6902
-// remove, which keeps the comments around it with its neighbours.
-func remove(g *hujson.Value, path []string, i int) error {
-	return g.Patch([]byte(fmt.Sprintf(`[{"op": "remove", "path": %s}]`, marshal(fmt.Sprintf("%s/%d", pointer(path), i)))))
-}
-
-// layout is how a composite is written: on many lines, its contents at
-// indent, its closing bracket at outer; or on one.
-type layout struct {
-	multi         bool
-	indent, outer string
-}
-
-// editor adds members and entries to a grant as the file already lays
-// itself out: on many lines, at its own indentation, where the object or
-// list is; on one line where it is.
-type editor struct {
-	// unit is the file's indentation, a level's.
-	unit string
-}
-
-// indentOf is what follows the last line break in e, or false for an e
-// with none: the indentation of what comes after it.
-func indentOf(e hujson.Extra) (string, bool) {
-	i := bytes.LastIndexByte(e, '\n')
-	if i < 0 {
-		return "", false
-	}
-	return string(e[i+1:]), true
-}
-
-// layoutOf is how the composite v, whose own line is at outer and whose
-// parent is laid out as parent, is laid out: as its contents are, or, with
-// none, as its parent.
-func (ed editor) layoutOf(v hujson.ValueTrimmed, outer string, parent bool) layout {
-	var first hujson.Extra
-	var after hujson.Extra
-	n := 0
-	switch c := v.(type) {
-	case *hujson.Object:
-		if n = len(c.Members); n > 0 {
-			first = c.Members[0].Name.BeforeExtra
-		}
-		after = c.AfterExtra
-	case *hujson.Array:
-		if n = len(c.Elements); n > 0 {
-			first = c.Elements[0].BeforeExtra
-		}
-		after = c.AfterExtra
-	}
-	if in, ok := indentOf(first); ok {
-		return layout{multi: true, indent: in, outer: outer}
-	}
-	if n > 0 {
-		_, multi := indentOf(after)
-		return layout{multi: multi, indent: outer + ed.unit, outer: outer}
-	}
-	return layout{multi: parent, indent: outer + ed.unit, outer: outer}
-}
-
-// lead is what goes before a new member or entry of a composite laid out
-// as l, with n before it, and its comments, each its own // line where
-// the composite is on many lines and /* */ where it is on one.
-func lead(l layout, n int, notes []string) hujson.Extra {
-	var b bytes.Buffer
-	if l.multi {
-		for _, c := range notes {
-			b.WriteString("\n" + l.indent + "// " + c)
-		}
-		b.WriteString("\n" + l.indent)
-		return b.Bytes()
-	}
-	if n > 0 {
-		b.WriteString(" ")
-	}
-	for _, c := range notes {
-		b.WriteString("/* " + strings.ReplaceAll(c, "*/", "* /") + " */ ")
-	}
-	return b.Bytes()
-}
-
-// appended adds v to the composite c, laid out as l, after its last: with
-// a trailing comma where the last had one, or, in a composite it opens on
-// many lines, as a grant written by hand has one.
-func appended(c hujson.ValueTrimmed, l layout, v *hujson.Value) {
-	switch c := c.(type) {
-	case *hujson.Object:
-		trailing := l.multi
-		if n := len(c.Members); n > 0 {
-			trailing = c.Members[n-1].Value.AfterExtra != nil
-		} else if l.multi {
-			c.AfterExtra = hujson.Extra("\n" + l.outer)
-		}
-		if trailing {
-			v.AfterExtra = hujson.Extra{}
-		}
-	case *hujson.Array:
-		trailing := l.multi
-		if n := len(c.Elements); n > 0 {
-			trailing = c.Elements[n-1].AfterExtra != nil
-		} else if l.multi {
-			c.AfterExtra = hujson.Extra("\n" + l.outer)
-		}
-		if trailing {
-			v.AfterExtra = hujson.Extra{}
-		}
-		c.Elements = append(c.Elements, *v)
-	}
-}
-
-// member is the member name of the object at v, laid out as l, made an
-// empty list (last) or object when it is not there; and how it is laid
-// out.
-func (ed editor) member(v *hujson.Value, l layout, name string, last bool) (*hujson.Value, layout, error) {
-	o, ok := v.Value.(*hujson.Object)
-	if !ok {
-		return nil, layout{}, fmt.Errorf("%s is not an object", name)
-	}
-	for i := range o.Members {
-		m := &o.Members[i]
-		if m.Name.Value.(hujson.Literal).String() == name {
-			outer, ok := indentOf(m.Name.BeforeExtra)
-			if !ok {
-				outer = l.outer
-			}
-			return &m.Value, ed.layoutOf(m.Value.Value, outer, l.multi), nil
-		}
-	}
-	var empty hujson.ValueTrimmed = &hujson.Object{}
-	if last {
-		empty = &hujson.Array{}
-	}
-	m := hujson.ObjectMember{
-		Name:  hujson.Value{BeforeExtra: lead(l, len(o.Members), nil), Value: hujson.String(name)},
-		Value: hujson.Value{BeforeExtra: hujson.Extra(" "), Value: empty},
-	}
-	// appended's trailing comma goes after the member's value.
-	trailing := hujson.Value{}
-	appended(o, l, &trailing)
-	m.Value.AfterExtra = trailing.AfterExtra
-	o.Members = append(o.Members, m)
-	at := &o.Members[len(o.Members)-1]
-	return &at.Value, layout{multi: l.multi, indent: l.indent + ed.unit, outer: l.indent}, nil
-}
-
-// notes are the comments in e, each without its // or /* */.
-func notes(e hujson.Extra) []string {
-	var out []string
-	for len(e) > 0 {
-		e = e[len(e)-len(bytes.TrimLeft(e, " \t\r\n")):]
-		switch {
-		case bytes.HasPrefix(e, []byte("//")):
-			line, rest, _ := bytes.Cut(e[2:], []byte("\n"))
-			out = append(out, strings.TrimSpace(string(line)))
-			e = rest
-		case bytes.HasPrefix(e, []byte("/*")):
-			body, rest, _ := bytes.Cut(e[2:], []byte("*/"))
-			out = append(out, strings.TrimSpace(string(body)))
-			e = rest
-		default:
-			return out
-		}
-	}
-	return out
-}
-
-// unitOf is the file's indentation: its first member's, or two spaces.
-func unitOf(g hujson.Value) string {
-	if o, ok := g.Value.(*hujson.Object); ok && len(o.Members) > 0 {
-		if in, ok := indentOf(o.Members[0].Name.BeforeExtra); ok && in != "" {
-			return in
-		}
-	}
-	return "  "
-}
-
-// add appends it's value, with its comments, to the end of its list in g,
-// making the list, and the objects above it, where they are not there.
-func (ed editor) add(g *hujson.Value, it item) error {
-	at, l := g, ed.layoutOf(g.Value, "", true)
-	for i, k := range it.path {
-		var err error
-		if at, l, err = ed.member(at, l, k, i == len(it.path)-1); err != nil {
-			return fmt.Errorf("%s: %w", strings.Join(it.path[:i], "."), err)
-		}
-	}
-	a := at.Value.(*hujson.Array)
-	v := hujson.Value{BeforeExtra: lead(l, len(a.Elements), notes(it.value.BeforeExtra)), Value: it.value.Value}
-	appended(a, l, &v)
-	return nil
-}
-
-// lanHost is a network.lan entry, as a proposal or a grant holds one.
-type lanHost struct {
-	Name  string `json:"name"`
-	Ports []int  `json:"ports,omitempty"`
-}
-
-// mergeLAN adds it, a network.lan entry, to g's: a name is in a grant's
-// lan once, so a name already there gains the ports it lacks, keeping its
-// place and its comments, and one there for every port is kept as it is.
-func mergeLAN(g *hujson.Value, ed editor, it item) (Change, error) {
-	c := Change{Path: it.path, Value: standard(it.value)}
-	var want lanHost
-	if err := json.Unmarshal([]byte(c.Value), &want); err != nil || want.Name == "" {
-		return c, fmt.Errorf("the proposal: %s: %s is not a name and its ports", strings.Join(it.path, "."), c.Value)
-	}
-	if at := g.Find(pointer(it.path)); at != nil {
-		a, ok := at.Value.(*hujson.Array)
+		next, ok := m[k].(map[string]any)
 		if !ok {
-			return c, fmt.Errorf("%s is not a list", strings.Join(it.path, "."))
+			next = map[string]any{}
+			m[k] = next
 		}
-		for i := range a.Elements {
-			var have lanHost
-			if json.Unmarshal([]byte(standard(a.Elements[i])), &have) != nil || have.Name != want.Name {
-				continue
-			}
-			ports := slices.Clone(have.Ports)
-			if len(ports) > 0 {
-				if len(want.Ports) == 0 {
-					ports = nil
-				}
-				for _, p := range want.Ports {
-					if !slices.Contains(ports, p) {
-						ports = append(ports, p)
-					}
-				}
-			}
-			if len(have.Ports) == 0 || slices.Equal(ports, have.Ports) {
-				c.Kept = true
-				return c, nil
-			}
-			said := make([]string, len(ports))
-			for i, p := range ports {
-				said[i] = strconv.Itoa(p)
-			}
-			// As a person writes one: a space after each colon and comma.
-			v, err := hujson.Parse([]byte(fmt.Sprintf(`{"name": %s, "ports": [%s]}`, marshal(have.Name), strings.Join(said, ", "))))
-			if err != nil {
-				return c, err
-			}
-			a.Elements[i].Value = v.Value
-			c.Value = standard(a.Elements[i])
-			c.Widened = true
-			return c, nil
-		}
+		m = next
 	}
-	return c, ed.add(g, it)
+	return m
 }
 
-// Merge is current -- a checkout's chase.jsonc, or nil for none -- with
-// each entry of proposal in it, and what was done with each. What it
-// returns is a grant ParseFile reads, or an error and nothing.
+// Merge is current -- a checkout's chase.json, or nil for none -- with
+// each entry of proposal in place, in its canonical form, and what was
+// done with each entry. What it returns is a chase.json ParseDoc reads, or
+// an error and nothing.
 func Merge(current, proposal []byte) ([]byte, []Change, error) {
 	its, err := items(proposal)
 	if err != nil {
 		return nil, nil, fmt.Errorf("the proposal: %w", err)
 	}
-	if len(bytes.TrimSpace(current)) == 0 {
-		current = []byte("{}\n")
+	var doc map[string]any
+	if current == nil {
+		doc = map[string]any{"version": 2}
+	} else {
+		v, err := projpolicy.Decode(current)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", grant.FileName, err)
+		}
+		var ok bool
+		if doc, ok = v.(map[string]any); !ok {
+			return nil, nil, fmt.Errorf("%s is not an object", grant.FileName)
+		}
 	}
-	g, err := hujson.Parse(slices.Clone(current))
-	if err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", grant.FileName, err)
-	}
-	if _, ok := g.Value.(*hujson.Object); !ok {
-		return nil, nil, fmt.Errorf("%s is not an object", grant.FileName)
-	}
-	ed := editor{unit: unitOf(g)}
 	var changes []Change
 	for _, it := range its {
-		if slices.Equal(it.path, lanPath) {
-			c, err := mergeLAN(&g, ed, it)
-			if err != nil {
-				return nil, nil, err
+		c := Change{Path: it.path, Value: show(it.key, it.value)}
+		if it.key == "" {
+			// A machine's list: the machine must be the file's own.
+			host := it.path[:len(it.path)-1]
+			if _, ok := walk(doc, host); !ok {
+				return nil, nil, fmt.Errorf("%s names no machine %s: only the file's own machines take lists", grant.FileName, host[len(host)-1])
+			}
+			lists := objectAt(doc, host)
+			list := it.path[len(it.path)-1]
+			for _, other := range sshLists {
+				a, _ := lists[other].([]any)
+				i := slices.Index(a, it.value)
+				if i < 0 {
+					continue
+				}
+				if other == list {
+					c.Kept = true
+					break
+				}
+				c.From = other
+				lists[other] = slices.Delete(a, i, i+1)
+				if len(lists[other].([]any)) == 0 {
+					delete(lists, other)
+				}
+			}
+			if !c.Kept {
+				a, _ := lists[list].([]any)
+				lists[list] = append(a, it.value)
 			}
 			changes = append(changes, c)
 			continue
 		}
-		want := standard(it.value)
-		parent := it.path[:len(it.path)-1]
-		list := it.path[len(it.path)-1]
-		c := Change{Path: it.path, Value: want}
-		for _, l := range append([]string{list}, it.siblings...) {
-			at := g.Find(pointer(append(slices.Clone(parent), l)))
-			if at == nil {
-				continue
-			}
-			a, ok := at.Value.(*hujson.Array)
-			if !ok {
-				return nil, nil, fmt.Errorf("%s is not a list", strings.Join(append(slices.Clone(parent), l), "."))
-			}
-			i := slices.IndexFunc(a.Elements, func(e hujson.Value) bool { return standard(e) == want })
-			switch {
-			case i < 0:
-			case l == list:
-				c.Kept = true
-			case c.From == "":
-				if err := remove(&g, append(slices.Clone(parent), l), i); err != nil {
-					return nil, nil, err
-				}
-				c.From = l
-			}
-			if c.Kept {
-				break
-			}
+		m := objectAt(doc, it.path)
+		was, there := m[it.key]
+		switch {
+		case !there:
+			m[it.key] = it.value
+		case slices.Equal(it.path, []string{"frisket", "lan"}):
+			c.Widened, c.Kept = widen(m, it.key, it.value)
+		case fmt.Sprint(was) == fmt.Sprint(it.value):
+			c.Kept = true
+		default:
+			c.From = fmt.Sprint(was)
+			m[it.key] = it.value
 		}
 		changes = append(changes, c)
-		if c.Kept {
-			continue
-		}
-		if err := ed.add(&g, it); err != nil {
-			return nil, nil, err
-		}
 	}
-	out := g.Pack()
-	// ParseFile standardizes what it is given in place.
-	if _, err := grant.ParseFile(slices.Clone(out)); err != nil {
-		return nil, nil, fmt.Errorf("with the proposal, %s would not be a grant: %w", grant.FileName, err)
+	out, err := projpolicy.Encode(doc)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, _, err := grant.ParseDoc(out); err != nil {
+		return nil, nil, fmt.Errorf("with the proposal, %s would not be one chase reads: %w", grant.FileName, err)
 	}
 	return out, changes, nil
+}
+
+// widen gives the lan entry name in m the ports v has that it lacks: an
+// entry with no ports is every port already.
+func widen(m map[string]any, name string, v any) (widened, kept bool) {
+	have, _ := m[name].(map[string]any)
+	add, _ := v.(map[string]any)
+	hp, _ := have["ports"].([]any)
+	ap, _ := add["ports"].([]any)
+	if have == nil || len(hp) == 0 {
+		return false, true
+	}
+	ports := slices.Clone(hp)
+	for _, p := range ap {
+		if !slices.ContainsFunc(ports, func(q any) bool { return fmt.Sprint(q) == fmt.Sprint(p) }) {
+			ports = append(ports, p)
+		}
+	}
+	if len(ports) == len(hp) {
+		return false, true
+	}
+	slices.SortFunc(ports, func(a, b any) int {
+		x, _ := strconv.Atoi(fmt.Sprint(a))
+		y, _ := strconv.Atoi(fmt.Sprint(b))
+		return x - y
+	})
+	have["ports"] = ports
+	return true, false
+}
+
+// walk is the value at path in v, and whether there is one.
+func walk(v any, path []string) (any, bool) {
+	for _, k := range path {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		if v, ok = m[k]; !ok {
+			return nil, false
+		}
+	}
+	return v, true
+}
+
+// show is an entry as a person reads it in what apply says.
+func show(key string, v any) string {
+	if key == "" {
+		return fmt.Sprintf("%q", v)
+	}
+	switch v := v.(type) {
+	case bool:
+		return fmt.Sprintf("%q", key)
+	case string:
+		return fmt.Sprintf("%q: %q", key, v)
+	}
+	return fmt.Sprintf("%q", key)
 }

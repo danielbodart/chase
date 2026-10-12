@@ -1,0 +1,10 @@
+{
+  "chase": {
+    "apps": {
+      "nix": {
+        "devShell": true
+      }
+    }
+  },
+  "version": 2
+}

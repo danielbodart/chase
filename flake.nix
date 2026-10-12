@@ -70,7 +70,7 @@
         # frisket's own code; and golang.org/x/crypto's ssh, which reads an SSH
         # grant's host keys as frisket does. The frisket-pin check holds
         # go.mod's frisket to the one flake.lock pins.
-        vendorHash = "sha256-FZXEssQxpMIPg6ARSPwGqplGtwNk5q5OenYDFZDrL9k=";
+        vendorHash = "sha256-4Z9uSMibnrCK+iV71urzwUgbC5OCs1qM+4WbDBhUNiw=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -88,7 +88,7 @@
         # writes, required rather than skipped. With doCheck off, none of it
         # is an input of the binary.
         doCheck = false;
-        nativeCheckInputs = [ pkgs.git pkgs.protobuf (nixpkgs.lib.getBin pkgs.sqlite) frisket.packages.${pkgs.stdenv.hostPlatform.system}.default ];
+        nativeCheckInputs = [ pkgs.git pkgs.protobuf (nixpkgs.lib.getBin pkgs.sqlite) pkgs.openssh frisket.packages.${pkgs.stdenv.hostPlatform.system}.default ];
         env.CHASE_REQUIRE_FRISKET = "1";
 
         meta = {
@@ -205,19 +205,38 @@
             in
             pkgs.runCommand "module-config" { nativeBuildInputs = [ self.packages.${system}.chase pkgs.jq pkgs.check-jsonschema ]; } ''
               fail() { echo "module-config: $*" >&2; exit 1; }
-              # What the module writes is what `chase schema` describes, and
-              # what `chase check` refuses -- a key misspelt, a scope no
+              # What the module writes is what `chase schema -config` describes, and
+              # what `chase check -config` refuses -- a key misspelt, a scope no
               # option has -- the schema refuses too.
-              chase schema > schema.json
+              chase schema -config > schema.json
               check-jsonschema --schemafile schema.json ${file} > out 2>&1 || fail "the schema refuses the module's: $(cat out)"
-              chase check ${file} || fail "chase check refuses the module's"
+              chase check -config ${file} || fail "chase check refuses the module's"
               jq '.session.tiers.strict.claude.scope = "everything"' ${file} > bad.json
-              ! chase check bad.json 2> out || fail "chase check took a scope no option has"
+              ! chase check -config bad.json 2> out || fail "chase check took a scope no option has"
               grep -q 'session: tiers.strict.claude.scope is "everything"' out || fail "chase check said $(cat out)"
               ! check-jsonschema --schemafile schema.json bad.json > /dev/null 2>&1 || fail "the schema took a scope no option has"
               jq '.selector.tierz = {}' ${file} > bad.json
-              ! chase check bad.json 2> /dev/null || fail "chase check took an unknown key"
+              ! chase check -config bad.json 2> /dev/null || fail "chase check took an unknown key"
               ! check-jsonschema --schemafile schema.json bad.json > /dev/null 2>&1 || fail "the schema took an unknown key"
+              # A project's chase.json is what `chase schema` describes, made
+              # of frisket's own schema and chase's types, and `chase check`
+              # reads it as a launch does, refusing what only the host says.
+              chase schema > project-schema.json
+              cat > chase.json <<'EOF'
+              {"version": 2,
+               "frisket": {"allow": {"pypi.org": true}, "routes": {"github": {"operations": {"pulls/create": "allow", "category:issues": "ask"}}}},
+               "flong": {"seccomp": {"syscalls": {"io_uring_setup": "allow", "ptrace": "deny"}, "allow": ["@keyring"]}},
+               "signer": {"ssh": {"hosts": {"gateway": "allow"}}},
+               "chase": {"apps": {"docker": {"project": "owner/repo", "images": {"postgres:18": true}, "ports": {"5432": true}}, "nix": {"devShell": true}}}}
+              EOF
+              chase fmt chase.json > /dev/null || fail "chase fmt refused a chase.json"
+              check-jsonschema --schemafile project-schema.json chase.json > out 2>&1 || fail "the schema refuses a chase.json: $(cat out)"
+              chase check chase.json || fail "chase check refuses a chase.json"
+              jq -S '.frisket.routes.github.host = "evil.example"' chase.json > bad.json
+              ! chase check bad.json 2> out || fail "chase check took a route's host"
+              grep -q "frisket.routes.github.host: the host's alone" out || fail "chase check said $(cat out)"
+              jq -S '.chase.apps.docker.imagez = {}' chase.json > bad.json
+              ! check-jsonschema --schemafile project-schema.json bad.json > /dev/null 2>&1 || fail "the schema took an unknown key"
               chase -config ${file} tier --dry-run / > out || fail "the tier could not be decided: $(cat out)"
               grep -q ' strict ' out || fail "/ is not the fallback's: $(cat out)"
               # The payload strict's exec prints, from the session section the
@@ -422,9 +441,15 @@
             assert
               (let config = configWith { }; in
               ! config.containers ? chase-host && ! config.flong ? chase-host
-              && ! config.services.frisket.policies ? host
+              && ! config.services.frisket.policies ? host && ! config.chase.internal.policies ? host
               && config.containers ? chase-strict && config.flong ? chase-trusted
-              && config.services.frisket.policies ? strict)
+              && config.services.frisket.policies ? strict && config.chase.internal.policies ? strict
+              # A tier taking no grant is served chase's version 2 document as it
+              # is; one that takes grants, the one exec writes for each session.
+              && config.services.frisket.flong.chase-strict.policyFile == "/etc/chase/policies/strict.json"
+              && config.services.frisket.flong.chase-trusted.policyFile == "/run/user/1000/chase/{machine}/policy.json"
+              && lib.elem "/etc/chase/policies" config.services.frisket.policyRoots
+              && config.chase.internal.config.grant.policies == "/etc/chase/policies")
               || throw "assertions: a bare tier was given a sandbox, or a sandbox was not";
             # GIT SIGNING follows authenticated: trusted's sessions sign
             # through frisket's agent for the tier, strict's have none.
@@ -482,6 +507,19 @@
               && lib.hasPrefix "/nix/store/" c.record.names.trusted
               && ! config.flong ? chase-strict-record)
               || throw "assertions: trusted's record launcher is not the tier's own, steered whole";
+            # A tier's syscalls map is flong's, its record launcher's too, and
+            # what it logs reaches a recording, which proposes none of it.
+            assert
+              (let
+                config = configWith {
+                  chase.tiers.trusted = { record.enable = true; seccomp.syscalls = { io_uring_setup = "allow"; userfaultfd = "log"; }; };
+                };
+              in
+              lib.all (a: a.assertion) config.assertions
+              && config.flong.chase-trusted.seccomp.syscalls == { io_uring_setup = "allow"; userfaultfd = "log"; }
+              && config.flong.chase-trusted-record.seccomp.syscalls == config.flong.chase-trusted.seccomp.syscalls
+              && lib.hasPrefix "/nix/store/" config.chase.internal.config.record.logged.trusted)
+              || throw "assertions: a tier's syscalls map did not reach flong";
             # The old selector options say where their replacement is.
             assert refused "a removed selector option" { chase.trustedOrgs = [ "alice" ]; } "chase.tiers.<name>.match";
             # DECLARED BUT UNBOUND REFUSES (PLAN.md, decision 4). trusted's
@@ -506,34 +544,36 @@
             assert
               (let p = (configWith {
                 chase.tiers.strict.apps.github = { authenticated = true; credentialFile = "/run/secrets/strict_gh"; };
-              }).services.frisket.policies; in
+              }).chase.internal.policies; in
               p.strict.routes.github.credentialFile == "/run/secrets/strict_gh"
               && p.trusted.routes.github.credentialFile == "/run/secrets/gh_token")
               || throw "assertions: a tier's own credential was not its own";
-            # A PUSH IS A WRITE (decision 18), answered as git's writes say:
-            # asked about in trusted by default, allowed where git says so
-            # whatever gh's writes are, and refused in strict. gh's GraphQL
-            # is by operation: a query is a read, a mutation is answered as
-            # github's writes or guarded say, and what frisket cannot
-            # classify as github's unmatched does.
+            # A PUSH IS A WRITE (decision 18), git-receive-pack answered as
+            # git's writes say: asked about in trusted by default, allowed
+            # where git says so whatever gh's writes are, and refused in
+            # strict, where nothing a project says lifts it (its ceiling).
+            # gh's GraphQL is by operation: a query is a read, a mutation of
+            # its class, answered as github's writes or guarded say, and what
+            # frisket cannot classify as github's unmatched does.
             assert
               (let
-                policies = extra: (configWith extra).services.frisket.policies;
+                policies = extra: (configWith extra).chase.internal.policies;
                 byDefault = policies { };
                 gitAllows = policies { chase.tiers.trusted.apps.git.writes = "allow"; };
                 ghAllows = policies { chase.tiers.trusted.apps.github = { writes = "allow"; unmatched = "allow"; }; };
-                graphql = p: lib.head p.trusted.routes.github.graphql;
-                mutation = p: field: lib.findFirst (m: m.field == field) null (graphql p).mutations;
+                graphql = p: p.trusted.routes.github.graphql."/graphql";
+                class = p: field: (graphql p).mutations.${field}.operation.class;
+                refuseAll = { writes = "refuse"; guarded = "refuse"; unmatched = "refuse"; };
               in
-              byDefault.trusted.routes.git.git.push == "ask"
-              && gitAllows.trusted.routes.git.git.push == "allow"
-              && byDefault.strict.routes.git.git.push == "refuse"
-              && byDefault.strict.routes.git.credentialFile == null
-              && (graphql byDefault).path == "/graphql" && ! (graphql byDefault).query.ask && ! (graphql byDefault).query.refuse
-              && (mutation byDefault "closePullRequest").ask && (mutation gitAllows "closePullRequest").ask
-              && ! (mutation ghAllows "closePullRequest").ask && (mutation ghAllows "deleteIssue").refuse
-              && (graphql byDefault).unmatched == "ask" && (graphql ghAllows).unmatched == "allow"
-              && ! lib.any (r: r.path or null == "/graphql") byDefault.trusted.routes.github.paths
+              byDefault.trusted.routes.git.writes == "ask" && byDefault.trusted.routes.git.git == { repos."*" = true; }
+              && gitAllows.trusted.routes.git.writes == "allow" && gitAllows.trusted.routes.github.writes == "ask"
+              && byDefault.strict.routes.git.writes == "refuse" && byDefault.strict.routes.git.ceiling == refuseAll
+              && ! byDefault.strict.routes.git ? credentialFile && ! byDefault.trusted.routes.github ? ceiling
+              && (graphql byDefault).query.operation.class == "read"
+              && class byDefault "closePullRequest" == "write" && class byDefault "deleteIssue" == "guarded"
+              && ghAllows.trusted.routes.github.writes == "allow" && ghAllows.trusted.routes.github.guarded == "refuse"
+              && byDefault.trusted.routes.github.unmatched == "ask" && ghAllows.trusted.routes.github.unmatched == "allow"
+              && ! lib.any (lib.hasSuffix " /graphql") (lib.attrNames byDefault.trusted.routes.github.paths)
               || throw "assertions: git's push or gh's GraphQL was not answered as their writes say");
             # Cloudflare needs no token of the tier's own -- a project brings
             # one -- and unless it is authenticated the tier has no
@@ -544,7 +584,7 @@
                 chase.apps.cloudflare.credentialFile = "/run/secrets/cloudflare-token";
               }; in
               lib.all (a: a.assertion) config.assertions
-              && ! (config.services.frisket.policies.trusted.routes ? cloudflare))
+              && ! (config.chase.internal.policies.trusted.routes ? cloudflare))
               || throw "assertions: cloudflare without a token of the tier's own did not hold together";
             # Authenticated, it holds together: no assertion fails, chase's or
             # frisket's, and frisket's configuration -- every generated
@@ -572,12 +612,13 @@
             assert
               (let
                 config = configWith { chase.tiers.strict.apps.huggingface.enable = true; };
-                route = config.services.frisket.policies.strict.routes.huggingface;
+                route = config.chase.internal.policies.strict.routes.huggingface;
               in
               lib.all (a: a.assertion) config.assertions
-              && route.credentialFile == null
-              && lib.any (p: p.refuse or false && p.path or "" == "/api/models/*/*/xet-write-token/*") route.paths
-              && ! lib.any (p: p.ask or false) route.paths)
+              && ! route ? credentialFile
+              && lib.any (lib.hasSuffix " /api/models/*/*/xet-write-token/*") (lib.attrNames route.paths)
+              && route.writes == "refuse" && route.guarded == "refuse" && route.unmatched == "refuse"
+              && route.ceiling == { writes = "refuse"; guarded = "refuse"; unmatched = "refuse"; })
               || throw "assertions: an unauthenticated huggingface did not hold together";
             # Its downloads are kept as the tier's caches are unless it says:
             # trusted's for the tier, in a store of its own, and strict's in
@@ -698,7 +739,7 @@
               (let
                 config = configWith { chase.tiers.trusted.apps.gcloud = { enable = true; apis = [ "bigquery" ]; }; };
                 env = config.containers.chase-trusted.config.environment;
-                policy = config.services.frisket.policies.trusted;
+                policy = config.chase.internal.policies.trusted;
               in
               lib.all (a: a.assertion) config.assertions
               && lib.any (p: lib.getName p == lib.getName pkgs.google-cloud-sdk) env.systemPackages
@@ -706,7 +747,7 @@
               && env.variables.CLOUDSDK_CORE_CUSTOM_CA_CERTS_FILE == "/etc/frisket/ca-bundle.crt"
               && env.variables.GRPC_DEFAULT_SSL_ROOTS_FILE_PATH == "/etc/frisket/ca-bundle.crt"
               && ! lib.any (lib.hasPrefix "gcloud") (lib.attrNames policy.routes)
-              && ! lib.elem "*.googleapis.com" policy.allow
+              && ! policy.allow ? "**.googleapis.com"
               && ! config.containers.chase-strict.config.environment.variables ? CLOUDSDK_CONFIG)
               || throw "assertions: gcloud in trusted did not hold together";
             # Docker is only ever a project's, and only where a session has
@@ -724,7 +765,7 @@
               (let
                 config = configWith { chase.tiers.trusted.apps.docker.enable = true; };
                 env = config.containers.chase-trusted.config.environment;
-                policy = config.services.frisket.policies.trusted;
+                policy = config.chase.internal.policies.trusted;
                 failed = map (a: a.message) (lib.filter (a: ! a.assertion) config.assertions);
               in
               failed == [ ]
@@ -732,7 +773,7 @@
               && lib.any (p: lib.getName p == "docker") env.systemPackages
               && env.etc."chase/docker/ca.pem".source == "/etc/frisket/ca.crt"
               && ! policy.routes ? docker
-              && ! lib.elem "docker.frisket.internal" policy.allow
+              && ! policy.allow ? "docker.frisket.internal"
               && ! lib.any (p: lib.getName p == "docker") config.containers.chase-strict.config.environment.systemPackages
               && ! config.containers.chase-strict.config.environment.etc ? "chase/docker/ca.pem")
               || throw "assertions: Docker in trusted did not hold together";
@@ -784,7 +825,7 @@
               && c.ssh.agent == "/run/user/1000/gcr/ssh" && ! c.ssh ? keyFile && ! c.ssh ? identity
               && lib.hasPrefix builtins.storeDir c.ssh.catalogue
               && c.apps.ssh.credential == false
-              && ! config.services.frisket.policies.trusted ? ssh)
+              && ! config.chase.internal.policies.trusted ? ssh)
               || throw "assertions: SSH in trusted did not hold together";
             # A TIER'S OWN MACHINES, each logging in with its own credential
             # or the machine's, by a path frisket reads and the session never
@@ -867,19 +908,17 @@
                       chase.tiers.trusted.apps.cloudflare = { enable = true; authenticated = true; };
                       chase.apps.cloudflare.credentialFile = "/run/secrets/cloudflare-token";
                     };
-                    route = config.services.frisket.policies.trusted.routes.cloudflare;
-                    of = class: lib.unique (map (p: if p.refuse or false then "refuse" else if p.ask or false then "ask" else "allow")
-                      (lib.filter (p: (p.operation.class or null) == class) route.paths));
+                    route = config.chase.internal.policies.trusted.routes.cloudflare;
+                    classes = lib.unique (map (p: p.operation.class) (lib.attrValues route.paths));
                   in
-                  { read = of "read"; write = of "write"; guarded = of "guarded"; inherit (route) unmatched;
-                    catchAll = lib.any (p: p.prefix or null == "/" && p.operation or null == null) route.paths; };
+                  { inherit (route) writes guarded unmatched; classes = lib.sort lib.lessThan classes; };
                 byDefault = answers { };
                 tierAllows = answers { chase.tiers.trusted.writes = "allow"; };
                 appRefuses = answers { chase.tiers.trusted = { writes = "allow"; apps.cloudflare.writes = "refuse"; guarded = "ask"; unmatched = "allow"; }; };
               in
-              byDefault == { read = [ "allow" ]; write = [ "ask" ]; guarded = [ "refuse" ]; unmatched = "ask"; catchAll = false; }
-              && tierAllows.write == [ "allow" ] && tierAllows.guarded == [ "refuse" ]
-              && appRefuses == { read = [ "allow" ]; write = [ "refuse" ]; guarded = [ "ask" ]; unmatched = "refuse"; catchAll = true; }
+              byDefault == { writes = "ask"; guarded = "refuse"; unmatched = "ask"; classes = [ "guarded" "read" "write" ]; }
+              && tierAllows.writes == "allow" && tierAllows.guarded == "refuse"
+              && appRefuses == { writes = "refuse"; guarded = "ask"; unmatched = "allow"; classes = [ "guarded" "read" "write" ]; }
               || throw "assertions: classes were not answered as the tier and the app say: ${builtins.toJSON [ byDefault tierAllows appRefuses ]}");
             # The example's strict says refuse for all three, and an app in it
             # that sets nothing asks about nothing.
@@ -996,15 +1035,16 @@
                 jq -n --argjson who "$who" \
                   --slurpfile ops $app/operations.json --slurpfile admit $app/admit.json \
                   --slurpfile fields $app/fields.json --slurpfile source $app/source.json '{
+                    version: 2,
                     name: "trusted",
-                    allow: ["docker.frisket.internal"],
-                    routes: [{
-                      name: "docker",
+                    allow: {"docker.frisket.internal": true},
+                    routes: {docker: {
                       host: "docker.frisket.internal",
                       upstream: "unix:///run/user/1000/docker.sock",
-                      unmatched: "refuse",
+                      writes: "refuse", guarded: "refuse", unmatched: "refuse",
                       refusal: {contentType: "application/json", body: "{\"message\":\"{{message}}\"}"},
-                      paths: $ops[0],
+                      paths: ($ops[0] | map({key: ((.methods | join(",")) + " " + .path), value: ({operation: .operation} + (if .docker then {docker: .docker} else {} end))}) | from_entries),
+                      operations: ($ops[0] | map({key: .operation.id, value: (if .refuse then "refuse" else "allow" end)}) | from_entries),
                       docker: {
                         project: $who.project,
                         apiVersions: $source[0].apiVersions,
@@ -1015,7 +1055,7 @@
                         maxBody: 262144,
                         bodies: ([$admit[0][] | .docker.body // empty] | unique | map({key: ., value: $fields[0][.]}) | from_entries)
                       }
-                    }]
+                    }}
                   }'
               }
               loads() { frisket check "$1" 2>$TMPDIR/err; }
@@ -1040,9 +1080,9 @@
 
               fresh
               judge || fail "the tables were not judged whole: $(cat $TMPDIR/err)"
-              [ "$(jq -c '.routes[0].docker | [.address, .names]' $TMPDIR/sample.json)" = '["127.101.170.171",["shop.example.internal"]]' ] \
-                || fail "the sample is not shop's address and names: $(jq -c '.routes[0].docker' $TMPDIR/sample.json | head -c 300)"
-              [ "$(jq -c '.routes[0].docker.bodies | keys' $TMPDIR/sample.json)" = '["ContainerCreate","ExecCreate","ExecStart","NetworkCreate","VolumeCreate"]' ] \
+              [ "$(jq -c '.routes.docker.docker | [.address, .names]' $TMPDIR/sample.json)" = '["127.101.170.171",["shop.example.internal"]]' ] \
+                || fail "the sample is not shop's address and names: $(jq -c '.routes.docker.docker' $TMPDIR/sample.json | head -c 300)"
+              [ "$(jq -c '.routes.docker.docker.bodies | keys' $TMPDIR/sample.json)" = '["ContainerCreate","ExecCreate","ExecStart","NetworkCreate","VolumeCreate"]' ] \
                 || fail "the sample does not carry every admitted body's table"
 
               fresh; edit fields.json 'del(.ContainerCreate["HostConfig.Memory"])'
@@ -1073,10 +1113,10 @@
                 grep -qF -- "$said" $TMPDIR/err || fail "$why, refused otherwise: $(cat $TMPDIR/err)"
               }
               own="are not [\"shop.example.internal\"], the project's own"
-              unloaded "names beyond what it derives" '.routes[0].docker.names += ["shop.internal"]' "$own"
-              unloaded "names short of what it derives" '.routes[0].docker.names = []' "$own"
-              unloaded "another project's names" '.routes[0].docker.names = ["billing.example.internal"]' "$own"
-              unloaded "an address it does not derive" '.routes[0].docker.address = "127.101.170.172"' "is not 127.101.170.171, the project's own"
+              unloaded "names beyond what it derives" '.routes.docker.docker.names += ["shop.internal"]' "$own"
+              unloaded "names short of what it derives" '.routes.docker.docker.names = []' "$own"
+              unloaded "another project's names" '.routes.docker.docker.names = ["billing.example.internal"]' "$own"
+              unloaded "an address it does not derive" '.routes.docker.docker.address = "127.101.170.172"' "is not 127.101.170.171, the project's own"
 
               touch $out
             '';

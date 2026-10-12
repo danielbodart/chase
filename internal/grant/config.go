@@ -1,31 +1,34 @@
-// Package grant is a project's grant, applied at launch (PLAN.md, decisions
-// 7, 10, 11 and 17): what the checkout's own chase.jsonc asks for beyond its
-// tier, once a person has approved it. Its steps:
+// Package grant is a project's own file, applied at launch (PLAN.md,
+// decisions 7, 10, 11 and 17): what the checkout's chase.json asks for
+// beyond its tier, once a person has signed it -- or, for one release, its
+// legacy chase.jsonc, once a person has approved it. Its steps:
 //
 //	approve   seccompPolicy, before the session is built: snapshots the
-//	          checkout's chase.jsonc, and the sops file it names, checks
-//	          what it says against what a grant may say, has a person
-//	          approve it if it is not what they last approved, stages the
-//	          approved grant for this launch, and prints its syscall
-//	          loosenings for flong
+//	          checkout's chase.json, its signature and the sops file it
+//	          names, checks what it says against what a project may say,
+//	          has the signer sign it if its signature does not verify,
+//	          stages it for this launch, and prints its syscall lines for
+//	          flong
 //	launch    exec, after seccompPolicy and before the session is built:
-//	          decrypts the secrets the staged grant binds, prepares each
-//	          bound app, writes the session's policy document where frisket
-//	          reads it, and gives the payload its environment and files
+//	          decrypts the secrets the staged file binds, prepares each
+//	          bound app, merges its frisket section over the tier's policy
+//	          document, writes that where frisket reads the session's, and
+//	          gives the payload its environment and files
 //	project   a checkout's project, as approve derives it
 //	docker    `chase docker`: a checkout's project, address, names and ports
 //
 // and postStop: each app's Stop, then the session's run directory and
-// anything staged for it removed.
+// anything staged for it removed. And the commands a person runs on a
+// project's file: check, fmt, schema, sign and migrate.
 //
 // All of it runs as the user who launched: a launcher has no privilege of
 // its own (PLAN.md, decision 2). The approval is split from the rest because
 // a syscall filter is installed before anything in the session runs, so what
-// loosens it has to be known, and approved, before flong starts bwrap.
+// loosens it has to be known, and signed, before flong starts bwrap.
 //
-// A checkout with no chase.jsonc is the tier as it is. Anything that goes
-// wrong on the way ends the launch: a grant is applied whole or the session
-// does not start.
+// A checkout with neither file is the tier as it is. Anything that goes
+// wrong on the way ends the launch: a project's file is applied whole or the
+// session does not start.
 package grant
 
 import (
@@ -37,6 +40,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+
+	"github.com/danielbodart/frisket/policy"
 
 	"github.com/danielbodart/chase/internal/apps"
 	"github.com/danielbodart/chase/internal/apps/docker"
@@ -68,8 +73,23 @@ type Config struct {
 	// /run/user/<UID>.
 	Runtime string `json:"runtime,omitempty"`
 	// Policies is the directory of the tiers' own policy documents,
-	// /etc/frisket/policies, one <tier>.json each.
+	// /etc/chase/policies, one <tier>.json each: frisket's version 2, which
+	// the module renders and frisket checks when the system is built, and
+	// a launch merges a project's frisket section over.
 	Policies string `json:"policies"`
+	// AllowedSigners is root's allowed signers file, which a project's
+	// chase.json.sig is verified against: frisket's,
+	// /etc/frisket/allowed_signers, when empty.
+	AllowedSigners string `json:"allowedSigners,omitempty"`
+	// SignerAgent is the socket of frisket-signer's agent, which signs a
+	// project's chase.json through its policy-sign@frisket extension when
+	// a person allows it. Empty: the caller's SSH_AUTH_SOCK.
+	SignerAgent string `json:"signerAgent,omitempty"`
+	// Flong is a path flong's binary is run by, to check a project's flong
+	// section against the tier's declaration in Declarations
+	// (/etc/flong when empty), as chase-<tier>.json. Empty: it is not run.
+	Flong        string `json:"flong,omitempty"`
+	Declarations string `json:"declarations,omitempty"`
 
 	// DockerTiers are the tiers apps/docker.nix gives Docker: not bare, with
 	// apps.docker.enable, which it asserts take grants.
@@ -87,6 +107,11 @@ type Config struct {
 	// which is what its `prepare` was; its entry here says only whether it
 	// has a credential, and may be left out when it does.
 	Apps map[string]App `json:"apps"`
+	// Answerable are the routes a project's frisket section may answer,
+	// by name: the apps whose operations a project names (GitHub, git,
+	// Hugging Face, Cloudflare, Google Cloud). What it says of another
+	// route is said and left out.
+	Answerable []string `json:"answerable,omitempty"`
 	// Ungranted are the tiers that take no checkout's grant but are
 	// launched as those that do, for routes made at launch that are the
 	// tier's own: a tier's SSH machines (apps/ssh.nix). Approve stages each
@@ -94,8 +119,8 @@ type Config struct {
 	// chase.jsonc.
 	Ungranted []string `json:"ungranted,omitempty"`
 	// Approver is chase.approver: the program that asks a person to
-	// approve a checkout's grant. Empty is none, and nothing is
-	// approved.
+	// approve a checkout's legacy grant, its chase.jsonc. Empty is none,
+	// and nothing is approved.
 	Approver string `json:"approver,omitempty"`
 	// RecordDir is where frisket appends a recording session's lines,
 	// its -record-dir: each session's <RecordDir>/<machine>.jsonl, named
@@ -120,12 +145,12 @@ type Config struct {
 // its frisket routes by tier, the names it adds to allow, the session's env,
 // and envFromGrant, variables taken from the binding's other fields.
 type App struct {
-	// Routes is by tier: a route, or a list of them, as a policy document
-	// holds one but for credentialFile, which is the project's decrypted
-	// secret.
-	Routes map[string]json.RawMessage `json:"routes,omitempty"`
-	Allow  []string                   `json:"allow,omitempty"`
-	Env    map[string]string          `json:"env,omitempty"`
+	// Routes is by tier, and in it by name: each a version 2 route as a
+	// policy document holds one but for credentialFile, which is the
+	// project's decrypted secret.
+	Routes map[string]map[string]policy.RouteV2 `json:"routes,omitempty"`
+	Allow  []string                             `json:"allow,omitempty"`
+	Env    map[string]string                    `json:"env,omitempty"`
 	// EnvFromGrant names, for each variable, the binding's field it is
 	// taken from.
 	EnvFromGrant map[string]string `json:"envFromGrant,omitempty"`
@@ -169,6 +194,7 @@ func (c Config) paths() error {
 	// Empty is a default, or, for the approver, none: nothing is approved.
 	for _, p := range []struct{ name, path string }{
 		{"state", c.State}, {"runtime", c.Runtime}, {"approver", c.Approver}, {"recordDir", c.RecordDir},
+		{"allowedSigners", c.AllowedSigners}, {"signerAgent", c.SignerAgent}, {"flong", c.Flong}, {"declarations", c.Declarations},
 	} {
 		if p.path != "" && !filepath.IsAbs(p.path) {
 			return fmt.Errorf("%s is %q, which is neither empty nor an absolute path", p.name, p.path)

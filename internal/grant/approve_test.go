@@ -19,7 +19,7 @@ func TestStdoutIsTheSyscallLinesAlone(t *testing.T) {
 	ws := h.root() + "/w"
 	h.checkout(ws)
 	h.approved(ws, "m1", "trusted", `{"seccomp": {"allow": ["io_uring_setup", "io_uring_enter"], "deny": ["ptrace"]}, "apps": {}}`)
-	if h.out != "allow io_uring_setup io_uring_enter\ndeny ptrace\n" {
+	if h.out != "allow io_uring_enter io_uring_setup\ndeny ptrace\n" {
 		t.Errorf("seccompPolicy printed %q", h.out)
 	}
 	if h.err != "the approver was asked\n" {
@@ -98,7 +98,7 @@ func TestTheSecretsDigestIsApproved(t *testing.T) {
 		t.Errorf("grant.json is %q, not %q", got, want)
 	}
 	d := h.stagedDoc("m1")
-	if d["secrets"].(map[string]any)["name"] != "secrets.yaml" || d["result"].(map[string]any)["secretsSHA256"] != sha256Hex("the project's own\n") {
+	if digest, _ := walkAny(d, "file", "chase", "secretsSHA256"); d["secrets"].(map[string]any)["name"] != "secrets.yaml" || digest != sha256Hex("the project's own\n") {
 		t.Errorf("the stage is %v", d)
 	}
 	// New ciphertext is a new digest, and asked about.

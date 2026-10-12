@@ -21,20 +21,16 @@ let
   # is authenticated with the machine's token and by a project that brings
   # its own, so it answers as the tier and the app say whether or not the
   # tier has a token.
-  route = tier: let s = ops.answers tier.apps.cloudflare; in {
-    name = "cloudflare";
+  #
+  # Secure by default: what the description does not name is asked about
+  # unless the tier says otherwise, so an endpoint Cloudflare ships next
+  # month is gated from the day it ships. The GraphQL Analytics API, which
+  # wrangler reads metrics from, and Cloudforce One's: a query is a read,
+  # and there is no schema to name a mutation by, so one is unmatched.
+  route = tier: let s = ops.answers tier.apps.cloudflare; in ops.route s operations // {
     inherit host;
     upstream = "https://${host}";
     placeholder = cfg.placeholder;
-    # Secure by default: what the description does not name is asked
-    # about unless the tier says otherwise, so an endpoint Cloudflare ships
-    # next month is gated from the day it ships.
-    unmatched = ops.unmatched s;
-    paths = ops.paths s operations;
-    # The GraphQL Analytics API, which wrangler reads metrics from, and
-    # Cloudforce One's: a query is a read, and there is no schema to name
-    # a mutation by, so one is unmatched.
-    graphql = ops.graphql s operations;
     # Cloudflare's own error grant, which wrangler reads: it then says why
     # a request was refused, where plain text gets "a request to the
     # Cloudflare API failed" and nothing more.
@@ -130,17 +126,17 @@ in
     # A route of the tier's own only with a token of the tier's own: without
     # one, api.cloudflare.com is intercepted only in a session whose project
     # brought one, and is otherwise an ordinary allowed name.
-    services.frisket.policies = lib.mapAttrs (name: tier: mkIf (tier.apps.cloudflare.enable && tier.apps.cloudflare.authenticated) {
+    chase.internal.policies = lib.mapAttrs (name: tier: mkIf (tier.apps.cloudflare.enable && tier.apps.cloudflare.authenticated) {
       # For a tier with an allowlist of names; one allowing `*` has it already.
-      allow = lib.mkAfter [ host ];
-      routes.cloudflare = removeAttrs (route tier) [ "name" ] // {
+      allow.${host} = true;
+      routes.cloudflare = route tier // {
         credentialFile = tier.apps.cloudflare.credentialFile;
       };
     }) cfg.tiers;
 
-    # A project that binds its own token, in its grant (internal/grant).
+    # A project that binds its own token, in its chase.json (internal/grant).
     chase.internal.projectApps.cloudflare = {
-      routes = lib.mapAttrs (_: route) (lib.filterAttrs (_: t: !t.bare) cfg.tiers);
+      routes = lib.mapAttrs (_: tier: { cloudflare = route tier; }) (lib.filterAttrs (_: t: !t.bare) cfg.tiers);
       allow = [ host ];
       env.CLOUDFLARE_API_TOKEN = cfg.placeholder;
       envFromGrant.CLOUDFLARE_ACCOUNT_ID = "accountId";

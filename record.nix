@@ -127,6 +127,13 @@ in
               let p = config.environment.etc."flong/chase-${name}-record.json".source.declaration.seccompProject; in
               lib.mkIf (p != null) p.names)
             recording;
+          # And what its seccomp.syscalls map logs, which a session makes
+          # unasked: allowed, so never proposed.
+          logged = lib.mapAttrs
+            (name: _:
+              let p = config.environment.etc."flong/chase-${name}-record.json".source.declaration.seccompProject; in
+              lib.mkIf (p != null && p.logged or null != null) p.logged)
+            recording;
         };
       };
     })

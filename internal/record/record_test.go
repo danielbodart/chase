@@ -1,7 +1,9 @@
 package record_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielbodart/chase/internal/gitsafe/gitsafetest"
 	"github.com/danielbodart/chase/internal/grant"
+	"github.com/danielbodart/chase/internal/grant/signertest"
 	"github.com/danielbodart/chase/internal/record"
 )
 
@@ -269,37 +273,42 @@ func TestWhatWasAnsweredIsProposed(t *testing.T) {
 	notes := map[string]string{}
 	for _, e := range p.Entries {
 		v, _ := json.Marshal(e.Value)
-		got = append(got, entry{strings.Join(e.Path, "."), string(v), e.Off})
-		notes[string(v)] = e.Note
+		at := strings.Join(e.Path, ".")
+		if e.Key != "" {
+			at += " " + e.Key
+		}
+		got = append(got, entry{at, string(v), e.Off})
+		notes[at+" "+string(v)] = e.Note
 	}
 	want := []entry{
-		{"apps.github.allow", `"git/delete-ref"`, false},
-		{"apps.github.refuse", `{"methods":["POST"],"path":"/new/thing"}`, false},
-		{"apps.ssh.hosts.server.allow", `"restart"`, false},
-		{"apps.ssh.hosts.server.ask", `"ls -la /srv"`, false},
-		{"network.allow", `"registry.npmjs.org"`, false},
-		{"network.lan", `{"name":"nas.lan","ports":[139,445]}`, false},
-		{"network.allow", `"intranet.example"`, false},
-		{"seccomp.allow", `"ptrace"`, false},
-		{"seccomp.allow", `"io_uring_setup"`, false},
-		{"seccomp.allow", `"keyctl"`, true},
+		{"frisket.routes.github.operations git/delete-ref", `"allow"`, false},
+		{"frisket.routes.github.operations POST /new/thing", `"refuse"`, false},
+		{"chase.apps.ssh.hosts.server.allow", `"restart"`, false},
+		{"chase.apps.ssh.hosts.server.ask", `"ls -la /srv"`, false},
+		{"frisket.allow registry.npmjs.org", `true`, false},
+		{"frisket.lan nas.lan", `{"ports":[139,445]}`, false},
+		{"frisket.allow nas.lan", `true`, false},
+		{"frisket.allow intranet.example", `true`, false},
+		{"flong.seccomp.syscalls ptrace", `"allow"`, false},
+		{"flong.seccomp.syscalls io_uring_setup", `"allow"`, false},
+		{"flong.seccomp.syscalls keyctl", `"allow"`, true},
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("proposed\n%v\nnot\n%v", got, want)
 	}
 	for v, needle := range map[string]string{
-		`"git/delete-ref"`:                     "loosens: the tier would refuse (path)",
-		`"restart"`:                            "loosens: the tier would ask (systemctl restart *)",
-		`"intranet.example"`:                   "a name cannot be asked about",
-		`{"name":"nas.lan","ports":[139,445]}`: "on the local network, port 139",
-		`"io_uring_setup"`:                     "high surface, io_uring",
-		`"keyctl"`:                             "probable",
+		`frisket.routes.github.operations git/delete-ref "allow"`: "loosens: the tier would refuse (path)",
+		`chase.apps.ssh.hosts.server.allow "restart"`:             "loosens: the tier would ask (systemctl restart *)",
+		`frisket.allow intranet.example true`:                     "a name cannot be asked about",
+		`frisket.lan nas.lan {"ports":[139,445]}`:                 "on the local network, port 139",
+		`flong.seccomp.syscalls io_uring_setup "allow"`:           "high surface, io_uring",
+		`flong.seccomp.syscalls keyctl "allow"`:                   "probable",
 	} {
 		if !strings.Contains(notes[v], needle) {
 			t.Errorf("%s's note is %q, without %q", v, notes[v], needle)
 		}
 	}
-	if strings.Contains(notes[`{"methods":["POST"],"path":"/new/thing"}`], "loosens") {
+	if strings.Contains(notes[`frisket.routes.github.operations POST /new/thing "refuse"`], "loosens") {
 		t.Error("a refusal was said to loosen")
 	}
 	var left []string
@@ -308,7 +317,7 @@ func TestWhatWasAnsweredIsProposed(t *testing.T) {
 	}
 	for _, needle := range []string{
 		"http /graphql: a GraphQL request",
-		"http /v1/x: a grant has no lists for the claude route",
+		"http /v1/x: a project answers none of the claude route's requests",
 		"http /repos/*/x: its path is not one a grant can name exactly",
 		"ssh uptime: a one-word command",
 		"ssh rm -rf *: a command with a *",
@@ -328,7 +337,7 @@ func TestWhatWasAnsweredIsProposed(t *testing.T) {
 	// A recording that refused everything proposes refusals, and no
 	// syscall: its filter was the tier's, and logged none.
 	p = record.Propose(lines[:1], calls, record.Options{Default: "refuse", Base: "tier"}, against)
-	if len(p.Entries) != 1 || strings.Join(p.Entries[0].Path, ".") != "apps.github.allow" {
+	if len(p.Entries) != 1 || strings.Join(p.Entries[0].Path, ".") != "frisket.routes.github.operations" {
 		t.Errorf("%+v", p.Entries)
 	}
 }
@@ -365,6 +374,9 @@ func TestWhatCannotBeNamedExactlyOrSafelyIsLeftOut(t *testing.T) {
 	var got []string
 	for _, e := range p.Entries {
 		v, _ := json.Marshal(e.Value)
+		if e.Key != "" {
+			v, _ = json.Marshal(e.Key)
+		}
 		got = append(got, string(v))
 		for _, secret := range []string{"hunter2", "s3cr3t", "aZ3kP9qX2mR7tL5wB8nV1c"} {
 			if strings.Contains(e.Note, secret) {
@@ -372,7 +384,7 @@ func TestWhatCannotBeNamedExactlyOrSafelyIsLeftOut(t *testing.T) {
 			}
 		}
 	}
-	want := []string{`"echo fine..."`, `"restart"`, `"git show 9fceb02d0ae598e95dc970b74767f19372d61af8"`, `"kubectl get secrets"`, `{"methods":["GET"],"path":"/repos/o/r/commits/9fceb02d0ae598e95dc970b74767f19372d61af8"}`}
+	want := []string{`"echo fine..."`, `"restart"`, `"git show 9fceb02d0ae598e95dc970b74767f19372d61af8"`, `"kubectl get secrets"`, `"GET /repos/o/r/commits/9fceb02d0ae598e95dc970b74767f19372d61af8"`}
 	if !slices.Equal(got, want) {
 		t.Errorf("proposed %q, not %q", got, want)
 	}
@@ -402,147 +414,162 @@ func TestWhatCannotBeNamedExactlyOrSafelyIsLeftOut(t *testing.T) {
 	}
 }
 
-// The proposal is JSONC in the grant's own shape, which a grant chase
-// reads is made of; with nothing to propose, an empty object.
-func TestAProposalIsAGrantsShape(t *testing.T) {
+// The proposal is strict JSON in its canonical form: what it proposes in
+// chase.json's own shape, what it proposes only as probable apart, and
+// each entry's note by a pointer to it; with nothing to propose, empty
+// objects.
+func TestAProposalIsAChaseJSONsShape(t *testing.T) {
 	p := record.Proposal{Entries: []record.Entry{
-		{Path: []string{"apps", "github", "allow"}, Value: "git/delete-ref", Note: "DELETE api.github.com/x\x1b[2J; loosens"},
-		{Path: []string{"apps", "github", "allow"}, Value: "git/delete-ref", Note: "again"},
-		{Path: []string{"apps", "github", "ask"}, Value: record.Endpoint("POST", "/a&b"), Note: "POST"},
-		{Path: []string{"seccomp", "allow"}, Value: "keyctl", Note: "probable", Off: true},
-		{Path: []string{"network", "allow"}, Value: "registry.npmjs.org"},
+		{Path: []string{"frisket", "routes", "github", "operations"}, Key: "git/delete-ref", Value: "allow", Note: "DELETE api.github.com/x\x1b[2J; loosens"},
+		{Path: []string{"frisket", "routes", "github", "operations"}, Key: "git/delete-ref", Value: "allow", Note: "again"},
+		{Path: []string{"frisket", "routes", "github", "operations"}, Key: "POST /a&b", Value: "ask", Note: "POST"},
+		{Path: []string{"flong", "seccomp", "syscalls"}, Key: "keyctl", Value: "allow", Note: "probable", Off: true},
+		{Path: []string{"frisket", "allow"}, Key: "registry.npmjs.org", Value: true},
+		{Path: []string{"chase", "apps", "ssh", "hosts", "server", "ask"}, Value: "ls -la /srv"},
 	}}
-	got := string(p.JSONC([]string{"chase record: m1", "line\nbreak"}))
-	want := `// chase record: m1
-// line break
-{
-  "apps": {
-    "github": {
-      "allow": [
-        // DELETE api.github.com/x?[2J; loosens
-        "git/delete-ref",
-      ],
-      "ask": [
-        // POST
-        {"methods":["POST"],"path":"/a&b"},
-      ],
+	got := string(p.File([]string{"chase record: m1", "line\nbreak"}))
+	want := `{
+  "about": [
+    "chase record: m1",
+    "line break"
+  ],
+  "notes": {
+    "/flong/seccomp/syscalls/keyctl": "probable",
+    "/frisket/routes/github/operations/POST ~1a&b": "POST",
+    "/frisket/routes/github/operations/git~1delete-ref": "DELETE api.github.com/x?[2J; loosens; again"
+  },
+  "probable": {
+    "flong": {
+      "seccomp": {
+        "syscalls": {
+          "keyctl": "allow"
+        }
+      }
+    }
+  },
+  "propose": {
+    "chase": {
+      "apps": {
+        "ssh": {
+          "hosts": {
+            "server": {
+              "ask": [
+                "ls -la /srv"
+              ]
+            }
+          }
+        }
+      }
     },
-  },
-  "network": {
-    "allow": [
-      "registry.npmjs.org",
-    ],
-  },
-  "seccomp": {
-    "allow": [
-      // probable
-      // "keyctl",
-    ],
-  },
+    "frisket": {
+      "allow": {
+        "registry.npmjs.org": true
+      },
+      "routes": {
+        "github": {
+          "operations": {
+            "POST /a&b": "ask",
+            "git/delete-ref": "allow"
+          }
+        }
+      }
+    }
+  }
 }
 `
 	if got != want {
 		t.Errorf("the proposal is\n%s\nnot\n%s", got, want)
 	}
-	merged, _, err := record.Merge(nil, []byte(got))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := grant.ParseFile(merged); err != nil {
-		t.Errorf("%v: %s", err, merged)
-	}
-	if got := string(record.Proposal{}.JSONC([]string{"nothing"})); got != "// nothing\n{}\n" {
+	if got := string(record.Proposal{}.File([]string{"nothing"})); got != "{\n  \"about\": [\n    \"nothing\"\n  ],\n  \"notes\": {},\n  \"probable\": {},\n  \"propose\": {}\n}\n" {
 		t.Errorf("an empty proposal is %q", got)
 	}
 }
 
-// A MERGE is an edit of the file a person keeps: its comments and layout
-// stay, each entry goes where the grant has it -- after the last of its
-// list, on its own line where the list is on many and inline where it is
-// on one -- with the proposal's note beside it; one in its list already
-// is left; one in another of the same lists is moved; and what comes out
-// is a grant chase reads, or nothing.
-func TestAProposalIsMergedIntoTheGrant(t *testing.T) {
+// A MERGE puts each entry where chase.json has it: an operation's answer,
+// a name, a call, a command in its machine's list; one there already is
+// left; another answer for the same operation or call replaces the old,
+// and a command in another of its machine's lists is moved there; and
+// what comes out is a chase.json chase reads, in its canonical form, or
+// nothing.
+func TestAProposalIsMergedIntoTheFile(t *testing.T) {
 	current := `{
-  "secrets": "secrets.yaml",   // sops file in the checkout
-  "apps": {
-    // gh
-    "github": { "ask": ["git/delete-ref"], "refuse": ["repos/delete"] },
-    "ssh": {
-      "hosts": {
-        "server": {
-          "address": "192.168.1.20",
-          "user": "ops",
-          "hostKeys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl server"],
-        },
-      },
-    },
+  "chase": {
+    "apps": {
+      "ssh": {
+        "hosts": {
+          "server": {
+            "address": "192.168.1.20",
+            "hostKeys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl server"],
+            "refuse": ["ls -la /srv"],
+            "user": "ops"
+          }
+        }
+      }
+    }
   },
-  "seccomp": {
-    "allow": [
-      "io_uring_setup",
-    ],
-  },
+  "flong": {"seccomp": {"syscalls": {"io_uring_setup": "allow"}}},
+  "frisket": {"routes": {"github": {"operations": {"git/delete-ref": "ask", "repos/delete": "refuse"}}}},
+  "version": 2
 }
 `
-	proposal := `// header
-{
-  "apps": {
-    "github": {
-      "allow": [
-        // moved
-        "git/delete-ref",
-      ],
-    },
-    "ssh": { "hosts": { "server": { "ask": ["ls -la /srv"] } } },
-  },
-  "network": { "allow": ["registry.npmjs.org"] },
-  "seccomp": {
-    "allow": [
-      // twice
-      "io_uring_setup",
-      // logged 3 times; loosens the tier's filter
-      "ptrace",
-    ],
-  },
-}
-`
-	want := `{
-  "secrets": "secrets.yaml",   // sops file in the checkout
-  "apps": {
-    // gh
-    "github": { "ask": [], "refuse": ["repos/delete"], "allow": [/* moved */ "git/delete-ref"] },
-    "ssh": {
-      "hosts": {
-        "server": {
-          "address": "192.168.1.20",
-          "user": "ops",
-          "hostKeys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl server"],
-          "ask": [
-            "ls -la /srv",
-          ],
-        },
-      },
-    },
-  },
-  "seccomp": {
-    "allow": [
-      "io_uring_setup",
-      // logged 3 times; loosens the tier's filter
-      "ptrace",
-    ],
-  },
-  "network": {
-    "allow": [
-      "registry.npmjs.org",
-    ],
-  },
+	proposal := `{
+  "propose": {
+    "chase": {"apps": {"ssh": {"hosts": {"server": {"ask": ["ls -la /srv"]}}}}},
+    "flong": {"seccomp": {"syscalls": {"io_uring_setup": "allow", "ptrace": "allow"}}},
+    "frisket": {
+      "allow": {"registry.npmjs.org": true},
+      "routes": {"github": {"operations": {"git/delete-ref": "allow"}}}
+    }
+  }
 }
 `
 	got, changes, err := record.Merge([]byte(current), []byte(proposal))
 	if err != nil {
 		t.Fatal(err)
 	}
+	want := `{
+  "chase": {
+    "apps": {
+      "ssh": {
+        "hosts": {
+          "server": {
+            "address": "192.168.1.20",
+            "ask": [
+              "ls -la /srv"
+            ],
+            "hostKeys": [
+              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl server"
+            ],
+            "user": "ops"
+          }
+        }
+      }
+    }
+  },
+  "flong": {
+    "seccomp": {
+      "syscalls": {
+        "io_uring_setup": "allow",
+        "ptrace": "allow"
+      }
+    }
+  },
+  "frisket": {
+    "allow": {
+      "registry.npmjs.org": true
+    },
+    "routes": {
+      "github": {
+        "operations": {
+          "git/delete-ref": "allow",
+          "repos/delete": "refuse"
+        }
+      }
+    }
+  },
+  "version": 2
+}
+`
 	if string(got) != want {
 		t.Errorf("merged\n%s\nnot\n%s", got, want)
 	}
@@ -551,111 +578,90 @@ func TestAProposalIsMergedIntoTheGrant(t *testing.T) {
 		said = append(said, fmt.Sprintf("%s %s %s %v", strings.Join(c.Path, "."), c.Value, c.From, c.Kept))
 	}
 	if !slices.Equal(said, []string{
-		`apps.github.allow "git/delete-ref" ask false`,
-		`apps.ssh.hosts.server.ask "ls -la /srv"  false`,
-		`network.allow "registry.npmjs.org"  false`,
-		`seccomp.allow "io_uring_setup"  true`,
-		`seccomp.allow "ptrace"  false`,
+		`frisket.allow "registry.npmjs.org"  false`,
+		`frisket.routes.github.operations "git/delete-ref": "allow" ask false`,
+		`flong.seccomp.syscalls "io_uring_setup": "allow"  true`,
+		`flong.seccomp.syscalls "ptrace": "allow"  false`,
+		`chase.apps.ssh.hosts.server.ask "ls -la /srv" refuse false`,
 	}) {
 		t.Errorf("%q", said)
 	}
 	// Again, and nothing changes.
 	again, changes, err := record.Merge(got, []byte(proposal))
 	if err != nil || string(again) != string(got) || slices.ContainsFunc(changes, func(c record.Change) bool { return !c.Kept }) {
-		t.Errorf("a second merge changed the grant: %v\n%s", err, again)
+		t.Errorf("a second merge changed the file: %v\n%s", err, again)
 	}
 
 	for name, bad := range map[string]string{
-		"a secret":           `{"secrets": "x.yaml"}`,
-		"docker":             `{"apps": {"docker": {"allow": ["x"]}}}`,
-		"an app's other key": `{"apps": {"github": {"credential": {"secret": "x"}}}}`,
-		"ssh's credential":   `{"apps": {"ssh": {"hosts": {"server": {"keyFile": "/x"}}}}}`,
-		"not a list":         `{"network": {"allow": "x"}}`,
-		"every name":         `{"network": {"allow": ["*"]}}`,
-		"not an object":      `[]`,
+		"a secret":          `{"propose": {"chase": {"secrets": "x.yaml"}}}`,
+		"docker":            `{"propose": {"chase": {"apps": {"docker": {"images": {"x:1": true}}}}}}`,
+		"a route's host":    `{"propose": {"frisket": {"routes": {"github": {"host": "x"}}}}}`,
+		"ssh's credential":  `{"propose": {"chase": {"apps": {"ssh": {"hosts": {"server": {"keyFile": "/x"}}}}}}}`,
+		"not a map":         `{"propose": {"frisket": {"allow": ["x"]}}}`,
+		"every name":        `{"propose": {"frisket": {"allow": {"**": true}}}}`,
+		"not an answer":     `{"propose": {"frisket": {"routes": {"github": {"operations": {"x": "maybe"}}}}}}`,
+		"not an object":     `[]`,
+		"nothing proposed":  `{}`,
+		"a call by a group": `{"propose": {"flong": {"seccomp": {"syscalls": {"@debug": "allow"}}}}}`,
 	} {
 		if out, _, err := record.Merge([]byte(current), []byte(bad)); err == nil {
 			t.Errorf("%s was merged: %s", name, out)
 		}
 	}
-	if _, _, err := record.Merge([]byte(`{"seccomp": {"allow": "x"}}`), []byte(proposal)); err == nil {
-		t.Error("a grant whose list is not one was merged into")
-	}
-	// A machine the grant does not name is no grant's: its address, user
+	// A machine the file does not name is no project's: its address, user
 	// and keys are not the proposal's to give.
-	if out, _, err := record.Merge(nil, []byte(`{"apps": {"ssh": {"hosts": {"box": {"allow": ["ls -la /"]}}}}}`)); err == nil {
+	if out, _, err := record.Merge(nil, []byte(`{"propose": {"chase": {"apps": {"ssh": {"hosts": {"box": {"allow": ["ls -la /"]}}}}}}}`)); err == nil {
 		t.Errorf("an entry for an unnamed machine was merged: %s", out)
+	}
+	// A checkout with no file has one made.
+	made, _, err := record.Merge(nil, []byte(`{"propose": {"frisket": {"allow": {"pypi.org": true}}}}`))
+	if err != nil || string(made) != "{\n  \"frisket\": {\n    \"allow\": {\n      \"pypi.org\": true\n    }\n  },\n  \"version\": 2\n}\n" {
+		t.Errorf("a new file is %v: %s", err, made)
 	}
 }
 
-// A NAME ON THE LOCAL NETWORK is in a grant's lan once: merged, a name
-// already there gains the ports it lacks, in its place and with its
-// comments; one there for every port is left as it is; a new one is added
-// after the last.
+// A NAME ON THE LOCAL NETWORK is in frisket's lan once: merged, a name
+// already there gains the ports it lacks; one there for every port is left
+// as it is; a new one is added.
 func TestALANNameIsMergedByName(t *testing.T) {
-	current := `{
-  "network": {
-    "lan": [
-      // the NAS
-      {"name": "nas.lan", "ports": [445]},
-      {"name": "printer.lan"},
-    ],
-  },
-}
-`
-	proposal := `{
-  "network": {
-    "lan": [
-      // smb
-      {"name": "nas.lan", "ports": [139, 445]},
-      {"name": "printer.lan", "ports": [631]},
-      // a camera
-      {"name": "cam.lan", "ports": [554]},
-    ],
-  },
-}
-`
-	want := `{
-  "network": {
-    "lan": [
-      // the NAS
-      {"name": "nas.lan", "ports": [445, 139]},
-      {"name": "printer.lan"},
-      // a camera
-      {"name": "cam.lan", "ports": [554]},
-    ],
-  },
-}
-`
+	current := `{"frisket": {"allow": {"nas.lan": true, "printer.lan": true}, "lan": {"nas.lan": {"ports": [445]}, "printer.lan": {}}}, "version": 2}`
+	proposal := `{"propose": {"frisket": {
+  "allow": {"cam.lan": true},
+  "lan": {"nas.lan": {"ports": [139, 445]}, "printer.lan": {"ports": [631]}, "cam.lan": {"ports": [554]}}
+}}}`
 	got, changes, err := record.Merge([]byte(current), []byte(proposal))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != want {
-		t.Errorf("merged\n%s\nnot\n%s", got, want)
+	d, _, err := grant.ParseDoc(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lan, _ := json.Marshal(d.Frisket["lan"])
+	if string(lan) != `{"cam.lan":{"ports":[554]},"nas.lan":{"ports":[139,445]},"printer.lan":{}}` {
+		t.Errorf("the lan is %s", lan)
 	}
 	var said []string
 	for _, c := range changes {
 		said = append(said, fmt.Sprintf("%s %s %v %v", strings.Join(c.Path, "."), c.Value, c.Widened, c.Kept))
 	}
 	if !slices.Equal(said, []string{
-		`network.lan {"name":"nas.lan","ports":[445,139]} true false`,
-		`network.lan {"name":"printer.lan","ports":[631]} false true`,
-		`network.lan {"name":"cam.lan","ports":[554]} false false`,
+		`frisket.allow "cam.lan" false false`,
+		`frisket.lan "cam.lan" false false`,
+		`frisket.lan "nas.lan" true false`,
+		`frisket.lan "printer.lan" false true`,
 	}) {
 		t.Errorf("%q", said)
 	}
 	again, changes, err := record.Merge(got, []byte(proposal))
 	if err != nil || string(again) != string(got) || slices.ContainsFunc(changes, func(c record.Change) bool { return !c.Kept }) {
-		t.Errorf("a second merge changed the grant: %v\n%s", err, again)
+		t.Errorf("a second merge changed the file: %v\n%s", err, again)
 	}
-	// What frisket would refuse in its lan, a grant refuses, so nothing
-	// is merged.
+	// What chase refuses in a lan, nothing is merged of.
 	for _, bad := range []string{
-		`{"network": {"lan": [{"name": "*.lan"}]}}`,
-		`{"network": {"lan": [{"name": "nas.lan", "ports": [0]}]}}`,
-		`{"network": {"lan": [{"name": "shop.example.internal"}]}}`,
-		`{"network": {"lan": ["nas.lan"]}}`,
+		`{"propose": {"frisket": {"lan": {"*.lan": {}}}}}`,
+		`{"propose": {"frisket": {"lan": {"shop.example.internal": {}}}}}`,
+		`{"propose": {"frisket": {"lan": {"nas.lan": {"address": "x"}}}}}`,
 	} {
 		if out, _, err := record.Merge(nil, []byte(bad)); err == nil {
 			t.Errorf("%s was merged: %s", bad, out)
@@ -693,39 +699,50 @@ func TestRecordingsArePrunedWhenOldAndMany(t *testing.T) {
 }
 
 // `chase record apply` merges a recording's proposal into its checkout's
-// chase.jsonc -- the last recording's, or one named -- keeping the file's
-// mode, and says what it did; a second apply adds nothing.
+// chase.json -- the last recording's, or one named -- keeping the file's
+// mode, says what it did, and signs it through the signer; a second apply
+// adds nothing. A checkout with only a chase.jsonc is migrated first.
 func TestApplyAddsTheProposalToTheCheckout(t *testing.T) {
 	root := t.TempDir()
 	diff, err := exec.LookPath("diff")
 	if err != nil {
 		t.Skip("no diff on PATH")
 	}
-	c := grant.Config{Home: root + "/home", State: root + "/state", Diff: diff}
+	signer := signertest.New(t, root)
+	c := grant.Config{Config: gitsafetest.Config(t), Home: root, State: root + "/state", Diff: diff,
+		AllowedSigners: signer.AllowedSigners, SignerAgent: signer.Socket}
 	dir := record.RecordsDir(c)
 	ws := root + "/ws"
 	os.MkdirAll(ws, 0o755)
-	os.WriteFile(ws+"/chase.jsonc", []byte("{\n  // mine\n  \"apps\": {},\n}\n"), 0o640)
+	os.WriteFile(ws+"/chase.json", []byte("{\n  \"version\": 2\n}\n"), 0o640)
 	now := time.Now()
 	old := record.Meta{Machine: "old", Workspace: ws, Ended: now.Add(-time.Hour)}
-	record.Save(dir, old, nil, []byte(`{"network": {"allow": ["old.example"]}}`))
+	record.Save(dir, old, nil, []byte(`{"propose": {"frisket": {"allow": {"old.example": true}}}}`))
 	last := record.Meta{Machine: "last", Workspace: ws, Ended: now}
-	record.Save(dir, last, nil, []byte("{\n  \"seccomp\": {\n    \"allow\": [\n      // logged\n      \"ptrace\",\n    ],\n  },\n}\n"))
+	record.Save(dir, last, nil, []byte(`{"propose": {"flong": {"seccomp": {"syscalls": {"ptrace": "allow"}}}}, "notes": {"/flong/seccomp/syscalls/ptrace": "logged"}}`))
 
 	var out, errb strings.Builder
-	if rc := record.Apply(c, nil, &out, &errb); rc != 0 {
+	if rc := record.Apply(context.Background(), c, nil, &out, &errb); rc != 0 {
 		t.Fatalf("%d: %s", rc, errb.String())
 	}
-	got, _ := os.ReadFile(ws + "/chase.jsonc")
-	want := "{\n  // mine\n  \"apps\": {},\n  \"seccomp\": {\n    \"allow\": [\n      // logged\n      \"ptrace\",\n    ],\n  },\n}\n"
+	got, _ := os.ReadFile(ws + "/chase.json")
+	want := "{\n  \"flong\": {\n    \"seccomp\": {\n      \"syscalls\": {\n        \"ptrace\": \"allow\"\n      }\n    }\n  },\n  \"version\": 2\n}\n"
 	if string(got) != want {
-		t.Errorf("the grant is\n%s", got)
+		t.Errorf("the file is\n%s", got)
 	}
-	if fi, _ := os.Stat(ws + "/chase.jsonc"); fi.Mode().Perm() != 0o640 {
+	if fi, _ := os.Stat(ws + "/chase.json"); fi.Mode().Perm() != 0o640 {
 		t.Errorf("its mode is %v", fi.Mode())
 	}
-	if !strings.Contains(out.String(), `+      "ptrace",`) || !strings.Contains(out.String(), `"ptrace" added to seccomp.allow`) {
+	if !strings.Contains(out.String(), `+        "ptrace": "allow"`) || !strings.Contains(out.String(), `"ptrace": "allow" added to flong.seccomp.syscalls`) {
 		t.Errorf("apply said %s", out.String())
+	}
+	if asked := signer.Asked(); len(asked) != 1 || string(asked[0].New) != want || asked[0].Name != "chase.json" {
+		t.Errorf("the signer was asked %+v", asked)
+	}
+	verify := exec.Command("ssh-keygen", "-Y", "verify", "-f", signer.AllowedSigners, "-I", "dan", "-n", "frisket-policy:~/ws", "-s", ws+"/chase.json.sig")
+	verify.Stdin = strings.NewReader(want)
+	if out, err := verify.CombinedOutput(); err != nil && !errors.Is(err, exec.ErrNotFound) {
+		t.Errorf("stock ssh-keygen does not verify the signature: %v: %s", err, out)
 	}
 	b, _ := os.ReadFile(dir + "/last/meta.json")
 	var m record.Meta
@@ -734,39 +751,54 @@ func TestApplyAddsTheProposalToTheCheckout(t *testing.T) {
 	}
 
 	out.Reset()
-	if rc := record.Apply(c, []string{"--last"}, &out, &errb); rc != 0 || !strings.Contains(out.String(), "nothing to add") {
+	if rc := record.Apply(context.Background(), c, []string{"--last"}, &out, &errb); rc != 0 || !strings.Contains(out.String(), "nothing to add") {
 		t.Errorf("a second apply: %d %s", rc, out.String())
 	}
 	out.Reset()
-	if rc := record.Apply(c, []string{"old"}, &out, &errb); rc != 0 || !strings.Contains(out.String(), `"old.example" added to network.allow`) {
+	if rc := record.Apply(context.Background(), c, []string{"old"}, &out, &errb); rc != 0 || !strings.Contains(out.String(), `"old.example" added to frisket.allow`) {
 		t.Errorf("apply of a named recording: %d %s %s", rc, out.String(), errb.String())
 	}
-	// A chase.jsonc the session made a link or a pipe is no grant, and is
-	// neither followed nor waited on.
-	os.Remove(ws + "/chase.jsonc")
-	os.Symlink(root+"/elsewhere", ws+"/chase.jsonc")
+	// Refused by the person, the file is written and not signed, and said.
+	signer.Refuse(true)
+	record.Save(dir, record.Meta{Machine: "third", Workspace: ws, Ended: now.Add(time.Minute)}, nil, []byte(`{"propose": {"frisket": {"allow": {"third.example": true}}}}`))
+	errb.Reset()
+	if rc := record.Apply(context.Background(), c, []string{"third"}, &out, &errb); rc == 0 || !strings.Contains(errb.String(), "is not signed (the signer: refused)") {
+		t.Errorf("a refused signing: %d %s", rc, errb.String())
+	}
+	signer.Refuse(false)
+	// A chase.json the session made a link or a pipe is no file of the
+	// project's, and is neither followed nor waited on.
+	os.Remove(ws + "/chase.json")
+	os.Symlink(root+"/elsewhere", ws+"/chase.json")
 	os.WriteFile(root+"/elsewhere", []byte("{}"), 0o600)
-	if rc := record.Apply(c, []string{"old"}, &out, &errb); rc == 0 || !strings.Contains(errb.String(), "is a link") {
+	if rc := record.Apply(context.Background(), c, []string{"old"}, &out, &errb); rc == 0 || !strings.Contains(errb.String(), "is a link") {
 		t.Errorf("apply through a link: %d %s", rc, errb.String())
 	}
 	if b, _ := os.ReadFile(root + "/elsewhere"); string(b) != "{}" {
 		t.Errorf("apply wrote through a link: %s", b)
 	}
-	os.Remove(ws + "/chase.jsonc")
-	if err := syscall.Mkfifo(ws+"/chase.jsonc", 0o600); err != nil {
+	os.Remove(ws + "/chase.json")
+	if err := syscall.Mkfifo(ws+"/chase.json", 0o600); err != nil {
 		t.Fatal(err)
 	}
 	errb.Reset()
-	if rc := record.Apply(c, []string{"old"}, &out, &errb); rc == 0 || !strings.Contains(errb.String(), "not a plain file") {
+	if rc := record.Apply(context.Background(), c, []string{"old"}, &out, &errb); rc == 0 || !strings.Contains(errb.String(), "not a plain file") {
 		t.Errorf("apply of a pipe: %d %s", rc, errb.String())
+	}
+	// A legacy chase.jsonc is migrated first.
+	os.Remove(ws + "/chase.json")
+	os.WriteFile(ws+"/chase.jsonc", []byte("{}"), 0o600)
+	errb.Reset()
+	if rc := record.Apply(context.Background(), c, []string{"old"}, &out, &errb); rc == 0 || !strings.Contains(errb.String(), "run chase migrate there first") {
+		t.Errorf("apply over a chase.jsonc: %d %s", rc, errb.String())
 	}
 	for _, bad := range [][]string{{"../state"}, {"nope"}, {"a", "b"}, {".x"}} {
 		errb.Reset()
-		if rc := record.Apply(c, bad, &out, &errb); rc == 0 {
+		if rc := record.Apply(context.Background(), c, bad, &out, &errb); rc == 0 {
 			t.Errorf("%q applied", bad)
 		}
 	}
-	if rc := record.Apply(grant.Config{State: root + "/empty", Diff: diff}, nil, &out, &errb); rc == 0 {
+	if rc := record.Apply(context.Background(), grant.Config{State: root + "/empty", Diff: diff}, nil, &out, &errb); rc == 0 {
 		t.Error("apply with no recording succeeded")
 	}
 }
@@ -798,11 +830,11 @@ func TestTheReportSaysWhatWasFound(t *testing.T) {
 			}),
 		},
 		Calls:     []record.Syscall{{Name: "ptrace", Count: 2}, {Name: "keyctl", Count: 1, Probable: true}},
-		Proposal:  record.Proposal{Entries: []record.Entry{{Path: []string{"seccomp", "allow"}, Value: "ptrace"}}, Left: []record.Left{{Line: record.Line{Kind: "ssh", Route: "server", Command: "uptime"}, Why: "a one-word command"}}},
+		Proposal:  record.Proposal{Entries: []record.Entry{{Path: []string{"flong", "seccomp", "syscalls"}, Key: "ptrace", Value: "allow"}}, Left: []record.Left{{Line: record.Line{Kind: "ssh", Route: "server", Command: "uptime"}, Why: "a one-word command"}}},
 		Elsewhere: 4,
 		Notes:     []string{"something worth saying"},
 		Dir:       "/state/records/m1",
-		Diff:      "--- chase.jsonc\n+++ chase.jsonc, proposed\n",
+		Diff:      "--- chase.json\n+++ chase.json, proposed\n",
 	}
 	var b strings.Builder
 	r.Write(&b)
@@ -818,7 +850,7 @@ func TestTheReportSaysWhatWasFound(t *testing.T) {
 		"Refused for want of an answer\n  http  github PUT /x  no asker",
 		"Answered, and not proposed\n  ssh  server uptime  a one-word command",
 		"4 logged calls by other processes left out",
-		"Proposed, in /state/records/m1/proposal.jsonc:\n--- chase.jsonc",
+		"Proposed, in /state/records/m1/proposal.json:\n--- chase.json",
 		"chase record apply m1",
 	} {
 		if !strings.Contains(got, needle) {

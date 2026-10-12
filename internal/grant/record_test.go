@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -122,7 +123,7 @@ func TestARecordingLearnsWhatTheFilterWouldRefuse(t *testing.T) {
 func TestARecordingsDocumentHasItsRecordBlock(t *testing.T) {
 	h := newHarness(t)
 	h.cfg.RecordDir = "/var/lib/frisket/records"
-	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["api.github.com"], "routes": []}`)
+	write(t, h.cfg.Policies+"/trusted.json", tierDoc("trusted", "api.github.com"))
 	ws := h.root() + "/w"
 	h.checkout(ws)
 	h.approved(ws, "m1", "trusted", `{"network": {"allow": ["registry.npmjs.org", "*.pythonhosted.org"]}}`)
@@ -135,7 +136,7 @@ func TestARecordingsDocumentHasItsRecordBlock(t *testing.T) {
 	path := h.dir + "/run/chase/m1/policy.json"
 	var doc struct {
 		Name   string          `json:"name"`
-		Allow  []string        `json:"allow"`
+		Allow  map[string]bool `json:"allow"`
 		Record json.RawMessage `json:"record"`
 	}
 	if err := json.Unmarshal([]byte(read(t, path)), &doc); err != nil {
@@ -146,8 +147,8 @@ func TestARecordingsDocumentHasItsRecordBlock(t *testing.T) {
 	if got, want := compact.String(), `{"default":"allow","sink":"/var/lib/frisket/records/m1.jsonl"}`; got != want {
 		t.Errorf("the record block is %s, not %s", got, want)
 	}
-	if !slices.Equal(doc.Allow, []string{"*.pythonhosted.org", "api.github.com", "registry.npmjs.org"}) {
-		t.Errorf("the grant's names were not added: %q", doc.Allow)
+	if !slices.Equal(slices.Sorted(maps.Keys(doc.Allow)), []string{"**.pythonhosted.org", "api.github.com", "registry.npmjs.org"}) {
+		t.Errorf("the grant's names were not added: %v", doc.Allow)
 	}
 	frisketCheck(t, path)
 	if got := grant.RecordSink(h.cfg, "m1"); got != "/var/lib/frisket/records/m1.jsonl" {
@@ -219,7 +220,7 @@ func TestAGrantsNetworkIsNames(t *testing.T) {
 		t.Errorf("a network that names nothing was asked about again: %d", len(asked))
 	}
 	// A tier that allows every name is left as it is.
-	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["*"], "routes": []}`)
+	write(t, h.cfg.Policies+"/trusted.json", tierDoc("trusted", "**"))
 	h.launched(ws, "m3", "trusted", `{"network": {"allow": ["a.example"]}}`)
 	if d := h.policyDoc("m3"); !slices.Equal(d.Allow, []string{"*"}) {
 		t.Errorf("every name became %q", d.Allow)
@@ -252,7 +253,7 @@ func TestAGrantsLANIsFrisketsLANList(t *testing.T) {
 		}
 	}
 	h := newHarness(t)
-	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["api.github.com"], "routes": []}`)
+	write(t, h.cfg.Policies+"/trusted.json", tierDoc("trusted", "api.github.com"))
 	ws := h.root() + "/w"
 	h.checkout(ws)
 	h.launched(ws, "m1", "trusted", `{"network": {"lan": [{"name": "nas.home.arpa", "ports": [445]}, {"name": "printer.lan"}]}}`)
@@ -269,10 +270,10 @@ func TestAGrantsLANIsFrisketsLANList(t *testing.T) {
 	}
 
 	// A route's host is frisket's own address in the session's DNS.
-	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["*.nas.lan"], "routes": [{"name": "nas", "host": "*.nas.lan", "upstream": "https://nas.lan"}]}`)
+	write(t, h.cfg.Policies+"/trusted.json", `{"version": 2, "name": "trusted", "allow": {"**.nas.lan": true}, "routes": {"nas": {"host": "**.nas.lan", "upstream": "https://**.nas.lan"}}}`)
 	h.approved(ws, "m2", "trusted", `{"network": {"lan": [{"name": "files.nas.lan"}]}}`)
 	if rc := h.launch("trusted", ws, "m2"); rc == 0 {
 		t.Error("a route's host was launched as a name on the LAN")
 	}
-	h.mustSay("network.lan files.nas.lan is the nas route's host")
+	h.mustSay("frisket.lan files.nas.lan is the nas route's host")
 }

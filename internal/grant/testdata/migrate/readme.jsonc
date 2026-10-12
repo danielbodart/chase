@@ -1,0 +1,12 @@
+{
+  "secrets": "secrets.yaml",   // sops file in the checkout
+  "apps": {
+    "cloudflare": {
+      "credential": { "secret": "cloudflare-token" },
+      "accountId": "023e105f4ecef8ad9ca31a8372d0c353",
+      "allow": ["workers-ai-post-run-model"],
+    },
+    "github": { "allow": ["category:pulls"], "refuse": ["repos/delete"] },
+  },
+  "seccomp": { "allow": ["io_uring_setup", "io_uring_enter"] },
+}

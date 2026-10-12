@@ -41,16 +41,17 @@ type Config struct {
 	// the launch does not decide, keyed by the tier's name. A tier not here
 	// has no Docker, and a binding in it is said and adds nothing.
 	//
-	// Each is apps/docker.nix's `route`: name "docker", host
+	// Each is apps/docker.nix's `route`, a version 2 route: host
 	// docker.frisket.internal, upstream unix:///run/user/<uid>/docker.sock,
-	// unmatched "refuse", Docker's own JSON refusal, the paths
+	// every class answered "refuse", Docker's own JSON refusal, the paths
 	// operations.json generates with each operation's description removed,
-	// and a docker block of source.json's apiVersions, a maxBody of 262144
+	// each admitted operation answered "allow" by its id and every other
+	// "refuse", and a docker block of source.json's apiVersions, a maxBody of 262144
 	// and the fields.json table of each body admit.json names. The launch
 	// fills in the docker block's project, images, ports, address and
 	// names, and nothing else; a template's own values of those are
 	// replaced.
-	Routes map[string]policy.Route `json:"routes"`
+	Routes map[string]policy.RouteV2 `json:"routes"`
 }
 
 // LoadConfig reads a Config as the module writes it, refusing any field it
@@ -157,7 +158,7 @@ func (a *App) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
 		said[i] = strconv.Itoa(p)
 	}
 	return apps.Patch{
-		Routes: []policy.Route{route},
+		Routes: map[string]policy.RouteV2{"docker": route},
 		Allow:  []string{Host},
 		Env: map[string]string{
 			"DOCKER_HOST":           "tcp://" + Host + ":2376",

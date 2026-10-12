@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -43,7 +44,7 @@ func TestATiersOwnMachinesAreRoutesWithTheirOwnCredentials(t *testing.T) {
 		"gateway": tierHost(t, "10.0.0.1", `{"user": "root", "agent": "/run/user/1000/other/ssh", "identity": "SHA256:`+strings.Repeat("A", 43)+`"}`),
 		"modem":   tierHost(t, "192.168.1.1", `{"passwordFile": "/run/secrets/modem-password", "shell": true}`),
 	})
-	routes, err := c.TierRoutes("trusted")
+	routes, err := c.tierRoutes("trusted")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,16 +87,16 @@ func TestATiersOwnMachinesAreRoutesWithTheirOwnCredentials(t *testing.T) {
 	}
 
 	// A machine with no credential of its own needs none of its own.
-	if routes, err := (Config{Tiers: c.Tiers, Catalogue: catalogue, KeyFile: "/home/alice/.ssh/k"}).TierRoutes("trusted"); err != nil || routes[2].KeyFile != "/home/alice/.ssh/k" || routes[2].Agent != "" {
+	if routes, err := (Config{Tiers: c.Tiers, Catalogue: catalogue, KeyFile: "/home/alice/.ssh/k"}).tierRoutes("trusted"); err != nil || routes[2].KeyFile != "/home/alice/.ssh/k" || routes[2].Agent != "" {
 		t.Errorf("the server does not log in with the machine's key file: %v %+v", err, routes)
 	}
 	// A tier with none, or no SSH, has no route.
 	for _, tier := range []string{"plain"} {
-		if routes, err := c.TierRoutes(tier); err != nil || routes != nil {
+		if routes, err := c.tierRoutes(tier); err != nil || routes != nil {
 			t.Errorf("%s has routes: %v %+v", tier, err, routes)
 		}
 	}
-	if routes, err := config().TierRoutes("trusted"); err != nil || routes != nil {
+	if routes, err := config().tierRoutes("trusted"); err != nil || routes != nil {
 		t.Errorf("a tier with no machines has routes: %v %+v", err, routes)
 	}
 }
@@ -120,7 +121,7 @@ func TestATiersMachineIsHeldToWhatAGrantsIsAndOneCredential(t *testing.T) {
 		{`{"shell": true, "allow": ["xdslctl info **"]}`, ""},
 	} {
 		c := withHosts(map[string]TierHost{"modem": tierHost(t, "192.168.1.1", tc.members)})
-		_, err := c.TierRoutes("trusted")
+		_, err := c.tierRoutes("trusted")
 		if tc.said == "" {
 			if err != nil {
 				t.Errorf("%s: %v", tc.members, err)
@@ -135,7 +136,7 @@ func TestATiersMachineIsHeldToWhatAGrantsIsAndOneCredential(t *testing.T) {
 	// both, has nothing to log in with.
 	for _, c := range []Config{{Catalogue: catalogue}, {Catalogue: catalogue, Agent: "/run/a", KeyFile: "/run/k"}} {
 		c.Tiers = withHosts(map[string]TierHost{"modem": tierHost(t, "192.168.1.1", "")}).Tiers
-		if _, err := c.TierRoutes("trusted"); err == nil || !strings.Contains(err.Error(), "modem names no agent, keyFile or passwordFile") {
+		if _, err := c.tierRoutes("trusted"); err == nil || !strings.Contains(err.Error(), "modem names no agent, keyFile or passwordFile") {
 			t.Errorf("%+v: %v", c, err)
 		}
 	}
@@ -180,5 +181,38 @@ func TestAGrantNeverNamesATiersMachineAgain(t *testing.T) {
 	var b Binding
 	if err := policy.Decode([]byte(`{"hosts": {"other": {"address": "192.168.1.11", "user": "ops", "hostKeys": [], "passwordFile": "/home/alice/.ssh/id_ed25519"}}}`), &b); err == nil {
 		t.Error("a grant named a password file")
+	}
+}
+
+// A tier's own machines, as a version 2 document holds them, are what
+// frisket lowers to the routes Check holds to their expect.
+func TestATiersMachinesAreTheSameAsVersion2(t *testing.T) {
+	c := withHosts(map[string]TierHost{
+		"server": tierHost(t, "10.0.0.4", `{"user": "core", "refuse": ["category:packages"], "allow": ["docker compose ps **"]}`),
+		"modem":  tierHost(t, "192.168.1.1", `{"passwordFile": "/run/secrets/modem-password", "shell": true, "unmatched": "allow"}`),
+	})
+	v1, err := c.tierRoutes("trusted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, err := c.TierRoutes("trusted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lowered := lower(t, v2)
+	if len(lowered) != len(v1) {
+		t.Fatalf("%d machines, not %d", len(lowered), len(v1))
+	}
+	for i, r := range v1 {
+		got, want := map[string]string{}, map[string]string{}
+		for _, e := range lowered[i].Exec {
+			got[RuleName(e.Command, e.Arg)] = answerOf(e)
+		}
+		for _, e := range r.Exec {
+			want[RuleName(e.Command, e.Arg)] = answerOf(e)
+		}
+		if !maps.Equal(got, want) || lowered[i].Unmatched != r.Unmatched || lowered[i].Address != r.Address {
+			t.Errorf("%s lowers to other rules: %v, not %v", r.Name, got, want)
+		}
 	}
 }

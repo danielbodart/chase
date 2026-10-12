@@ -34,7 +34,7 @@ type probe struct {
 
 func (p *probe) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
 	p.requests = append(p.requests, r)
-	return apps.Patch{Routes: []policy.Route{}, Allow: []string{"probe.example"}, Env: map[string]string{"PROBE": "1"}}, nil
+	return apps.Patch{Allow: []string{"probe.example"}, Env: map[string]string{"PROBE": "1"}}, nil
 }
 
 func (p *probe) Stop(_ context.Context, machine string) error {
@@ -44,13 +44,42 @@ func (p *probe) Stop(_ context.Context, machine string) error {
 	return nil
 }
 
+// policyDoc is the session's document as frisket's gateway builds it: a
+// version 2 document, read and lowered, so that its routes and machines
+// are version 1's, each SSH rule answered and the allowlist in version 1's
+// words.
 func (h *harness) policyDoc(machine string) policy.Document {
 	h.t.Helper()
-	var d policy.Document
-	if err := policy.Decode([]byte(read(h.t, h.dir+"/run/chase/"+machine+"/policy.json")), &d); err != nil {
+	b := []byte(read(h.t, h.dir+"/run/chase/"+machine+"/policy.json"))
+	if _, err := policy.DecodeV2(b); err != nil {
+		h.t.Fatalf("the session's document is not a version 2 one: %v", err)
+	}
+	l, err := policy.Load(b)
+	if err != nil {
 		h.t.Fatalf("the session's document is not frisket's: %v", err)
 	}
+	return policy.Document{Name: l.Name, Policy: l.Policy}
+}
+
+// policyV2 is the session's document as written.
+func (h *harness) policyV2(machine string) policy.DocumentV2 {
+	h.t.Helper()
+	d, err := policy.DecodeV2([]byte(read(h.t, h.dir+"/run/chase/"+machine+"/policy.json")))
+	if err != nil {
+		h.t.Fatalf("the session's document is not a version 2 one: %v", err)
+	}
 	return d
+}
+
+// tierDoc is a tier's own document, version 2: its name, and the names it
+// allows.
+func tierDoc(name string, allow ...string) string {
+	names := map[string]bool{}
+	for _, n := range allow {
+		names[n] = true
+	}
+	b, _ := json.Marshal(map[string]any{"version": 2, "name": name, "allow": names})
+	return string(b)
 }
 
 func no() *bool { f := false; return &f }
@@ -66,9 +95,9 @@ func newProjectLaunch(t *testing.T) (*harness, *probe, string) {
 	h.cfg.Apps["cloudflare"] = grant.App{Credential: no()}
 	h.cfg.Apps["gcloud"] = grant.App{}
 	p := &probe{runtime: h.cfg.Runtime}
-	h.cfg.Docker = &docker.Config{Routes: map[string]policy.Route{}}
+	h.cfg.Docker = &docker.Config{Routes: map[string]policy.RouteV2{}}
 	h.registry = map[string]apps.App{"cloudflare": p}
-	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": [], "routes": []}`)
+	write(t, h.cfg.Policies+"/trusted.json", tierDoc("trusted"))
 	ws := r + "/p/shop"
 	h.repo(ws, "git@github.com:example/shop.git")
 	return h, p, ws
@@ -154,12 +183,12 @@ func TestAnAppWithNoCredentialAndNoCodeIsRefused(t *testing.T) {
 		t.Errorf("an app with code was refused: %v", err)
 	}
 
-	h.cfg.Apps["huggingface"] = grant.App{Credential: no()}
-	h.approved(ws, "m1", "trusted", `{"apps": {"huggingface": {"ask": ["x"]}}}`)
+	delete(h.registry, "cloudflare")
+	h.approved(ws, "m1", "trusted", `{"apps": {"cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
 	if h.launch("trusted", ws, "m1") == 0 {
 		t.Error("an app with no credential and no prepare was launched")
 	}
-	h.mustSay("chase: " + ws + ": huggingface has no credential and no prepare")
+	h.mustSay("chase: " + ws + ": cloudflare has no credential and no prepare")
 }
 
 // Every path the script had spliced in is an absolute one: a tool named
@@ -206,7 +235,7 @@ func TestAConfigsPathsAreAbsolute(t *testing.T) {
 
 // dockerTemplate is the route apps/docker.nix builds for a tier, from the
 // files it builds it from, as internal/apps/docker's tests make it.
-func dockerTemplate(t *testing.T) policy.Route {
+func dockerTemplate(t *testing.T) policy.RouteV2 {
 	t.Helper()
 	dir := filepath.Join("..", "..", "apps", "docker")
 	readJSON := func(name string, v any) {
@@ -218,10 +247,25 @@ func dockerTemplate(t *testing.T) policy.Route {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
-	var paths []map[string]any
-	readJSON("operations.json", &paths)
-	for _, p := range paths {
-		delete(p["operation"].(map[string]any), "description")
+	var rules []map[string]any
+	readJSON("operations.json", &rules)
+	paths, answers := map[string]any{}, map[string]any{}
+	for _, r := range rules {
+		op := r["operation"].(map[string]any)
+		delete(op, "description")
+		var methods []string
+		for _, m := range r["methods"].([]any) {
+			methods = append(methods, m.(string))
+		}
+		e := map[string]any{"operation": op}
+		if d, ok := r["docker"]; ok {
+			e["docker"] = d
+		}
+		paths[strings.Join(methods, ",")+" "+r["path"].(string)] = e
+		answers[op["id"].(string)] = "allow"
+		if r["refuse"] == true {
+			answers[op["id"].(string)] = "refuse"
+		}
 	}
 	var fields map[string]json.RawMessage
 	readJSON("fields.json", &fields)
@@ -242,7 +286,8 @@ func dockerTemplate(t *testing.T) policy.Route {
 		}
 	}
 	b, err := json.Marshal(map[string]any{
-		"name": "docker", "host": docker.Host, "upstream": "unix:///run/user/1000/docker.sock", "unmatched": "refuse",
+		"host": docker.Host, "upstream": "unix:///run/user/1000/docker.sock",
+		"writes": "refuse", "guarded": "refuse", "unmatched": "refuse", "operations": answers,
 		"refusal": map[string]any{"contentType": "application/json", "body": `{"message":"{{message}}"}`},
 		"paths":   paths,
 		"docker":  map[string]any{"apiVersions": source.APIVersions, "maxBody": 262144, "bodies": bodies},
@@ -250,7 +295,7 @@ func dockerTemplate(t *testing.T) policy.Route {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var r policy.Route
+	var r policy.RouteV2
 	if err := policy.Decode(b, &r); err != nil {
 		t.Fatal(err)
 	}
@@ -282,12 +327,7 @@ func dockerRouteIsTheTemplates(t *testing.T, path string) {
 	admit := readJSON(filepath.Join(dir, "admit.json")).(map[string]any)
 	fields := readJSON(filepath.Join(dir, "fields.json")).(map[string]any)
 	doc := readJSON(path).(map[string]any)
-	var route map[string]any
-	for _, r := range doc["routes"].([]any) {
-		if r := r.(map[string]any); r["name"] == "docker" {
-			route = r
-		}
-	}
+	route, _ := doc["routes"].(map[string]any)["docker"].(map[string]any)
 	if route == nil {
 		t.Fatalf("%s has no docker route", path)
 	}
@@ -314,7 +354,8 @@ func dockerRouteIsTheTemplates(t *testing.T, path string) {
 	}
 	admitted := map[string]any{}
 	n := 0
-	for _, p := range route["paths"].([]any) {
+	answers, _ := route["operations"].(map[string]any)
+	for key, p := range route["paths"].(map[string]any) {
 		p := p.(map[string]any)
 		op, ok := p["operation"].(map[string]any)
 		if !ok {
@@ -324,15 +365,21 @@ func dockerRouteIsTheTemplates(t *testing.T, path string) {
 		if _, has := op["description"]; has {
 			t.Errorf("%v kept its description", op["id"])
 		}
-		if ask, _ := p["ask"].(bool); ask {
-			t.Errorf("%v asks", op["id"])
-		}
-		if refuse, _ := p["refuse"].(bool); refuse {
+		switch answers[op["id"].(string)] {
+		case "refuse":
 			continue
+		case "allow":
+		default:
+			t.Errorf("%v is answered %v", op["id"], answers[op["id"].(string)])
 		}
 		n++
 		// `{methods, docker}`: each, or null when it is not there.
-		admitted[op["id"].(string)] = map[string]any{"methods": p["methods"], "docker": p["docker"]}
+		methods, _, _ := strings.Cut(key, " ")
+		var ms []any
+		for _, m := range strings.Split(methods, ",") {
+			ms = append(ms, m)
+		}
+		admitted[op["id"].(string)] = map[string]any{"methods": ms, "docker": p["docker"]}
 	}
 	if !reflect.DeepEqual(admitted, admit) {
 		for id := range admit {
@@ -387,7 +434,7 @@ func TestSSHIsLaunchedAsTheGrantNamesIt(t *testing.T) {
 		Agent:     "/run/user/1000/gcr/ssh",
 	}
 	for _, tier := range []string{"trusted", "plain"} {
-		write(t, h.cfg.Policies+"/"+tier+".json", `{"name": "`+tier+`", "allow": ["github.com"], "routes": []}`)
+		write(t, h.cfg.Policies+"/"+tier+".json", tierDoc(tier, "github.com"))
 	}
 	key := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl server"
 	// ops is server with members merged over its own, so that none is
@@ -515,7 +562,7 @@ func TestATiersOwnMachinesAreInEverySessionOfIt(t *testing.T) {
 	}
 	h.cfg.Ungranted = []string{"fixed"}
 	for _, tier := range []string{"ops", "fixed"} {
-		write(t, h.cfg.Policies+"/"+tier+".json", `{"name": "`+tier+`", "allow": ["github.com"], "routes": []}`)
+		write(t, h.cfg.Policies+"/"+tier+".json", tierDoc(tier, "github.com"))
 	}
 
 	// No chase.jsonc: the tier as it is, with its machine.
@@ -583,9 +630,9 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 	h.cfg.Checkouts["example/shop"] = []string{r + "/p/shop"}
 	h.cfg.DockerTiers = []string{"trusted"}
 	h.cfg.Apps["docker"] = grant.App{Credential: no()}
-	h.cfg.Docker = &docker.Config{Routes: map[string]policy.Route{"trusted": dockerTemplate(t)}}
+	h.cfg.Docker = &docker.Config{Routes: map[string]policy.RouteV2{"trusted": dockerTemplate(t)}}
 	for _, tier := range []string{"trusted", "plain"} {
-		write(t, h.cfg.Policies+"/"+tier+".json", `{"name": "`+tier+`", "allow": ["github.com"], "routes": []}`)
+		write(t, h.cfg.Policies+"/"+tier+".json", tierDoc(tier, "github.com"))
 	}
 	ws := r + "/p/shop"
 	h.repo(ws, "git@github.com:Example/Shop.git")
@@ -606,23 +653,17 @@ func TestDockerIsLaunchedAsTheApprovedProject(t *testing.T) {
 		t.Errorf("docker, with no credential, said where it came from: %s", h.err)
 	}
 	d := h.policyDoc("m1")
-	var routes []policy.Route
-	for _, rt := range d.Routes {
-		if rt.Name == "docker" {
-			routes = append(routes, rt)
-		}
-	}
-	if len(routes) != 1 {
+	rt, ok := h.policyV2("m1").Routes["docker"]
+	if !ok || len(d.Routes) != 1 {
 		t.Fatalf("there is not one docker route: %+v", d.Routes)
 	}
-	rt := routes[0]
 	if rt.Host != "docker.frisket.internal" || rt.Upstream != "unix:///run/user/1000/docker.sock" || rt.Unmatched != "refuse" || rt.CredentialFile != "" {
 		t.Errorf("the route is not the template's: %+v", rt)
 	}
 	dr := rt.Docker
 	if dr.Project != "example/shop" || dr.Address != "127.101.170.171" || !slices.Equal(dr.Names, []string{"shop.example.internal"}) ||
-		!slices.Equal(dr.Images, []string{"postgres:18", "library/postgres:18", "docker.io/postgres:18", "docker.io/library/postgres:18",
-			"bitnami/redis:7", "docker.io/bitnami/redis:7", "ghcr.io/o/x:1"}) ||
+		!slices.Equal(dr.Images, []string{"bitnami/redis:7", "docker.io/bitnami/redis:7", "ghcr.io/o/x:1",
+			"postgres:18", "library/postgres:18", "docker.io/postgres:18", "docker.io/library/postgres:18"}) ||
 		!slices.Equal(dr.Ports, []int{64320, 64321}) || dr.MaxBody != 262144 {
 		t.Errorf("the route is not shop's: %+v", dr)
 	}
@@ -721,7 +762,7 @@ func TestALaunchAppliesOneApprovalOnce(t *testing.T) {
 	if fi, err := os.Stat(h.dir + "/run/chase/m1/policy.json"); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Errorf("the policy document is not the user's alone: %v", fi)
 	}
-	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["api.github.com"], "routes": [{"name": "github", "host": "api.github.com", "upstream": "https://api.github.com", "credentialFile": "/run/secrets/gh", "placeholder": "proxy-injected", "paths": [{"methods": ["GET"], "prefix": "/"}]}]}`)
+	write(t, h.cfg.Policies+"/trusted.json", `{"version": 2, "name": "trusted", "allow": {"api.github.com": true}, "routes": {"github": {"host": "api.github.com", "upstream": "https://api.github.com", "credentialFile": "/run/secrets/gh", "placeholder": "proxy-injected", "operations": {"GET /**": "allow"}}}}`)
 	os.Remove(ws + "/chase.jsonc")
 	h.approved(ws, "m2", "trusted", "")
 	if got := read(t, h.dir+"/run/chase/.grant/m2.json"); got != "null\n" {
@@ -763,7 +804,7 @@ func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 	// The real Cloudflare, with its credential, in probe's place.
 	delete(h.registry, "cloudflare")
 	h.cfg.Apps["cloudflare"] = grant.App{
-		Routes: map[string]json.RawMessage{"trusted": json.RawMessage(`{"name": "cloudflare", "host": "api.cloudflare.com", "upstream": "https://api.cloudflare.com"}`)},
+		Routes: map[string]map[string]policy.RouteV2{"trusted": {"cloudflare": {Host: "api.cloudflare.com", Upstream: "https://api.cloudflare.com"}}},
 		Allow:  []string{"api.cloudflare.com"},
 		Env:    map[string]string{"CLOUDFLARE_API_TOKEN": "proxy-injected"},
 		EnvFromGrant: map[string]string{
@@ -809,7 +850,7 @@ func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 	if h.launch("trusted", ws, "m2") == 0 {
 		t.Error("a changed sops file was launched")
 	}
-	if !h.said("chase: " + ws + ": the staged secrets.json is not the one approved") {
+	if !h.said("chase: " + ws + ": the staged secrets.json is not the one signed") {
 		t.Errorf("a changed sops file was not said: %s", h.err)
 	}
 
@@ -834,27 +875,22 @@ func TestTheSecretsAreTheApprovedOnes(t *testing.T) {
 	}
 }
 
-// What the project names in an app's lists applies only to an app the tier
-// has with a credential: to one it lacks, or has anonymously, they are said
-// to be ignored.
-func TestListsOfAnAppTheTierLacksOrHasAnonymouslyAreIgnored(t *testing.T) {
+// What the project's frisket section answers applies only to a route the
+// tier has with a credential, of an app a project answers: to one it
+// lacks, or has anonymously, or whose answers are the machine's alone, it
+// is said to be ignored.
+func TestAnswersForARouteTheTierLacksOrHasAnonymouslyAreIgnored(t *testing.T) {
 	h, _, ws := newProjectLaunch(t)
-	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["github.com"], "routes": [{"name": "github", "host": "api.github.com", "upstream": "https://api.github.com"}]}`)
+	write(t, h.cfg.Policies+"/trusted.json", `{"version": 2, "name": "trusted", "allow": {"github.com": true}, "routes": {"github": {"host": "api.github.com", "upstream": "https://api.github.com"}, "claude": {"host": "api.anthropic.com", "upstream": "https://api.anthropic.com", "credentialFile": "/c", "operations": {"GET /**": "allow"}}}}`)
 	h.launched(ws, "m1", "trusted", `{"apps": {"github": {"allow": ["repos/delete"]}, "huggingface": {"ask": ["x"]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
-	if !h.said("chase: " + ws + ": github's lists ignored: github is anonymous in trusted") {
-		t.Errorf("an anonymous app's lists were not said to be ignored: %s", h.err)
+	if !h.said("chase: " + ws + ": frisket.routes.github ignored: github is anonymous in trusted") {
+		t.Errorf("an anonymous route's answers were not said to be ignored: %s", h.err)
 	}
-	if !h.said("chase: " + ws + ": huggingface's lists ignored: trusted has no huggingface") {
-		t.Errorf("an absent app's lists were not said to be ignored: %s", h.err)
+	if !h.said("chase: " + ws + ": frisket.routes.huggingface ignored: trusted has no huggingface") {
+		t.Errorf("an absent route's answers were not said to be ignored: %s", h.err)
 	}
-
-	// An empty credentialFile is none: the route is written without one,
-	// so it is anonymous in what frisket loads (a change from jq, whose
-	// `.credentialFile` was true of "").
-	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["github.com"], "routes": [{"name": "github", "host": "api.github.com", "upstream": "https://api.github.com", "credentialFile": ""}]}`)
-	h.launched(ws, "m2", "trusted", `{"apps": {"github": {"allow": ["repos/delete"]}}}`)
-	if !h.said("chase: " + ws + ": github's lists ignored: github is anonymous in trusted") {
-		t.Errorf("an empty credentialFile's lists were not said to be ignored: %s", h.err)
+	if d := h.policyV2("m1"); len(d.Routes["github"].Operations) != 0 {
+		t.Errorf("an anonymous route was answered: %+v", d.Routes["github"])
 	}
 }
 
@@ -926,4 +962,31 @@ func TestTheSessionsEndStopsEachAppFirst(t *testing.T) {
 			t.Errorf("%s outlived the session", gone)
 		}
 	}
+}
+
+// answerOf is how a version 2 route answers the operation id, as frisket
+// decides it before any pattern: by its id, then its category, then its
+// class; "absent" for an operation the route does not have.
+func answerOf(r policy.RouteV2, id string) string {
+	for _, e := range r.Paths {
+		if e.Operation == nil || e.Operation.ID != id {
+			continue
+		}
+		if a, ok := r.Operations[id]; ok {
+			return a
+		}
+		if a, ok := r.Operations["category:"+e.Operation.Category]; ok && e.Operation.Category != "" {
+			return a
+		}
+		switch e.Operation.Class {
+		case "read":
+			return "allow"
+		case "write":
+			return r.Writes
+		case "guarded":
+			return r.Guarded
+		}
+		return r.Unmatched
+	}
+	return "absent"
 }

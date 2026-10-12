@@ -4,11 +4,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"slices"
 	"testing"
 
 	"github.com/danielbodart/frisket/policy"
 	"pgregory.net/rapid"
+
+	"github.com/danielbodart/chase/internal/apps"
 )
 
 func sha16(s string) string {
@@ -25,7 +28,6 @@ func op(id, class, category string) *policy.Operation {
 // In jq's order: by methods, then path, with a prefix-only rule, whose path
 // is null, first.
 func TestOneRulePerTemplateAsJqChoseIt(t *testing.T) {
-	s := Tier{Writes: "ask", Guarded: "refuse", Unmatched: "ask"}
 	carried := []policy.PathRule{
 		{Methods: []string{"POST"}, Path: "/v1/*:signBlob", Operation: op("a.sign", "guarded", "a")},
 		{Methods: []string{"GET"}, Path: "/o/*", Operation: op("a.first", "read", "a")},
@@ -39,19 +41,17 @@ func TestOneRulePerTemplateAsJqChoseIt(t *testing.T) {
 		{Methods: []string{"DELETE"}, Path: "/x", Operation: op("b.x", "guarded", "")},
 		{Methods: []string{"DELETE"}, Path: "/x", Operation: op("c.x", "guarded", "")},
 	}
-	got := paths(s, every, carried, floor)
-	var ids []string
-	for _, r := range got {
-		ids = append(ids, r.Operation.ID)
+	got, encoded := paths(carried, floor)
+	ids := map[string]string{}
+	for k, e := range got {
+		ids[k] = e.Operation.ID
 	}
-	if want := []string{"c.x", "a.p", "a.slashes", "a.b", "a.sign"}; !slices.Equal(ids, want) {
+	want := map[string]string{"DELETE /x": "c.x", "GET /p/**": "a.p", "GET /o/*": "a.slashes", "GET,HEAD /b": "a.b", "POST /v1/*:signBlob": "a.sign"}
+	if !maps.Equal(ids, want) {
 		t.Errorf("chose %q, want %q", ids, want)
 	}
-	if !got[0].Refuse || got[1].Ask || got[1].Refuse || !got[3].Ask || !got[4].Refuse {
-		t.Errorf("answered wrong: %+v", got)
-	}
-	if carried[4].Ask {
-		t.Error("the carried rule itself was changed")
+	if !maps.Equal(encoded, map[string]bool{"GET /o/*": true}) {
+		t.Errorf("encoded slashes %v", encoded)
 	}
 }
 
@@ -75,19 +75,14 @@ func TestEveryTemplateOnceAndTheCarriedFirst(t *testing.T) {
 			}), 0, 12).Draw(t, label)
 		}
 		carried, floor := gen("carried"), gen("floor")
-		got := paths(Tier{Writes: "ask", Guarded: "refuse", Unmatched: "refuse"}, every, carried, floor)
-		for i := 1; i < len(got); i++ {
-			if compareTemplate(got[i-1], got[i]) >= 0 {
-				t.Fatalf("not one per template in order: %+v then %+v", got[i-1], got[i])
-			}
-		}
+		got, _ := paths(carried, floor)
 		for _, r := range slices.Concat(carried, floor) {
-			i := slices.IndexFunc(got, func(g policy.PathRule) bool { return compareTemplate(g, r) == 0 })
-			if i < 0 {
+			g, ok := got[apps.Endpoint(r.Methods, r.Path, r.Prefix)]
+			if !ok {
 				t.Fatalf("%+v is missing", r)
 			}
-			if r.Operation.ID == "carried" && got[i].Operation.ID != "carried" {
-				t.Fatalf("the floor decided a carried template: %+v", got[i])
+			if r.Operation.ID == "carried" && g.Operation.ID != "carried" {
+				t.Fatalf("the floor decided a carried template: %+v", g)
 			}
 		}
 	})

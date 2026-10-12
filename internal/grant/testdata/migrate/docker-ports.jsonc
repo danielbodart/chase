@@ -1,0 +1,12 @@
+// What chase lets this project's sessions do beyond their tier.
+{
+  "apps": {
+    "docker": {
+      // Every compose file's database.
+      "images": ["postgres:18"],
+      // The host ports the docker-compose*.yaml files publish, one per
+      // database.
+      "ports": [64320, 64321, 64322],
+    },
+  },
+}

@@ -1,0 +1,17 @@
+{
+  "apps": {
+    "ssh": {
+      "hosts": {
+        "server": {                                  // `ssh server …` in the session
+          "address": "192.168.1.10",                 // a literal IP, v4:port or [v6]:port; 22 by default
+          "user": "ops",
+          "hostKeys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl server"],
+          "allow": ["service-restart"],              // operation ids, category:<name>,
+          "ask": ["docker compose ps **"],           //   or command patterns
+          "refuse": ["category:packages"],
+          "unmatched": "refuse",                     /* in place of the tier's */
+        },
+      },
+    },
+  },
+}

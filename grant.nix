@@ -110,11 +110,19 @@ in
     chase.internal.config.grant = {
       inherit (cfg.internal.config.selector) git emptySha1 emptySha256;
       inherit (cfg) uid home;
-      policies = "/etc/frisket/policies";
+      policies = "/etc/chase/policies";
       inherit dockerTiers checkouts;
+      # The apps whose routes a project's frisket section answers: those
+      # whose operations a project names (PLAN.md, decision 18).
+      answerable = [ "cloudflare" "gcloud" "git" "github" "huggingface" ];
+      inherit (cfg.signer) allowedSigners;
+      # flong's binary, by a launcher's name: flong reads a subcommand
+      # after it when it is run as `flong`.
+      flong = lib.getExe config.flong."chase-${lib.head (lib.attrNames tiers)}".launcher;
       ungranted = lib.attrNames (lib.filterAttrs (_: t: !t.grants) tiers);
       apps = cfg.internal.projectApps;
       approver = if cfg.approver == null then "" else cfg.approver;
+      signerAgent = if cfg.signer.agentSocket == null then "" else cfg.signer.agentSocket;
       sops = lib.getExe pkgs.sops;
       diff = "${pkgs.diffutils}/bin/diff";
     };

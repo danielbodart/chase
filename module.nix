@@ -216,8 +216,10 @@ let
         example = { debug = true; };
         description = ''
           flong's `seccomp` for this tier's sessions: its tier, and the
-          loosenings a tier's own work needs. Empty is flong's default,
-          `strict`. A checkout's grant can add to it, once approved.
+          loosenings a tier's own work needs -- a call by name in its
+          `syscalls` map (`{ ptrace = "allow"; }`), systemd's @groups in its
+          `allow` and `deny` lists. Empty is flong's default, `strict`. A
+          checkout's signed chase.json can add to it.
         '';
       };
       caches = mkOption {
@@ -399,6 +401,42 @@ in
       type = types.submodule { freeformType = (pkgs.formats.json { }).type; };
       default = { };
     };
+    # Each sandbox tier's frisket policy document, version 2, as the apps
+    # and the tier make it: its allowlist, and each route with what its
+    # requests are and how each class of them is answered. Installed at
+    # /etc/chase/policies/<tier>.json and checked by frisket when the
+    # system is built; a tier that takes grants merges a project's frisket
+    # section over it at launch (internal/grant), and one that takes none
+    # is served it as it is.
+    internal.policies = mkOption {
+      internal = true;
+      type = types.attrsOf (types.submodule { freeformType = (pkgs.formats.json { }).type; });
+      default = { };
+    };
+
+    signer = {
+      allowedSigners = mkOption {
+        type = types.strMatching "/.*";
+        default = "/etc/frisket/allowed_signers";
+        description = ''
+          The allowed signers a project's chase.json.sig is verified
+          against: frisket's, which `services.frisket.policy.allowedSigners`
+          renders. A chase.json whose signature verifies, in the namespace
+          frisket-policy:<its directory>, is launched with no dialog.
+        '';
+      };
+      agentSocket = mkOption {
+        type = types.nullOr (types.strMatching "/.*");
+        default = cfg.apps.ssh.agentSocket;
+        defaultText = lib.literalExpression "config.chase.apps.ssh.agentSocket";
+        description = ''
+          frisket-signer's agent, which a launch asks to sign a project's
+          chase.json that does not verify, through its policy-sign@frisket
+          extension: the signer shows the change and, allowed, signs it.
+          Null: the caller's SSH_AUTH_SOCK.
+        '';
+      };
+    };
   };
 
   config = {
@@ -438,7 +476,7 @@ in
           assertion = !tier.bare || !(tier.grants
             || config.containers ? "chase-${name}"
             || config.flong ? "chase-${name}"
-            || config.services.frisket.policies ? ${name});
+            || cfg.internal.policies ? ${name});
           message = "chase.tiers.${name} is bare, and something gives it a sandbox's settings: an app enabled in it, or `grants`. A bare tier runs with none.";
         }
       ]) cfg.tiers);
@@ -493,15 +531,43 @@ in
         config = (pkgs.formats.json { }).generate "chase-config-unchecked.json" cfg.internal.config;
       } ''
       cp "$config" "$out"
-      chase check "$out"
+      chase check -config "$out"
     '';
 
-    # The user whose credential files the routes read.
+    # Each sandbox tier's policy document, version 2: its own names, then
+    # what its apps add.
+    chase.internal.policies = lib.mapAttrs (_: tier: { allow = operations.allowOf tier.allow; }) sandboxes;
+
+    # Checked as frisket reads them, when the system is built: a document
+    # that does not hold together fails the build, rather than refusing
+    # every session later.
+    environment.etc."chase/policies".source = pkgs.runCommand "chase-policies"
+      {
+        nativeBuildInputs = [ config.services.frisket.package ];
+        documents = lib.mapAttrs (name: p: builtins.toJSON ({ version = 2; inherit name; } // p)) cfg.internal.policies;
+        __structuredAttrs = true;
+      } ''
+      mkdir -p "$out"
+      for name in "''${!documents[@]}"; do
+        printf '%s' "''${documents[$name]}" > "$out/$name.json"
+      done
+      if [ -n "$(ls -A "$out")" ]; then
+        frisket check "$out"/*.json
+      fi
+    '';
+
+    # The user whose credential files the routes read. frisket's own
+    # documents for the tiers are empty: a session is served chase's,
+    # /etc/chase/policies/<tier>.json or the one exec writes for it
+    # (./grant.nix). Each is here for what frisket keys by the policy's
+    # name, git's signing socket.
     services.frisket = {
       enable = true;
       user = cfg.user;
-      policies = lib.mapAttrs (_: tier: { allow = tier.allow; }) sandboxes;
+      policies = lib.mapAttrs (_: tier: { }) sandboxes;
+      policyRoots = [ "/etc/chase/policies" ];
       flong = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" {
+        policyFile = lib.mkDefault "/etc/chase/policies/${name}.json";
         policy = name;
         set = if tier.egress == "direct" then "service" else "all";
       }) sandboxes;

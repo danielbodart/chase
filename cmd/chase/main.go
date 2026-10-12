@@ -69,19 +69,36 @@ const usage = `chase -- which sandbox a checkout gets, and which credential each
 
   chase record apply [--last | MACHINE]
         A recording's proposal, the last one's by default, added to its
-        checkout's chase.jsonc.
+        checkout's chase.json, which is then signed.
+
+  chase check FILE
+        Read FILE as a launch reads a project's chase.json, say what is
+        wrong with it, and whether it is signed.
+
+  chase fmt [-check] FILE
+        FILE in its canonical form, the bytes it is signed over.
+
+  chase sign [DIR | DIR/chase.json]
+        The checkout's chase.json with what is derived of the checkout --
+        its sops file's digest, its Docker project -- in its canonical form,
+        signed through frisket's signer, which shows you the change.
+
+  chase migrate [DIR]
+        The checkout's chase.jsonc written as a chase.json, the comments it
+        cannot keep said, chase.jsonc removed, and the new file signed.
+
+  chase schema [-config]
+        A chase.json's JSON Schema; with -config, the module's
+        configuration's.
 
   chase project-address OWNER/REPO
         A project's address, as one line of JSON: its owner/repo
         lower-cased, the loopback address its dev servers and containers
         are published at, and the .internal names that address is known by.
 
-  chase check FILE
+  chase check -config FILE
         Read FILE as every command reads the module's configuration, and
         say what is wrong with it.
-
-  chase schema
-        Print the configuration's JSON Schema.
 
   chase version
         The version this binary was built as.
@@ -197,9 +214,26 @@ func main() {
 	case "ssh-check":
 		err = runSSHCheck(cfgPath)
 	case "check":
-		err = runCheck(args)
+		err = runCheck(cfgPath, args)
 	case "schema":
-		fmt.Print(config.Schema)
+		err = runSchema(args)
+	case "fmt":
+		err = grant.FmtCommand(args, os.Stdout)
+	case "sign", "migrate":
+		cfg, lerr := config.Load(cfgPath)
+		if lerr != nil {
+			err = lerr
+			break
+		}
+		if cfg.Grant == nil {
+			err = errors.New("the module configures no tier that takes a project's file")
+			break
+		}
+		if command == "sign" {
+			err = grant.SignCommand(ctx, *cfg.Grant, args, os.Stdout, os.Stderr)
+		} else {
+			err = grant.MigrateCommand(ctx, *cfg.Grant, args, os.Stdout, os.Stderr)
+		}
 	case "version":
 		fmt.Println(version)
 	case "-h", "--help", "help":
@@ -217,14 +251,35 @@ func main() {
 	}
 }
 
-// runCheck is what the system's build asks of the file the module writes:
-// that it loads, as every command would load it.
-func runCheck(args []string) error {
-	if len(args) != 1 {
-		return errors.New("name one config file")
+// runCheck is `chase check FILE`, a project's chase.json read as a launch
+// reads it, and whether it is signed when the module's configuration says
+// what signs one; or `chase check -config FILE`, what the system's build
+// asks of the file the module writes: that it loads, as every command
+// would load it.
+func runCheck(cfgPath string, args []string) error {
+	if len(args) == 2 && args[0] == "-config" {
+		_, err := config.Load(args[1])
+		return err
 	}
-	_, err := config.Load(args[0])
-	return err
+	var g *grant.Config
+	if cfg, err := config.Load(cfgPath); err == nil && cfg.Grant != nil {
+		g = cfg.Grant
+	}
+	return grant.CheckCommand(g, args, os.Stdout)
+}
+
+// runSchema is `chase schema`, a chase.json's JSON Schema, or `chase
+// schema -config`, the module's configuration's.
+func runSchema(args []string) error {
+	switch {
+	case len(args) == 0:
+		_, err := os.Stdout.Write(grant.Schema())
+		return err
+	case len(args) == 1 && args[0] == "-config":
+		fmt.Print(config.Schema)
+		return nil
+	}
+	return errors.New("usage: chase schema [-config]")
 }
 
 // runSSHCheck is what every launch would refuse of the machine's own SSH
@@ -475,7 +530,7 @@ func runRecord(ctx context.Context, cfgPath string, args []string) int {
 	}
 	if len(args) > 0 && args[0] == "apply" {
 		s.Close()
-		return record.Apply(*cfg.Grant, args[1:], os.Stdout, os.Stderr)
+		return record.Apply(ctx, *cfg.Grant, args[1:], os.Stdout, os.Stderr)
 	}
 	a, err := record.ParseArgs(args)
 	if err != nil {

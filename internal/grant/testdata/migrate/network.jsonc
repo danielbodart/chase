@@ -1,0 +1,12 @@
+// What a recording proposed, applied.
+{
+  "network": {
+    "allow": ["registry.npmjs.org", "*.pythonhosted.org"],
+    "lan": [{"name": "nas.home.arpa", "ports": [445, 139]}, {"name": "printer.lan"}],
+  },
+  "apps": {
+    "git": { "allow": ["git-receive-pack"], "ask": ["lfs-batch"] },
+    "huggingface": { "ask": [{"methods": ["POST", "PUT"], "path": "/api/repos/create"}] },
+  },
+  "seccomp": { "allow": ["@keyring", "ptrace", "keyctl"], "deny": ["@swap", "keyctl"] },
+}

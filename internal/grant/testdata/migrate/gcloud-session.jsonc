@@ -1,0 +1,12 @@
+{
+  "secrets": "secrets.yaml",
+  "apps": {
+    "gcloud": {
+      "credential": { "secret": "gcloud-key" },
+      "serviceAccount": "chase-test@p.iam.gserviceaccount.com",
+      "apis": { "add": ["pubsub"], "remove": ["storage"] },
+      "allow": ["category:bigquery"],
+      "ask": ["pubsub.projects.topics.delete"],
+    },
+  },
+}

@@ -57,7 +57,7 @@ func TestAMachineNamingACatalogueIsDecidedByItAlone(t *testing.T) {
 		"modem":  tierHost(t, "192.168.1.1", `{"passwordFile": "/run/secrets/modem-password", "shell": true, "catalogue": "zyxel"}`),
 		"server": tierHost(t, "10.0.0.4", ""),
 	})
-	routes, err := c.TierRoutes("trusted")
+	routes, err := c.tierRoutes("trusted")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestAMachineNamingACatalogueIsDecidedByItAlone(t *testing.T) {
 		{`{"allow": ["category:wan"]}`, "category:wan is no category of the catalogue's"},
 	} {
 		c := withCatalogue(t, map[string]TierHost{"modem": tierHost(t, "192.168.1.1", tc.members)})
-		_, err := c.TierRoutes("trusted")
+		_, err := c.tierRoutes("trusted")
 		if tc.said == "" {
 			if err != nil {
 				t.Errorf("%s: %v", tc.members, err)
@@ -129,7 +129,7 @@ func TestAMachinesCatalogueIsANameTheMachineOffers(t *testing.T) {
 	} {
 		c := withHosts(map[string]TierHost{"server": tierHost(t, "10.0.0.4", `{"catalogue": "`+tc.catalogue+`"}`)})
 		c.Catalogues = tc.catalogues
-		if _, err := c.TierRoutes("trusted"); err == nil || !strings.Contains(err.Error(), tc.said) {
+		if _, err := c.tierRoutes("trusted"); err == nil || !strings.Contains(err.Error(), tc.said) {
 			t.Errorf("the tier's machine %s: %v, not %q", tc.catalogue, err, tc.said)
 		}
 	}

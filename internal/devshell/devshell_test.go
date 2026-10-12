@@ -45,7 +45,7 @@ func TestThereIsNoDevShellWithoutTheGrant(t *testing.T) {
 		if ds, err := h.realise(); ds != nil || err != nil || h.runs("nix") != nil || h.runs("bwrap") != nil {
 			t.Errorf("offline %v, not granted: %+v, %v, ran %d", offline, ds, err, len(h.runs("bwrap")))
 		}
-		if want := h.r.Workspace + `: its devShell is not given: the checkout's grant turns it on, with "apps": {"nix": {"devShell": true}}`; strings.Count(h.said, "\n") != 1 || !strings.Contains(h.said, want) {
+		if want := h.r.Workspace + `: its devShell is not given: the checkout's chase.json turns it on, with "chase": {"apps": {"nix": {"devShell": true}}}`; strings.Count(h.said, "\n") != 1 || !strings.Contains(h.said, want) {
 			t.Errorf("offline %v: said %q", offline, h.said)
 		}
 		if _, err := os.Stat(h.r.Dir + "/devshell"); err == nil {

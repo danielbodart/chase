@@ -110,10 +110,58 @@ func (a *App) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
 	if err != nil {
 		return die("%v", err)
 	}
+	out := map[string]policy.SSHRouteV2{}
 	for i := range routes {
 		routes[i].Agent, routes[i].KeyFile, routes[i].Identity = a.Config.Agent, a.Config.KeyFile, a.Config.Identity
+		out[routes[i].Name] = V2(routes[i])
 	}
-	return apps.Patch{SSH: routes}, nil
+	return apps.Patch{SSH: out}, nil
+}
+
+// V2 is a machine's route as a version 2 policy document says it: each
+// exec rule by the name frisket gives it -- its pattern, the pattern and
+// "[arg GLOB]", or "[arg GLOB]" alone -- answered as the rule was, and
+// what the rule is, its catalogue operation, under commands by the same
+// name. Every rule has its answer, so none is answered by its class, and
+// frisket decides each command as it would the version 1 route.
+func V2(r policy.SSHRoute) policy.SSHRouteV2 {
+	v := policy.SSHRouteV2{
+		Address: r.Address, User: r.User, HostKeys: r.HostKeys, Agent: r.Agent, KeyFile: r.KeyFile,
+		PasswordFile: r.PasswordFile, Identity: r.Identity, Shell: r.Shell,
+		Answers: policy.Answers{Unmatched: r.Unmatched},
+	}
+	if len(r.Env) > 0 {
+		v.Env = map[string]bool{}
+		for _, e := range r.Env {
+			v.Env[e] = true
+		}
+	}
+	for _, e := range r.Exec {
+		key := RuleName(e.Command, e.Arg)
+		if v.Exec == nil {
+			v.Exec = map[string]string{}
+		}
+		v.Exec[key] = answerOf(e)
+		if e.Operation != nil {
+			if v.Commands == nil {
+				v.Commands = map[string]policy.Operation{}
+			}
+			v.Commands[key] = *e.Operation
+		}
+	}
+	return v
+}
+
+// RuleName is frisket's name for an exec rule: its command pattern, the
+// pattern and "[arg GLOB]", or "[arg GLOB]" alone.
+func RuleName(command, arg string) string {
+	switch {
+	case arg == "":
+		return command
+	case command == "":
+		return "[arg " + arg + "]"
+	}
+	return command + " [arg " + arg + "]"
 }
 
 // CheckBinding is what Prepare would refuse of a grant's SSH in a tier,

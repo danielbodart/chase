@@ -178,7 +178,7 @@ func (a *App) Prepare(ctx context.Context, r apps.Request) (apps.Patch, error) {
 	if err != nil {
 		return die("%v", err)
 	}
-	rules := paths(s, a.Config.Every, carried, floor)
+	endpoints, encoded := paths(carried, floor)
 
 	keyFile, public, err := sessionKey(r.Dir, email, project)
 	if err != nil {
@@ -211,36 +211,34 @@ func (a *App) Prepare(ctx context.Context, r apps.Request) (apps.Patch, error) {
 		return die("could not start chase-gcloud-renew@%s", machine)
 	}
 
-	unmatched := "refuse"
-	if s.Unmatched == "ask" {
-		unmatched = "ask"
-	}
+	every := strings.Join(a.Config.Every, ",")
 	return apps.Patch{
-		Routes: []policy.Route{
-			{
-				Name:           "gcloud",
-				Host:           "*.googleapis.com",
-				Upstream:       "https://*.googleapis.com",
+		Routes: map[string]policy.RouteV2{
+			"gcloud": {
+				Host:           "**.googleapis.com",
+				Upstream:       "https://**.googleapis.com",
 				CredentialFile: filepath.Join(r.Run, "gcloud-token.json"),
 				CredentialJSON: &policy.CredentialJSON{Token: "access_token", ExpiresMillis: "expiry"},
 				Placeholder:    a.Config.Placeholder,
 				SessionKey:     &policy.SessionKey{PublicKey: public, Issuer: sa, Grants: append([]string(nil), grants...)},
-				Paths:          rules,
-				Unmatched:      unmatched,
-				Refusal:        &policy.Refusal{ContentType: refusal.ContentType, Body: refusal.Body},
+				Paths:          endpoints,
+				EncodedSlashes: encoded,
+				// Each operation as its class says, the tier's writes,
+				// guarded and unmatched; a read allowed.
+				Answers: policy.Answers{Writes: s.Writes, Guarded: s.Guarded, Unmatched: s.Unmatched},
+				Refusal: &policy.Refusal{ContentType: refusal.ContentType, Body: refusal.Body},
 			},
 			// Those hosts want a client certificate frisket does not have,
 			// and they are aliases the path rules must not be the only
 			// thing guarding (docs/gcloud.md, decision 6).
-			{
-				Name:      "gcloud-mtls",
-				Host:      "*.mtls.googleapis.com",
-				Upstream:  "https://*.mtls.googleapis.com",
-				Paths:     []policy.PathRule{{Methods: append([]string(nil), a.Config.Every...), Prefix: "/", Refuse: true}},
-				Unmatched: "refuse",
+			"gcloud-mtls": {
+				Host:       "**.mtls.googleapis.com",
+				Upstream:   "https://**.mtls.googleapis.com",
+				Operations: map[string]string{every + " /**": "refuse"},
+				Answers:    policy.Answers{Unmatched: "refuse"},
 			},
 		},
-		Allow: []string{"*.googleapis.com"},
+		Allow: []string{"**.googleapis.com"},
 		Env: map[string]string{
 			"GOOGLE_APPLICATION_CREDENTIALS": seeded,
 			// gcloud reads only this.

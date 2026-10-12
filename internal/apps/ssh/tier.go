@@ -101,7 +101,21 @@ func (c Config) login(at string, h TierHost) (agent, keyFile, passwordFile, iden
 // Each is held to what a grant's machine is, and decided by the catalogue,
 // the tier's answers and its own lists exactly as one is; they are in
 // every session of the tier, whatever its checkout's grant says.
-func (c Config) TierRoutes(name string) ([]policy.SSHRoute, error) {
+func (c Config) TierRoutes(name string) (map[string]policy.SSHRouteV2, error) {
+	routes, err := c.tierRoutes(name)
+	if err != nil || routes == nil {
+		return nil, err
+	}
+	out := map[string]policy.SSHRouteV2{}
+	for _, r := range routes {
+		out[r.Name] = V2(r)
+	}
+	return out, nil
+}
+
+// tierRoutes is TierRoutes as version 1 routes, which execrule decides and
+// Check holds to each machine's expect.
+func (c Config) tierRoutes(name string) ([]policy.SSHRoute, error) {
 	tier, ok := c.Tiers[name]
 	if !ok || len(tier.Hosts) == 0 {
 		return nil, nil
@@ -173,7 +187,7 @@ func (c Config) Check() error {
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(c.Tiers)) {
-		routes, err := c.TierRoutes(name)
+		routes, err := c.tierRoutes(name)
 		if err != nil {
 			return err
 		}

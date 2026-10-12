@@ -85,20 +85,17 @@ in
       };
     })) cfg.tiers;
 
-    services.frisket.policies = lib.mapAttrs (name: tier: mkIf tier.apps.github.enable (
+    chase.internal.policies = lib.mapAttrs (name: tier: mkIf tier.apps.github.enable (
       let s = ops.settings tier.apps.github; in
       {
         # For a tier with an allowlist of names; one allowing `*` has it already.
-        allow = lib.mkAfter [ host ];
-        routes.github = {
+        allow.${host} = true;
+        # Not authenticated, intercepted with no credential, so the scope
+        # holds: a token the session brings still reaches GitHub, but only
+        # to read.
+        routes.github = ops.route s operations // {
           inherit host refusal;
           upstream = "https://${host}";
-          # Not authenticated, intercepted with no credential, so the scope
-          # holds: a token the session brings still reaches GitHub, but only
-          # to read.
-          paths = ops.paths s operations;
-          graphql = ops.graphql s operations;
-          unmatched = ops.unmatched s;
         } // lib.optionalAttrs tier.apps.github.authenticated {
           credentialFile = tier.apps.github.credentialFile;
           placeholder = cfg.placeholder;

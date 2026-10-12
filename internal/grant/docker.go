@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
+
+	"github.com/danielbodart/frisket/projpolicy"
 
 	"github.com/danielbodart/chase/internal/checkout"
 	"github.com/danielbodart/chase/internal/gitsafe"
@@ -63,6 +66,10 @@ func Show(ctx context.Context, c Config, ws, tier string, stdout, stderr io.Writ
 		return refuse("%s: its checkout cannot be sorted: %s", ws, gitsafe.Output(out.Bytes()))
 	}
 	root, _, _ := strings.Cut(gitsafe.Output(out.Bytes()), "\t")
+	if b, err := projpolicy.ReadFile(root + "/" + FileName); err == nil {
+		fmt.Fprintf(stdout, "  ports    %s\n", signedPorts(c, root, b, slug))
+		return nil
+	}
 	result := jnull
 	if p := c.state() + "/approved/" + key(root) + "/grant.json"; regular(p) {
 		b, err := os.ReadFile(p)
@@ -81,6 +88,31 @@ func Show(ctx context.Context, c Config, ws, tier string, stdout, stderr io.Writ
 	}
 	fmt.Fprintf(stdout, "  ports    %s\n", ports)
 	return nil
+}
+
+// signedPorts is the ports root's chase.json gives slug, as `chase docker`
+// says them: none unless it is signed, and says it is this project.
+func signedPorts(c Config, root string, b []byte, slug string) string {
+	doc, _, err := ParseDoc(b)
+	if err != nil {
+		return "(none: " + FileName + " is not one chase reads)"
+	}
+	sig, _ := projpolicy.ReadFile(root + "/" + SigName)
+	if r, err := Root(root); err != nil || c.verify(r, b, sig) != nil {
+		return "(none signed)"
+	}
+	if doc.Chase == nil || doc.Chase.Apps == nil || doc.Chase.Apps.Docker == nil || doc.Chase.Apps.Docker.Project != slug {
+		return "(none signed)"
+	}
+	ports, _ := doc.Chase.Apps.Docker.ports()
+	if len(ports) == 0 {
+		return "(none signed)"
+	}
+	said := make([]string, len(ports))
+	for i, p := range ports {
+		said[i] = strconv.Itoa(p)
+	}
+	return strings.Join(said, " ") + "   (signed)"
 }
 
 // approvedPorts is the ports the approved grant gives slug, as `chase

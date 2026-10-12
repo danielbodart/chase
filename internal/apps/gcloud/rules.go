@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/danielbodart/frisket/policy"
+
+	"github.com/danielbodart/chase/internal/apps"
 )
 
 // Which APIs a session carries is a tier's default and a project's override
@@ -146,15 +148,17 @@ type candidate struct {
 	floor bool
 }
 
-// paths is the route's rules: the carried APIs' and the floor's, one per
-// method and template, each answered as the tier says, and a catch-all
-// after them where the tier allows what nothing matches.
+// paths is what the route's requests are, a version 2 route's paths: the
+// carried APIs' and the floor's operations, one per method and template,
+// and the templates whose "*" takes a segment holding an encoded slash.
+// How each is answered is its class's, the route's writes, guarded and
+// unmatched, which are the tier's.
 //
 // A carried API's own rule wins where both have a template, and among
 // rules of one template, the one that lets a "*" take an encoded slash: a
 // Cloud Storage object's name is one segment. Where they are otherwise
 // alike, the later is kept, as jq's max_by keeps it.
-func paths(s Tier, every []string, carried, floor []policy.PathRule) []policy.PathRule {
+func paths(carried, floor []policy.PathRule) (map[string]policy.EndpointV2, map[string]bool) {
 	all := make([]candidate, 0, len(carried)+len(floor))
 	for _, r := range carried {
 		all = append(all, candidate{r, false})
@@ -165,7 +169,8 @@ func paths(s Tier, every []string, carried, floor []policy.PathRule) []policy.Pa
 	// jq's group_by: sorted by [methods, path, prefix] as jq orders values,
 	// stably, so a group keeps the order its rules were read in.
 	sort.SliceStable(all, func(i, j int) bool { return compareTemplate(all[i].rule, all[j].rule) < 0 })
-	var out []policy.PathRule
+	out := map[string]policy.EndpointV2{}
+	encoded := map[string]bool{}
 	for i := 0; i < len(all); {
 		j := i + 1
 		for j < len(all) && compareTemplate(all[i].rule, all[j].rule) == 0 {
@@ -177,13 +182,18 @@ func paths(s Tier, every []string, carried, floor []policy.PathRule) []policy.Pa
 				best = c
 			}
 		}
-		out = append(out, answered(s, best.rule))
+		r := best.rule
+		key := apps.Endpoint(r.Methods, r.Path, r.Prefix)
+		out[key] = policy.EndpointV2{Operation: r.Operation}
+		if r.EncodedSlashes {
+			encoded[key] = true
+		}
 		i = j
 	}
-	if s.Unmatched == "allow" {
-		out = append(out, policy.PathRule{Methods: slices.Clone(every), Prefix: "/"})
+	if len(encoded) == 0 {
+		encoded = nil
 	}
-	return out
+	return out, encoded
 }
 
 // preference orders a template's rules as [not floor, encodedSlashes] does
@@ -197,24 +207,6 @@ func preference(c candidate) int {
 		p++
 	}
 	return p
-}
-
-// answered is the rule as the tier answers its class (PLAN.md, decision
-// 18): a read allowed, a write as `writes`, a guarded operation as
-// `guarded`. A class of no answer is allowed, as it was; the generator
-// gives every rule one of the three.
-func answered(s Tier, r policy.PathRule) policy.PathRule {
-	var a string
-	if r.Operation != nil {
-		a = map[string]string{"read": "allow", "write": s.Writes, "guarded": s.Guarded}[r.Operation.Class]
-	}
-	switch a {
-	case "ask":
-		r.Ask = true
-	case "refuse":
-		r.Refuse = true
-	}
-	return r
 }
 
 // compareTemplate orders rules by [methods, path, prefix] as jq orders

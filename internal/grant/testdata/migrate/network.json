@@ -1,0 +1,47 @@
+{
+  "flong": {
+    "seccomp": {
+      "allow": [
+        "@keyring"
+      ],
+      "deny": [
+        "@swap"
+      ],
+      "syscalls": {
+        "keyctl": "deny",
+        "ptrace": "allow"
+      }
+    }
+  },
+  "frisket": {
+    "allow": {
+      "**.pythonhosted.org": true,
+      "nas.home.arpa": true,
+      "printer.lan": true,
+      "registry.npmjs.org": true
+    },
+    "lan": {
+      "nas.home.arpa": {
+        "ports": [
+          445,
+          139
+        ]
+      },
+      "printer.lan": {}
+    },
+    "routes": {
+      "git": {
+        "operations": {
+          "git-receive-pack": "allow",
+          "lfs-batch": "ask"
+        }
+      },
+      "huggingface": {
+        "operations": {
+          "POST,PUT /api/repos/create": "ask"
+        }
+      }
+    }
+  },
+  "version": 2
+}

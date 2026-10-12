@@ -150,21 +150,19 @@ in
       ];
     })) cfg.tiers;
 
-    services.frisket.policies = lib.mapAttrs (name: tier: mkIf tier.apps.huggingface.enable {
+    chase.internal.policies = lib.mapAttrs (name: tier: mkIf tier.apps.huggingface.enable {
       # For a tier with an allowlist of names; one allowing `*` has it already.
-      allow = lib.mkAfter hosts;
+      allow = ops.allowOf hosts;
+      # Not authenticated, intercepted with no credential, so the scope
+      # holds: a token the session brings still reaches the Hub, but only
+      # for the reads. Everything else is refused -- the reads that mint a
+      # token among them, Xet's write token, with which a session could put
+      # bytes in Xet's store with no request here at all.
       routes.huggingface =
         let s = ops.settings tier.apps.huggingface; in
-        {
+        ops.route s operations // {
           inherit host refusal;
           upstream = "https://${host}";
-          # Not authenticated, intercepted with no credential, so the scope
-          # holds: a token the session brings still reaches the Hub, but only
-          # for the reads. Everything else is refused -- the reads that mint
-          # a token among them, Xet's write token, with which a session could
-          # put bytes in Xet's store with no request here at all.
-          paths = ops.paths s operations;
-          unmatched = ops.unmatched s;
         } // lib.optionalAttrs tier.apps.huggingface.authenticated {
           credentialFile = tier.apps.huggingface.credentialFile;
           placeholder = cfg.placeholder;

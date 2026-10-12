@@ -118,7 +118,16 @@
         "home": { "description": "chase.home.", "$ref": "#/$defs/absPath" },
         "state": { "description": "Where chase keeps what it approved. Empty is home/.local/state/chase.", "$ref": "#/$defs/optionalAbsPath" },
         "runtime": { "description": "The user's runtime directory. Empty is /run/user/<uid>.", "$ref": "#/$defs/optionalAbsPath" },
-        "policies": { "description": "The directory of the tiers' own frisket policy documents.", "$ref": "#/$defs/absPath" },
+        "policies": { "description": "The directory of the tiers' own frisket policy documents, version 2.", "$ref": "#/$defs/absPath" },
+        "allowedSigners": { "description": "The allowed signers a project's chase.json.sig is verified against. Empty is /etc/frisket/allowed_signers.", "$ref": "#/$defs/optionalAbsPath" },
+        "signerAgent": { "description": "frisket-signer's agent socket, which signs a project's chase.json. Empty is the caller's SSH_AUTH_SOCK.", "$ref": "#/$defs/optionalAbsPath" },
+        "flong": { "description": "A path flong's binary is run by, to check a project's flong section. Empty: not run.", "$ref": "#/$defs/optionalAbsPath" },
+        "declarations": { "description": "Where flong's declarations are. Empty is /etc/flong.", "$ref": "#/$defs/optionalAbsPath" },
+        "answerable": {
+          "description": "The routes a project's frisket section may answer, by name.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "dockerTiers": {
           "description": "The tiers apps/docker.nix gives Docker.",
           "type": ["array", "null"],
@@ -139,7 +148,7 @@
           "type": "array",
           "items": { "type": "string" }
         },
-        "approver": { "description": "chase.approver: the program that asks a person to approve a grant. Empty is none.", "$ref": "#/$defs/optionalAbsPath" },
+        "approver": { "description": "chase.approver: the program that asks a person to approve a legacy grant, a chase.jsonc. Empty is none.", "$ref": "#/$defs/optionalAbsPath" },
         "recordDir": { "description": "Where frisket appends a recording session's lines. Empty is the journal alone.", "$ref": "#/$defs/optionalAbsPath" },
         "sops": { "description": "The sops that decrypts a project's secrets.", "$ref": "#/$defs/absPath" },
         "diff": { "description": "The diff that shows a person what changed.", "$ref": "#/$defs/absPath" },
@@ -174,6 +183,11 @@
         "seccomp": { "description": "flong's flong-seccomp.", "$ref": "#/$defs/absPath" },
         "names": {
           "description": "Each recording tier's names file: the calls its filter allows, one a line.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/absPath" }
+        },
+        "logged": {
+          "description": "Each recording tier's logged file: the calls its filter allows and logs, one a line.",
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/absPath" }
         }
@@ -326,14 +340,9 @@
       "additionalProperties": false,
       "properties": {
         "routes": {
-          "description": "By tier: a frisket route, or a list of them.",
+          "description": "By tier, and in it by name: a frisket route, version 2.",
           "type": "object",
-          "additionalProperties": {
-            "anyOf": [
-              { "$ref": "#/$defs/frisketRoute" },
-              { "type": "array", "items": { "$ref": "#/$defs/frisketRoute" } }
-            ]
-          }
+          "additionalProperties": { "type": "object", "additionalProperties": { "$ref": "#/$defs/frisketRoute" } }
         },
         "allow": { "type": "array", "items": { "type": "string" } },
         "env": { "type": "object", "additionalProperties": { "type": "string" } },

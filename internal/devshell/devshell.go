@@ -119,7 +119,7 @@ func Realise(ctx context.Context, n session.Nix, r Request, stderr io.Writer) (*
 }
 
 // without is how a launch is had without the devShell its grant turns on.
-const without = `to launch without it, set "apps": {"nix": {"devShell": false}} in the checkout's grant, or remove it, and approve that`
+const without = `to launch without it, set "chase": {"apps": {"nix": {"devShell": false}}} in the checkout's chase.json, or remove it, and sign that`
 
 // ungranted is a checkout whose grant does not turn its devShell on:
 // nothing of it is evaluated, what an earlier grant kept is let go, and
@@ -128,7 +128,7 @@ const without = `to launch without it, set "apps": {"nix": {"devShell": false}} 
 func ungranted(r Request, stderr io.Writer) {
 	os.RemoveAll(r.Dir + "/devshell")
 	if exists(r.Workspace+"/"+shell) || namesDevShells(r.Workspace+"/"+flake) {
-		term.Say(stderr, `%s: its devShell is not given: the checkout's grant turns it on, with "apps": {"nix": {"devShell": true}}`, r.Workspace)
+		term.Say(stderr, `%s: its devShell is not given: the checkout's chase.json turns it on, with "chase": {"apps": {"nix": {"devShell": true}}}`, r.Workspace)
 	}
 }
 

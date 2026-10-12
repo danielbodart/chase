@@ -41,6 +41,10 @@ type Config struct {
 	// already taken out. A recording from scratch, which logs every call,
 	// does not propose these.
 	Names map[string]string `json:"names,omitempty"`
+	// Logged are each recording tier's logged file, flong's seccompProject
+	// logged: the calls its seccomp.syscalls map allows and logs, which a
+	// session makes without any grant, and which are not proposed.
+	Logged map[string]string `json:"logged,omitempty"`
 }
 
 // Validate holds c's paths to being absolute, as the module writes them.
@@ -53,6 +57,11 @@ func (c Config) Validate() error {
 	for tier, p := range c.Names {
 		if !filepath.IsAbs(p) {
 			return fmt.Errorf("names of %s is %q, which is not an absolute path", tier, p)
+		}
+	}
+	for tier, p := range c.Logged {
+		if !filepath.IsAbs(p) {
+			return fmt.Errorf("logged of %s is %q, which is not an absolute path", tier, p)
 		}
 	}
 	return nil
@@ -347,19 +356,25 @@ func (h *harvest) run(events []Event, pids map[int]bool) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		h.notes = append(h.notes, fmt.Sprintf("%s could not be read: %v", path, err))
 	}
-	against := h.against(current)
+	var legacy []byte
+	if current == nil {
+		if legacy, _, err = readGrant(filepath.Join(s.Workspace, grant.LegacyName)); err == nil {
+			h.notes = append(h.notes, "the checkout has a "+grant.LegacyName+": run chase migrate, then chase record apply")
+		}
+	}
+	against := h.against(current, legacy)
 	o := s.Args.Options
 	p := Propose(lines, calls, o, against)
 	header := []string{
-		fmt.Sprintf("chase record: what %s, a session of %s in %s, needed beyond its grant.", h.machine, s.Tier, s.Workspace),
-		"Each entry is in the list its answer says, with what it was made from above it.",
-		"Edit it as you like: `chase record apply " + h.machine + "` adds each entry here to the",
-		"checkout's chase.jsonc, and the changed grant is put to you at the next launch.",
+		fmt.Sprintf("chase record: what %s, a session of %s in %s, needed beyond its chase.json.", h.machine, s.Tier, s.Workspace),
+		"propose is what `chase record apply " + h.machine + "` adds to the checkout's chase.json,",
+		"which it then signs; probable is what it leaves out unless you move it into propose;",
+		"notes say what each entry was made from. Edit it as you like.",
 	}
-	proposal := p.JSONC(header)
+	proposal := p.File(header)
 
 	diff := ""
-	if len(p.Entries) > 0 {
+	if len(p.Entries) > 0 && legacy == nil {
 		if merged, _, err := Merge(current, proposal); err != nil {
 			h.notes = append(h.notes, fmt.Sprintf("the proposal could not be merged: %v", err))
 		} else {
@@ -417,13 +432,29 @@ func (h *harvest) lines(ctx context.Context) ([]Line, bool) {
 }
 
 // against is what a proposal is made against: the machines the
-// checkout's grant names, and the calls it allows; and for a recording
-// from scratch, the calls the tier's filter allows.
-func (h *harvest) against(current []byte) Against {
+// checkout's chase.json -- or its chase.jsonc, before it is migrated --
+// names, and the calls it allows; the calls the tier's syscalls map logs,
+// which it allows; and for a recording from scratch, the calls the tier's
+// filter allows.
+func (h *harvest) against(current, legacy []byte) Against {
 	a := Against{Hosts: map[string]bool{}, Allowed: map[string]bool{}, Granted: map[string]bool{}}
-	if current != nil {
-		if b, err := grant.ParseFile(slices.Clone(current)); err != nil {
-			h.notes = append(h.notes, fmt.Sprintf("%s is not a grant chase reads: %v", grant.FileName, err))
+	switch {
+	case current != nil:
+		if d, _, err := grant.ParseDoc(current); err != nil {
+			h.notes = append(h.notes, fmt.Sprintf("%s is not one chase reads: %v", grant.FileName, err))
+		} else {
+			if d.Chase != nil && d.Chase.Apps != nil && d.Chase.Apps.SSH != nil {
+				for name := range d.Chase.Apps.SSH.Hosts {
+					a.Hosts[name] = true
+				}
+			}
+			for _, n := range d.Flong.Lines().Allow {
+				a.Allowed[n], a.Granted[n] = true, true
+			}
+		}
+	case legacy != nil:
+		if b, err := grant.ParseFile(slices.Clone(legacy)); err != nil {
+			h.notes = append(h.notes, fmt.Sprintf("%s is not a grant chase reads: %v", grant.LegacyName, err))
 		} else {
 			var f grant.File
 			if json.Unmarshal(b, &f) == nil {
@@ -437,6 +468,13 @@ func (h *harvest) against(current []byte) Against {
 						a.Allowed[n], a.Granted[n] = true, true
 					}
 				}
+			}
+		}
+	}
+	if p := h.s.Config.Logged[h.s.Tier]; p != "" {
+		if b, err := os.ReadFile(p); err == nil {
+			for _, n := range strings.Fields(string(b)) {
+				a.Allowed[n] = true
 			}
 		}
 	}
@@ -456,11 +494,11 @@ func (h *harvest) against(current []byte) Against {
 	return a
 }
 
-// maxGrant is the most of a checkout's chase.jsonc a recording reads:
+// maxGrant is the most of a checkout's file a recording reads:
 // far more than any grant a person reads before approving it.
 const maxGrant = 1 << 20
 
-// readGrant is the checkout's chase.jsonc at path, and what it is, read as
+// readGrant is the checkout's file at path, and what it is, read as
 // approve takes it: a plain file, and not a link -- the session could
 // write it, and a link to a file of the user's, or to /dev/zero, a pipe
 // that blocks the read forever, is none. It is opened without following a
@@ -514,10 +552,11 @@ func unified(path, labelA, labelB string, a, b []byte) string {
 }
 
 // Apply is `chase record apply [--last | MACHINE]`: the recording's
-// proposal merged into its checkout's chase.jsonc, what changed shown, and
-// the recording marked applied. Applying one twice adds nothing the second
-// time.
-func Apply(c grant.Config, args []string, stdout, stderr io.Writer) int {
+// proposal merged into its checkout's chase.json, what changed shown, the
+// recording marked applied, and the file signed through the signer.
+// Applying one twice adds nothing the second time. A checkout with only a
+// chase.jsonc is migrated first, with chase migrate.
+func Apply(ctx context.Context, c grant.Config, args []string, stdout, stderr io.Writer) int {
 	if len(args) > 1 {
 		term.Say(stderr, "%s", Usage)
 		return 2
@@ -544,6 +583,10 @@ func Apply(c grant.Config, args []string, stdout, stderr io.Writer) int {
 		mode = fi.Mode().Perm()
 	case errors.Is(err, os.ErrNotExist):
 		current = nil
+		if _, err := os.Lstat(filepath.Join(m.Workspace, grant.LegacyName)); err == nil {
+			term.Say(stderr, "%s has a %s: run chase migrate there first", m.Workspace, grant.LegacyName)
+			return 1
+		}
 	default:
 		term.Say(stderr, "%v", err)
 		return 1
@@ -562,7 +605,7 @@ func Apply(c grant.Config, args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(&b, "  %s is in %s already\n", ch.Value, where)
 		case ch.From != "":
 			added++
-			fmt.Fprintf(&b, "  %s moved to %s from %s\n", ch.Value, where, ch.From)
+			fmt.Fprintf(&b, "  %s in %s, was %s\n", ch.Value, where, ch.From)
 		case ch.Widened:
 			added++
 			fmt.Fprintf(&b, "  %s widened in %s\n", ch.Value, where)
@@ -585,6 +628,10 @@ func Apply(c grant.Config, args []string, stdout, stderr io.Writer) int {
 	m.Applied = &now
 	writeMeta(at, m)
 	io.WriteString(stdout, term.Clean(diff+b.String()))
-	term.Say(stdout, "%s's proposal is in %s: its grant is put to you at the next launch, once git tracks the file", m.Machine, path)
+	term.Say(stdout, "%s's proposal is in %s", m.Machine, path)
+	if err := grant.Sign(ctx, c, m.Workspace, stdout, stderr); err != nil {
+		term.Say(stderr, "%s is not signed (%v): chase sign signs it, or the next launch asks", path, err)
+		return 1
+	}
 	return 0
 }

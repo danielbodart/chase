@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -152,32 +153,37 @@ func (l *launch) prepared(tier, run string, b json.RawMessage) apps.Patch {
 	return p
 }
 
-func route(t *testing.T, p apps.Patch, name string) policy.Route {
+func route(t *testing.T, p apps.Patch, name string) policy.RouteV2 {
 	t.Helper()
-	for _, r := range p.Routes {
-		if r.Name == name {
-			return r
-		}
+	r, ok := p.Routes[name]
+	if !ok {
+		t.Fatalf("no route %s", name)
 	}
-	t.Fatalf("no route %s", name)
-	return policy.Route{}
+	return r
 }
 
-// answer is how the gcloud route answers an operation: its first rule's.
+// answer is how the gcloud route answers an operation: by its class, as
+// the route's answers say.
 func answer(t *testing.T, p apps.Patch, id string) string {
-	for _, r := range route(t, p, "gcloud").Paths {
-		if r.Operation != nil && r.Operation.ID == id {
-			switch {
-			case r.Refuse:
-				return "refuse"
-			case r.Ask:
-				return "ask"
-			default:
-				return "allow"
-			}
+	r := route(t, p, "gcloud")
+	for _, e := range r.Paths {
+		if e.Operation != nil && e.Operation.ID == id {
+			return classAnswer(r, e.Operation.Class)
 		}
 	}
 	return "absent"
+}
+
+func classAnswer(r policy.RouteV2, class string) string {
+	switch class {
+	case "read":
+		return "allow"
+	case "write":
+		return r.Writes
+	case "guarded":
+		return r.Guarded
+	}
+	return r.Unmatched
 }
 
 // What returns a credential, of APIs the check's tiers carry and do not.
@@ -206,17 +212,9 @@ func TestTheRouteCarriesTheTiersAPIsWithTheProjectsChanges(t *testing.T) {
 	if carried = slices.Compact(carried); !slices.Equal(carried, []string{"bigquery", "google.iam.v1.IAMPolicy", "pubsub"}) {
 		t.Errorf("the APIs are not the tier's with the project's changes: %q", carried)
 	}
-	seen := map[string]bool{}
-	for _, p := range r.Paths {
-		k := fmt.Sprintf("%q %q %q", p.Methods, p.Path, p.Prefix)
-		if seen[k] {
-			t.Errorf("a rule is there twice: %s", k)
-		}
-		seen[k] = true
-	}
-	if r.Unmatched != "ask" || r.CredentialFile != run+"/gcloud-token.json" ||
+	if r.Unmatched != "ask" || r.Writes != "ask" || r.Guarded != "refuse" || r.CredentialFile != run+"/gcloud-token.json" ||
 		r.CredentialJSON == nil || *r.CredentialJSON != (policy.CredentialJSON{Token: "access_token", ExpiresMillis: "expiry"}) ||
-		r.Host != "*.googleapis.com" || r.Upstream != "https://*.googleapis.com" || r.Placeholder != "proxy-injected" ||
+		r.Host != "**.googleapis.com" || r.Upstream != "https://**.googleapis.com" || r.Placeholder != "proxy-injected" ||
 		r.SessionKey == nil || r.SessionKey.Issuer != sa ||
 		!slices.Equal(r.SessionKey.Grants, []string{"oauth2.googleapis.com/token", "www.googleapis.com/oauth2/v4/token"}) {
 		r.Paths = nil
@@ -227,12 +225,12 @@ func TestTheRouteCarriesTheTiersAPIsWithTheProjectsChanges(t *testing.T) {
 		t.Errorf("the refusal is not Google's envelope: %+v", r.Refusal)
 	}
 	m := route(t, patch, "gcloud-mtls")
-	if m.Host != "*.mtls.googleapis.com" || m.Upstream != "https://*.mtls.googleapis.com" || len(m.Paths) != 1 ||
-		!m.Paths[0].Refuse || m.Paths[0].Prefix != "/" || !slices.Equal(m.Paths[0].Methods, every) ||
+	if m.Host != "**.mtls.googleapis.com" || m.Upstream != "https://**.mtls.googleapis.com" || len(m.Paths) != 0 ||
+		!maps.Equal(m.Operations, map[string]string{strings.Join(every, ",") + " /**": "refuse"}) ||
 		m.CredentialFile != "" || m.Unmatched != "refuse" {
 		t.Errorf("the mtls hosts are not refused whole: %+v", m)
 	}
-	if !slices.Equal(patch.Allow, []string{"*.googleapis.com"}) {
+	if !slices.Equal(patch.Allow, []string{"**.googleapis.com"}) {
 		t.Errorf("allow is %q", patch.Allow)
 	}
 	for id, want := range map[string]string{
@@ -260,10 +258,11 @@ func TestTheFloorIsEveryAPIsGuardedOperations(t *testing.T) {
 		}
 	}
 	found := false
-	for _, p := range route(t, patch, "gcloud").Paths {
-		if p.Path == "/v1/projects/*/locations/*/conversations/*:generateSignedAudio" && p.Methods[0] == "GET" {
+	r := route(t, patch, "gcloud")
+	for key, p := range r.Paths {
+		if strings.HasPrefix(key, "GET") && strings.HasSuffix(key, " /v1/projects/*/locations/*/conversations/*:generateSignedAudio") {
 			found = true
-			if !p.Refuse {
+			if classAnswer(r, p.Operation.Class) != "refuse" {
 				t.Error("another API's signed audio is not refused")
 			}
 		}
@@ -433,10 +432,8 @@ func TestALooseTierAllowsWhatItSays(t *testing.T) {
 	l := newLaunch(t)
 	loose := l.prepared("loose", l.session("chase-loose-1", sa), binding(`{}`))
 	r := route(t, loose, "gcloud")
-	last := r.Paths[len(r.Paths)-1]
-	if !slices.Equal(last.Methods, every) || last.Prefix != "/" || last.Path != "" || last.Ask || last.Refuse || last.Operation != nil ||
-		last.EncodedSlashes || r.Unmatched != "refuse" {
-		t.Errorf("an unmatched allow has no catch-all: %+v, unmatched %q", last, r.Unmatched)
+	if r.Unmatched != "allow" {
+		t.Errorf("an unmatched allow is not the route's: unmatched %q", r.Unmatched)
 	}
 	for _, id := range append([]string{"bigquery.datasets.delete"}, credentials...) {
 		if got := answer(t, loose, id); got != "allow" {
@@ -460,16 +457,16 @@ func TestAClosedTierRefusesTheFloor(t *testing.T) {
 		}
 	}
 	for _, p := range r.Paths {
-		if p.Operation == nil || p.Operation.Class != "guarded" || !p.Refuse {
+		if p.Operation == nil || p.Operation.Class != "guarded" || classAnswer(r, "guarded") != "refuse" {
 			t.Errorf("a tier that carries nothing has more than the floor: %+v", p)
 		}
 	}
 	// What the patch is, frisket's decoder takes: no field it does not know.
 	b, _ := json.Marshal(closed)
 	var back struct {
-		Routes []policy.Route    `json:"routes"`
-		Allow  []string          `json:"allow"`
-		Env    map[string]string `json:"env"`
+		Routes map[string]policy.RouteV2 `json:"routes"`
+		Allow  []string                  `json:"allow"`
+		Env    map[string]string         `json:"env"`
 	}
 	if err := policy.Decode(b, &back); err != nil {
 		t.Errorf("frisket's decoder refused the patch: %v", err)

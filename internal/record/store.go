@@ -21,8 +21,8 @@ import (
 //	                one of chase's own for each syscall
 //	meta.json       which session, tier and checkout, how it was made, and
 //	                when
-//	proposal.jsonc  the grant entries it proposes, which `chase record
-//	                apply` adds to the checkout's chase.jsonc
+//	proposal.json   the entries of chase.json it proposes, which `chase
+//	                record apply` adds to the checkout's chase.json
 //
 // The last Keep recordings are kept, and any younger than KeepFor: a
 // recording is pruned only once it is both older and further back.
@@ -53,7 +53,7 @@ type Meta struct {
 const (
 	recordFile   = "record.jsonl"
 	metaFile     = "meta.json"
-	proposalFile = "proposal.jsonc"
+	proposalFile = "proposal.json"
 )
 
 // save writes a recording's directory under dir, whole: its lines, its

@@ -20,10 +20,7 @@ import (
 	"github.com/danielbodart/chase/internal/projectaddr"
 )
 
-// FileName is the grant's file, at the checkout's root.
-const FileName = "chase.jsonc"
-
-// WHAT A GRANT MAY SAY (PLAN.md, decisions 10 and 17). The checkout's
+// WHAT A LEGACY GRANT MAY SAY (PLAN.md, decisions 10 and 17). The checkout's
 // chase.jsonc is data: JSON with comments and trailing commas, read, never
 // run. It is decoded into File, which refuses a member it does not name,
 // and each value is checked against what that field may hold, so a

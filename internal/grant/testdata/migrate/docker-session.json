@@ -1,0 +1,15 @@
+{
+  "chase": {
+    "apps": {
+      "docker": {
+        "images": {
+          "postgres:18": true
+        },
+        "ports": {
+          "64320": true
+        }
+      }
+    }
+  },
+  "version": 2
+}

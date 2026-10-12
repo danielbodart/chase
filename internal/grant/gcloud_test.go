@@ -52,7 +52,7 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 	h.registry = map[string]apps.App{"gcloud": app}
 	// The tier has a gcloud route of its own, which the app's replaces
 	// rather than joins: `merge.jq`'s patch, applied by the launch.
-	write(t, h.cfg.Policies+"/trusted.json", `{"name": "trusted", "allow": ["github.com"], "routes": [{"name": "gcloud", "host": "x", "upstream": "https://x"}]}`)
+	write(t, h.cfg.Policies+"/trusted.json", `{"version": 2, "name": "trusted", "allow": {"github.com": true}, "routes": {"gcloud": {"host": "x", "upstream": "https://x"}}}`)
 
 	k, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -91,20 +91,8 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 	if d.Routes[0].CredentialFile != run+"/gcloud-token.json" {
 		t.Errorf("the route does not carry the session's token: %s", d.Routes[0].CredentialFile)
 	}
-	answer := func(id string) string {
-		for _, r := range d.Routes[0].Paths {
-			if r.Operation != nil && r.Operation.ID == id {
-				switch {
-				case r.Refuse:
-					return "refuse"
-				case r.Ask:
-					return "ask"
-				}
-				return "allow"
-			}
-		}
-		return "absent"
-	}
+	v2 := h.policyV2("m1").Routes["gcloud"]
+	answer := func(id string) string { return answerOf(v2, id) }
 	for id, want := range map[string]string{
 		"bigquery.datasets.get":                                       "allow",
 		"bigquery.datasets.insert":                                    "allow",
@@ -155,7 +143,7 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 	if rc := h.launch("trusted", ws, "m2"); rc != 1 {
 		t.Fatalf("lists that do not apply were launched: %d %s", rc, h.err)
 	}
-	if want := "chase: gcloud has no category:storage\nchase: " + ws + ": its gcloud lists do not apply\n"; !strings.HasSuffix(h.err, want) {
+	if want := "chase: merged: route gcloud: operations \"category:storage\": no operation of the route's is of that category\nchase: " + ws + ": its frisket section does not apply in trusted\n"; !strings.HasSuffix(h.err, want) {
 		t.Errorf("the refusal said %q, not %q", h.err, want)
 	}
 	if _, err := os.Stat(h.dir + "/run/chase/m2/policy.json"); err == nil {

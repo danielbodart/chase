@@ -160,19 +160,20 @@ in
       ];
     })) cfg.tiers;
 
-    services.frisket.policies = lib.mapAttrs (name: tier: mkIf tier.apps.git.enable (
+    services.frisket.policies = lib.mapAttrs (name: _: { gitSigning = true; }) signing;
+
+    chase.internal.policies = lib.mapAttrs (name: tier: mkIf tier.apps.git.enable (
       let s = ops.settings tier.apps.git; in
       {
         # For a tier with an allowlist of names; one allowing `*` has it already.
-        allow = lib.mkAfter hosts;
-        routes.git = {
+        allow = ops.allowOf hosts;
+        routes.git = ops.route s operations // {
           inherit host;
           upstream = "https://${host}";
           # Any repository: which ones a session may reach is the token's to
-          # say. A push is a write, answered as the tier and the app say.
-          git = { repos = [ "*" ]; push = s.writes; };
-          paths = ops.paths s operations;
-          unmatched = ops.unmatched s;
+          # say. A push, git-receive-pack, is a write, answered as the tier
+          # and the app say.
+          git.repos."*" = true;
         } // lib.optionalAttrs tier.apps.git.authenticated {
           # Not authenticated, intercepted with no credential, so the scope
           # holds: a token the session brings still reaches GitHub, but only
@@ -182,6 +183,6 @@ in
           placeholder = cfg.placeholder;
           basicUser = "x-access-token";
         };
-      } // lib.optionalAttrs (signing ? ${name}) { gitSigning = true; })) cfg.tiers;
+      })) cfg.tiers;
   };
 }

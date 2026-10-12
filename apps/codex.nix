@@ -1,6 +1,7 @@
 { config, options, lib, pkgs, ... }:
 
 let
+  ops = import ../lib/operations.nix { inherit lib; };
   inherit (lib) mkEnableOption mkIf mkMerge mkOption types;
   cfg = config.chase;
   apps = import ../lib/apps.nix { inherit lib; };
@@ -40,7 +41,8 @@ let
       expiresJWT = "tokens.access_token";
     };
     placeholder = placeholderJWT;
-    inherit paths;
+    operations = lib.listToAttrs (map (p: lib.nameValuePair (ops.endpoint p) "allow") paths);
+    unmatched = "refuse";
   };
 
   # Refresh and revoke, logged and refused, so no response can hand a sandbox
@@ -49,7 +51,8 @@ let
   refusedRoute = {
     host = "auth.openai.com";
     upstream = "https://auth.openai.com";
-    paths = [{ methods = every; prefix = "/"; refuse = true; }];
+    operations."${lib.concatStringsSep "," every} /**" = "refuse";
+    unmatched = "refuse";
   };
 
   # `codex` on the host is the chase binary, which picks the checkout's
@@ -169,9 +172,9 @@ in
         })
       ]))) cfg.tiers;
 
-    services.frisket.policies = lib.mapAttrs (_: tier:
-      mkIf tier.apps.codex.enable {
-        allow = lib.mkAfter allow;
+    chase.internal.policies = lib.mapAttrs (_: tier:
+      mkIf (!tier.bare && tier.apps.codex.enable) {
+        allow = ops.allowOf allow;
         routes = {
           # The host's scope is the host's own session by another name. Any
           # other gets codex and nothing else: the same bearer reads and

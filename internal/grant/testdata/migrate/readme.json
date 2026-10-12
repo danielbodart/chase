@@ -1,0 +1,37 @@
+{
+  "chase": {
+    "apps": {
+      "cloudflare": {
+        "accountId": "023e105f4ecef8ad9ca31a8372d0c353",
+        "credential": {
+          "secret": "cloudflare-token"
+        }
+      }
+    },
+    "secrets": "secrets.yaml"
+  },
+  "flong": {
+    "seccomp": {
+      "syscalls": {
+        "io_uring_enter": "allow",
+        "io_uring_setup": "allow"
+      }
+    }
+  },
+  "frisket": {
+    "routes": {
+      "cloudflare": {
+        "operations": {
+          "workers-ai-post-run-model": "allow"
+        }
+      },
+      "github": {
+        "operations": {
+          "category:pulls": "allow",
+          "repos/delete": "refuse"
+        }
+      }
+    }
+  },
+  "version": 2
+}

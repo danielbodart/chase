@@ -157,12 +157,29 @@ func (h *harness) dockerSaid() string {
 	return ""
 }
 
+// stagedProject is the Docker project of the chase.json staged for
+// machine.
 func (h *harness) stagedProject(machine string) any {
 	d := h.stagedDoc(machine)
 	if d == nil {
 		return nil
 	}
-	return d["result"].(map[string]any)["dockerProject"]
+	v, _ := walkAny(d, "file", "chase", "apps", "docker", "project")
+	return v
+}
+
+// walkAny is the value at path in v, and whether there is one.
+func walkAny(v any, path ...string) (any, bool) {
+	for _, k := range path {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		if v, ok = m[k]; !ok {
+			return nil, false
+		}
+	}
+	return v, true
 }
 
 // APPROVAL, of a grant that binds Docker: said beside the approval with
@@ -273,7 +290,7 @@ func TestOnlyDockerNeedsAProject(t *testing.T) {
 	}
 
 	h.approved(none, "m10", "trusted", `{"apps": {"github": {"allow": ["x"]}}}`)
-	if _, has := h.stagedDoc("m10")["result"].(map[string]any)["dockerProject"]; has {
+	if _, has := walkAny(h.stagedDoc("m10"), "file", "chase", "apps", "docker", "project"); has {
 		t.Error("a grant without Docker gained a project")
 	}
 	if strings.Contains(h.err, "Docker as") {

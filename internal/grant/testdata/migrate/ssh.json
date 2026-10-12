@@ -1,0 +1,28 @@
+{
+  "chase": {
+    "apps": {
+      "ssh": {
+        "hosts": {
+          "server": {
+            "address": "192.168.1.10",
+            "allow": [
+              "service-restart"
+            ],
+            "ask": [
+              "docker compose ps **"
+            ],
+            "hostKeys": [
+              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl server"
+            ],
+            "refuse": [
+              "category:packages"
+            ],
+            "unmatched": "refuse",
+            "user": "ops"
+          }
+        }
+      }
+    }
+  },
+  "version": 2
+}

@@ -1,0 +1,9 @@
+// What chase gives this checkout's agent sessions beyond its tier's
+// defaults, read as data and approved before it applies.
+{
+  "apps": {
+    // shell.nix's devShell, in the session, as `nix-shell` gives it on the
+    // host.
+    "nix": { "devShell": true },
+  },
+}

@@ -1,0 +1,28 @@
+{
+  "chase": {
+    "apps": {
+      "gcloud": {
+        "apis": {
+          "pubsub": true,
+          "storage": false
+        },
+        "credential": {
+          "secret": "gcloud-key"
+        },
+        "serviceAccount": "chase-test@p.iam.gserviceaccount.com"
+      }
+    },
+    "secrets": "secrets.yaml"
+  },
+  "frisket": {
+    "routes": {
+      "gcloud": {
+        "operations": {
+          "category:bigquery": "allow",
+          "pubsub.projects.topics.delete": "ask"
+        }
+      }
+    }
+  },
+  "version": 2
+}

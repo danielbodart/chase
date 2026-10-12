@@ -14,6 +14,7 @@ package apps
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/danielbodart/frisket/policy"
 
@@ -46,14 +47,16 @@ type Request struct {
 	Binding json.RawMessage
 }
 
-// Patch is what an app adds to the session's policy document, its
-// environment and its home. Its routes, and its SSH routes, replace any of
-// the same name the tier had.
+// Patch is what an app adds to the session's policy document, a version
+// 2 one, its environment and its home: a layer of the host's, under the
+// project's own. Its routes, and its SSH routes, each by name, replace any
+// of the same name the tier had, whole; Allow are names, in frisket's host
+// grammar, added to the allowlist.
 type Patch struct {
-	Routes []policy.Route    `json:"routes,omitempty"`
-	SSH    []policy.SSHRoute `json:"ssh,omitempty"`
-	Allow  []string          `json:"allow,omitempty"`
-	Env    map[string]string `json:"env,omitempty"`
+	Routes map[string]policy.RouteV2    `json:"routes,omitempty"`
+	SSH    map[string]policy.SSHRouteV2 `json:"ssh,omitempty"`
+	Allow  []string                     `json:"allow,omitempty"`
+	Env    map[string]string            `json:"env,omitempty"`
 	// Files are seeded into the session's home (see session.File).
 	Files []session.File `json:"-"`
 }
@@ -65,4 +68,14 @@ type App interface {
 	// Stop releases what Prepare started, when the session ends, before
 	// its Run directory is removed.
 	Stop(ctx context.Context, machine string) error
+}
+
+// Endpoint is a version 2 policy's key for what a version 1 path rule
+// matched: "METHOD[,METHOD] /path", and a prefix's every path below it
+// "/prefix/**", "/**" for "/".
+func Endpoint(methods []string, path, prefix string) string {
+	if path == "" {
+		path = strings.TrimSuffix(prefix, "/") + "/**"
+	}
+	return strings.Join(methods, ",") + " " + path
 }

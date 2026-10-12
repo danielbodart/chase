@@ -28,21 +28,31 @@ let
   # does not give), and the docker check and docker-launch hold it to that.
   # The descriptions are for a person reading the generated file, and would
   # only swell every session's document.
-  paths = map (rule: rule // { operation = removeAttrs rule.operation [ "description" ]; }) operations;
+  #
+  # As a version 2 route: each operation what its request is, in `paths`,
+  # and answered by its id, the admitted ones allowed and the rest refused,
+  # whatever its class says.
+  key = r: lib.concatStringsSep "," r.methods + " " + r.path;
+  paths = lib.listToAttrs (map (rule: lib.nameValuePair (key rule)
+    ({ operation = removeAttrs rule.operation [ "description" ]; } // lib.optionalAttrs (rule ? docker) { inherit (rule) docker; }))
+    operations);
+  answers = lib.listToAttrs (map (rule: lib.nameValuePair rule.operation.id (if rule.refuse or false then "refuse" else "allow")) operations);
 
   # Only on direct egress: a container on the rootless daemon reaches
   # whatever the host does, which a tier with no network but frisket could
   # not otherwise.
   enabled = lib.filterAttrs (_: t: !t.bare && t.apps.docker.enable && t.egress == "direct") cfg.tiers;
 
-  # Everything of a tier's route that the launch does not decide. No
-  # operation-less rule, as `writes` and `unmatched` would add for another
-  # app: frisket refuses one on a Docker route, and nothing here ever asks.
+  # Everything of a tier's route that the launch does not decide. Every
+  # class refused, so what no operation admits is refused, and nothing here
+  # ever asks.
   route = {
-    name = "docker";
     host = "docker.frisket.internal";
     upstream = "unix:///run/user/${toString cfg.uid}/docker.sock";
+    writes = "refuse";
+    guarded = "refuse";
     unmatched = "refuse";
+    operations = answers;
     # Docker's own error shape, which its CLI prints.
     refusal = { contentType = "application/json"; body = builtins.toJSON { message = "{{message}}"; }; };
     inherit paths;

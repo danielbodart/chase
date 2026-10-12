@@ -3,7 +3,8 @@
 # chase-generate operations (../internal/generate) says what each operation IS
 # -- read, write or guarded -- and nothing about what is done with it. That is
 # said here, from the tier's settings and the app's own, the same way for
-# every app:
+# every app, as a version 2 route's class answers, which frisket applies
+# at each request:
 #
 #   read     allowed
 #   write    the app's `writes`, which is the tier's unless the app says
@@ -70,49 +71,63 @@ rec {
   # say.
   settings = app:
     if !(app.authenticated or true)
-    then lib.genAttrs names (_: "refuse")
+    then lib.genAttrs names (_: "refuse") // { anonymous = true; }
     else answers app;
 
   # The app's three as it says them, for a route a project's own credential
   # may stand behind whether or not the tier has one.
   answers = app: lib.getAttrs names app;
 
-  outcome = a: { allow = { }; ask = { ask = true; }; refuse = { refuse = true; }; }.${a};
+  # A version 1 allowlist name as frisket's version 2 host grammar has it:
+  # "*" is every name, "**", and "*.suffix" every name below suffix,
+  # "**.suffix". A tier's `allow` keeps version 1's words.
+  hostKey = n:
+    if n == "*" then "**"
+    else if lib.hasPrefix "*." n then "*${n}"
+    else n;
 
-  # One generated operation as a frisket rule.
-  rule = s: r: r // outcome ({
-    read = "allow";
-    write = s.writes;
-    guarded = s.guarded;
-  }.${r.operation.class});
+  # A version 2 allowlist of names, each a key to true.
+  allowOf = names: lib.genAttrs (map hostKey names) (_: true);
 
-  # Every operation as a rule, and -- where what matches nothing is allowed --
-  # one more that matches everything and is less specific than any of them.
-  # GraphQL's operations are not paths: `graphql` has them.
-  paths = s: operations:
-    map (rule s) (lib.filter (r: !(r ? graphql)) operations)
-    ++ lib.optional (s.unmatched == "allow") { methods = every; prefix = "/"; };
+  # A generated rule's key in a version 2 route's paths: its methods and
+  # its path, or every path below its prefix.
+  endpoint = r: lib.concatStringsSep "," r.methods + " "
+    + (if r ? path then r.path else lib.removeSuffix "/" r.prefix + "/**");
 
-  # frisket's GraphQL endpoints: each one's query, and its mutations and
-  # subscriptions by field, answered as any operation is, the strictest in a
-  # request deciding. A field no operation names is the app's `unmatched`;
-  # what frisket cannot see is asked about where that allows.
-  graphql = s: operations:
+  # The route's answers by class, the app's; and for an app with no
+  # credential, which has nobody to ask on its behalf and refuses every
+  # class, a ceiling of the same, so that a project's file answers none of
+  # its requests more leniently (PLAN.md, decision 18).
+  answering = s: lib.getAttrs names s
+    // lib.optionalAttrs (s.anonymous or false) { ceiling = lib.genAttrs names (_: "refuse"); };
+
+  # What an app's generated operations make of a version 2 route: what each
+  # request IS -- `paths`, and GraphQL's fields -- which frisket answers by
+  # its class as the app says, a read allowed (PLAN.md, decision 18).
+  # GraphQL's operations are not paths: `graphql` has them, each field by
+  # its name, a query by `query`.
+  route = s: operations:
     let
-      of = path: lib.filter (r: r.graphql or null == path) operations;
-      field = kind: r: { field = r.${kind}; } // removeAttrs (rule s r) [ "graphql" kind ];
-      fields = kind: path: map (field kind) (lib.filter (r: r ? ${kind}) (of path));
-      endpoint = path: {
-        inherit path;
-        inherit (s) unmatched;
+      rest = lib.filter (r: !(r ? graphql)) operations;
+      gql = lib.filter (r: r ? graphql) operations;
+      encoded = lib.filter (r: r.encodedSlashes or false) rest;
+      of = path: lib.filter (r: r.graphql == path) gql;
+      fields = kind: path: lib.listToAttrs (map (r: lib.nameValuePair r.${kind} { inherit (r) operation; })
+        (lib.filter (r: r ? ${kind}) (of path)));
+      endpointOf = path: lib.filterAttrs (_: v: v != { }) {
         mutations = fields "mutation" path;
         subscriptions = fields "subscription" path;
       } // lib.optionalAttrs (lib.any (r: r.query or false) (of path)) {
-        query = removeAttrs (rule s (lib.findFirst (r: r.query or false) null (of path))) [ "graphql" "query" ];
+        query = { inherit (lib.findFirst (r: r.query or false) null (of path)) operation; };
       };
     in
-    map endpoint (lib.unique (map (r: r.graphql) (lib.filter (r: r ? graphql) operations)));
-
-  # frisket's own `unmatched`: an allowed one is the rule above.
-  unmatched = s: if s.unmatched == "ask" then "ask" else "refuse";
+    answering s
+    // lib.optionalAttrs (rest != [ ]) {
+      paths = lib.listToAttrs (map (r: lib.nameValuePair (endpoint r)
+        ({ inherit (r) operation; } // lib.optionalAttrs (r ? docker) { inherit (r) docker; })) rest);
+    }
+    // lib.optionalAttrs (encoded != [ ]) { encodedSlashes = lib.genAttrs (map endpoint encoded) (_: true); }
+    // lib.optionalAttrs (gql != [ ]) {
+      graphql = lib.genAttrs (lib.unique (map (r: r.graphql) gql)) endpointOf;
+    };
 }

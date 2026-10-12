@@ -56,10 +56,25 @@ func admitted(t *testing.T) map[string]struct {
 // module's file will.
 func template(t *testing.T) Config {
 	t.Helper()
-	var paths []map[string]any
-	readJSON(t, "operations.json", &paths)
-	for _, p := range paths {
-		delete(p["operation"].(map[string]any), "description")
+	var rules []map[string]any
+	readJSON(t, "operations.json", &rules)
+	paths, answers := map[string]any{}, map[string]any{}
+	for _, r := range rules {
+		op := r["operation"].(map[string]any)
+		delete(op, "description")
+		var methods []string
+		for _, m := range r["methods"].([]any) {
+			methods = append(methods, m.(string))
+		}
+		e := map[string]any{"operation": op}
+		if d, ok := r["docker"]; ok {
+			e["docker"] = d
+		}
+		paths[strings.Join(methods, ",")+" "+r["path"].(string)] = e
+		answers[op["id"].(string)] = "allow"
+		if r["refuse"] == true {
+			answers[op["id"].(string)] = "refuse"
+		}
 	}
 	var fields map[string]json.RawMessage
 	readJSON(t, "fields.json", &fields)
@@ -80,12 +95,14 @@ func template(t *testing.T) Config {
 		}
 	}
 	route := map[string]any{
-		"name":      "docker",
-		"host":      "docker.frisket.internal",
-		"upstream":  "unix:///run/user/1000/docker.sock",
-		"unmatched": "refuse",
-		"refusal":   map[string]any{"contentType": "application/json", "body": `{"message":"{{message}}"}`},
-		"paths":     paths,
+		"host":       "docker.frisket.internal",
+		"upstream":   "unix:///run/user/1000/docker.sock",
+		"writes":     "refuse",
+		"guarded":    "refuse",
+		"unmatched":  "refuse",
+		"operations": answers,
+		"refusal":    map[string]any{"contentType": "application/json", "body": `{"message":"{{message}}"}`},
+		"paths":      paths,
 		"docker": map[string]any{
 			"apiVersions": source.APIVersions,
 			"maxBody":     262144,
@@ -161,8 +178,12 @@ func frisketCheck(t *testing.T, doc any) (string, error) {
 	return string(out), err
 }
 
-func document(p apps.Patch, allow ...string) policy.Document {
-	return policy.Document{Name: "trusted", Policy: policy.Policy{Allow: append(slices.Clone(p.Allow), allow...), Routes: p.Routes}}
+func document(p apps.Patch, allow ...string) policy.DocumentV2 {
+	names := map[string]bool{}
+	for _, n := range append(slices.Clone(p.Allow), allow...) {
+		names[n] = true
+	}
+	return policy.DocumentV2{Version: 2, Name: "trusted", Allow: names, Routes: p.Routes}
 }
 
 const shop = `{"images": ["postgres:18", "bitnami/redis:7", "ghcr.io/o/x:1"], "ports": [64320, 64321]}`
@@ -179,10 +200,10 @@ func TestTheRouteIsTheProjects(t *testing.T) {
 	if said != "" {
 		t.Errorf("said %q", said)
 	}
-	if len(p.Routes) != 1 || p.Routes[0].Name != "docker" {
+	r, ok := p.Routes["docker"]
+	if len(p.Routes) != 1 || !ok {
 		t.Fatalf("there is not one docker route: %+v", p.Routes)
 	}
-	r := p.Routes[0]
 	d := r.Docker
 	if r.Host != "docker.frisket.internal" || r.Upstream != "unix:///run/user/1000/docker.sock" || r.Unmatched != "refuse" || r.CredentialFile != "" {
 		t.Errorf("the route is not the template's: %s %s %s %q", r.Host, r.Upstream, r.Unmatched, r.CredentialFile)
@@ -228,16 +249,18 @@ func TestTheRouteIsTheProjects(t *testing.T) {
 	// ones are admit.json's, exactly; and none asks.
 	admit := admitted(t)
 	got := map[string]bool{}
-	for _, rule := range r.Paths {
+	for key, rule := range r.Paths {
 		if rule.Operation == nil || rule.Operation.Description != "" {
 			t.Errorf("a rule without its operation, or with its description: %+v", rule)
 			continue
 		}
-		if rule.Ask {
-			t.Errorf("%s asks", rule.Operation.ID)
-		}
-		if rule.Refuse {
+		methods, _, _ := strings.Cut(key, " ")
+		switch r.Operations[rule.Operation.ID] {
+		case "refuse":
 			continue
+		case "allow":
+		default:
+			t.Errorf("%s is answered %q", rule.Operation.ID, r.Operations[rule.Operation.ID])
 		}
 		// jq's from_entries kept one rule of each operation; two admitted
 		// rules of one would have made its equality with admit.json fail.
@@ -250,8 +273,8 @@ func TestTheRouteIsTheProjects(t *testing.T) {
 			t.Errorf("%s is admitted, and not in admit.json", rule.Operation.ID)
 			continue
 		}
-		if !slices.Equal(rule.Methods, a.Methods) || !reflect.DeepEqual(asJSON(t, rule.Docker), asJSON(t, a.Docker)) {
-			t.Errorf("%s is not admit.json's: %v %s", rule.Operation.ID, rule.Methods, asJSON(t, rule.Docker))
+		if methods != strings.Join(a.Methods, ",") || !reflect.DeepEqual(asJSON(t, rule.Docker), asJSON(t, a.Docker)) {
+			t.Errorf("%s is not admit.json's: %v %s", rule.Operation.ID, methods, asJSON(t, rule.Docker))
 		}
 	}
 	for id := range admit {
@@ -301,7 +324,7 @@ func TestAPatchLeavesItsTemplateAlone(t *testing.T) {
 	if !reflect.DeepEqual(asJSON(t, c), before) {
 		t.Error("the template was changed by a launch")
 	}
-	d := asJSON(t, p.Routes[0]).(map[string]any)["docker"].(map[string]any)
+	d := asJSON(t, p.Routes["docker"]).(map[string]any)["docker"].(map[string]any)
 	if d["project"] != "example/billing" || !reflect.DeepEqual(d["images"], []any{"redis:7", "library/redis:7", "docker.io/redis:7", "docker.io/library/redis:7"}) {
 		t.Errorf("billing's route is %v", d)
 	}
@@ -315,7 +338,7 @@ func TestImagesAloneRouteWithNoPorts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", binding, err)
 		}
-		d := asJSON(t, p.Routes[0]).(map[string]any)["docker"].(map[string]any)
+		d := asJSON(t, p.Routes["docker"]).(map[string]any)["docker"].(map[string]any)
 		if !reflect.DeepEqual(d["ports"], []any{}) {
 			t.Errorf("%s: no ports did not route with none: %v", binding, d["ports"])
 		}
@@ -427,8 +450,8 @@ func TestTheProjectIsLowerCased(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Routes[0].Docker.Project != "example/shop" || p.Env["CHASE_PROJECT"] != "example/shop" {
-		t.Errorf("%s %s", p.Routes[0].Docker.Project, p.Env["CHASE_PROJECT"])
+	if p.Routes["docker"].Docker.Project != "example/shop" || p.Env["CHASE_PROJECT"] != "example/shop" {
+		t.Errorf("%s %s", p.Routes["docker"].Docker.Project, p.Env["CHASE_PROJECT"])
 	}
 }
 
@@ -451,13 +474,13 @@ func TestEverySpellingOnce(t *testing.T) {
 			t.Errorf("%s: %v", v.binding, err)
 			continue
 		}
-		if got := p.Routes[0].Docker.Images; !slices.Equal(got, v.want) {
+		if got := p.Routes["docker"].Docker.Images; !slices.Equal(got, v.want) {
 			t.Errorf("%s: %q, want %q", v.binding, got, v.want)
 		}
 	}
 	// "Ports" is not ports.
 	p, _, err := prepare(t, template(t), "trusted", "example/shop", `{"images": ["a:1"], "Ports": [64320]}`)
-	if err != nil || len(p.Routes[0].Docker.Ports) != 0 {
+	if err != nil || len(p.Routes["docker"].Docker.Ports) != 0 {
 		t.Errorf("Ports was read as ports: %v %v", err, p.Routes)
 	}
 }
@@ -478,7 +501,7 @@ func TestSpellingsAreEachImageFirstAndNoneTwice(t *testing.T) {
 		if err != nil {
 			return // an image jq could not split, or an ID
 		}
-		got := p.Routes[0].Docker.Images
+		got := p.Routes["docker"].Docker.Images
 		seen := map[string]bool{}
 		for _, s := range got {
 			if seen[s] {
@@ -503,7 +526,7 @@ func TestFrisketLoadsTheSampleAndNotAnotherProjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := p.Routes[0].Docker
+	d := p.Routes["docker"].Docker
 	if d.Address != "127.101.170.171" || !slices.Equal(d.Names, []string{"shop.example.internal"}) {
 		t.Errorf("the sample is not shop's address and names: %s %q", d.Address, d.Names)
 	}
@@ -534,7 +557,7 @@ func TestFrisketLoadsTheSampleAndNotAnotherProjects(t *testing.T) {
 		{"an address it does not derive", func(d *policy.DockerRoute) { d.Address = "127.101.170.172" }, "is not 127.101.170.171, the project's own"},
 	} {
 		bad, _, _ := prepare(t, template(t), "trusted", "example/shop", `{"images": ["postgres:18"], "ports": [64320, 64321]}`)
-		v.edit(bad.Routes[0].Docker)
+		v.edit(bad.Routes["docker"].Docker)
 		out, err := frisketCheck(t, document(bad))
 		if err == nil {
 			t.Errorf("frisket loaded %s", v.why)

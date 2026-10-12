@@ -136,8 +136,10 @@ type harness struct {
 	// registry is the test's own apps, beside those DefaultApps makes of
 	// cfg.
 	registry map[string]apps.App
-	// out and err are what the last call printed.
+	// out and err are what the last call printed, and migrate whether it
+	// said to run chase migrate, which err leaves out.
 	out, err string
+	migrate  bool
 	// given is what the last launch gave the session.
 	given session.Given
 }
@@ -167,17 +169,18 @@ func newHarness(t *testing.T) *harness {
 		dir: dir,
 		fx:  gitsafetest.NewFixture(t),
 		cfg: grant.Config{
-			Config:    gitsafetest.Config(t),
-			UID:       1000,
-			Home:      dir + "/home",
-			State:     dir + "/state",
-			Runtime:   dir + "/run",
-			Policies:  dir + "/policies",
-			Checkouts: map[string][]string{"example/nix-config": {"/home/user/Projects/nix-config"}},
-			Apps:      map[string]grant.App{},
-			Approver:  dir + "/bin/approver",
-			Sops:      dir + "/bin/sops",
-			Diff:      diffPath(t),
+			Config:     gitsafetest.Config(t),
+			UID:        1000,
+			Home:       dir + "/home",
+			State:      dir + "/state",
+			Runtime:    dir + "/run",
+			Policies:   dir + "/policies",
+			Checkouts:  map[string][]string{"example/nix-config": {"/home/user/Projects/nix-config"}},
+			Apps:       map[string]grant.App{},
+			Answerable: []string{"cloudflare", "gcloud", "git", "github", "huggingface"},
+			Approver:   dir + "/bin/approver",
+			Sops:       dir + "/bin/sops",
+			Diff:       diffPath(t),
 		},
 	}
 }
@@ -190,8 +193,25 @@ func (h *harness) run(args ...string) int {
 	h.t.Helper()
 	var out, errb bytes.Buffer
 	rc := grant.Run(context.Background(), h.cfg, args, strings.NewReader(""), &out, &errb)
-	h.out, h.err = out.String(), errb.String()
+	h.out = out.String()
+	h.err, h.migrate = withoutMigrate(errb.String())
 	return rc
+}
+
+// withoutMigrate is what a call said, less the line a legacy chase.jsonc
+// is approved with, which the harness, approving one by default, keeps
+// apart: whether it was said.
+func withoutMigrate(said string) (string, bool) {
+	var kept []string
+	told := false
+	for _, l := range strings.SplitAfter(said, "\n") {
+		if strings.HasSuffix(l, ": chase.jsonc is read as it always was, for this release only: run chase migrate\n") {
+			told = true
+			continue
+		}
+		kept = append(kept, l)
+	}
+	return strings.Join(kept, ""), told
 }
 
 // launch is the grant's half of `chase hook exec TIER` for machine: its

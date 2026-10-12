@@ -141,7 +141,7 @@ func TestTheGrantTurnsTheDevShellOn(t *testing.T) {
 		if got := h.fields(); slices.Contains(got, "env:HELLO_FROM_SHELL=hi") || h.log("nix.jsonl") != nil {
 			t.Errorf("offline %v: a devShell no grant turned on: %q", c.offline, got)
 		}
-		h.mustSay(`"apps": {"nix": {"devShell": true}}`)
+		h.mustSay(`"chase": {"apps": {"nix": {"devShell": true}}}`)
 		h.approved(ws, "m2", "trusted", `{"apps": {"nix": {"devShell": true}}}`)
 		if rc := h.exec(s, true, "trusted", ws, "m2", "shell"); rc != 0 {
 			t.Fatalf("offline %v: refused: %s", c.offline, h.err)

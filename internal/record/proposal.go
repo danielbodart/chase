@@ -1,34 +1,35 @@
 package record
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/danielbodart/frisket/policy"
+	"github.com/danielbodart/frisket/projpolicy"
 
 	"github.com/danielbodart/chase/internal/apps/ssh"
 	"github.com/danielbodart/chase/internal/grant"
 	"github.com/danielbodart/chase/internal/term"
 )
 
-// A PROPOSAL is what a recording turns into: the grant entries the
-// session needed, each exactly what was seen -- an operation's id, or a
-// request's method and exact path where no operation was matched; a
-// command on a machine, or its catalogue operation; a name; a syscall --
-// and each in the list its answer says, `allow`, `ask` or `refuse`. It is
-// written in the grant's own shape, as JSONC, with what each entry was
-// made from beside it; `chase record apply` adds each to the checkout's
-// chase.jsonc, and the changed grant is approved at the next launch as any
-// change is. Nothing is generalised: a person widens an entry, if they
+// A PROPOSAL is what a recording turns into: the entries of the
+// checkout's chase.json the session needed, each exactly what was seen --
+// an operation's id, or a request's method and exact path where no
+// operation was matched, answered in its route's operations; a command on
+// a machine, or its catalogue operation, in the machine's list its answer
+// says, `allow`, `ask` or `refuse`; a name; a syscall. It is written in
+// chase.json's own shape, as strict JSON, beside what each entry was made
+// from; `chase record apply` adds each to the checkout's chase.json and
+// signs it. Nothing is generalised: a person widens an entry, if they
 // want to, by editing it.
 //
-// What was answered and cannot be a grant entry -- a route no grant has
-// lists for, a machine that is the tier's own, a refusal of a name -- is
-// left out and said why (Left). A name on the local network, answered
-// allow or ask, is a network.lan entry with the ports it was dialled at.
+// What was answered and cannot be an entry -- a route no project answers,
+// a machine that is the tier's own, a refusal of a name -- is left out and
+// said why (Left). A name on the local network, answered allow or ask, is
+// a frisket.lan entry with the ports it was dialled at, and on the
+// allowlist.
 
 // Options are how a recording was made: `chase record`'s --default, ""
 // for a person's answers, and --base.
@@ -49,22 +50,34 @@ type Against struct {
 	Granted map[string]bool
 }
 
-// Entry is one entry for a grant list: Path is the list, as the grant
-// nests it (apps, github, allow); Value a string or an endpoint; Note what
-// it was made from, a comment beside it; and Off an entry written as a
-// comment, never applied unless a person uncomments it.
+// Entry is one entry of a chase.json: Path is the object or list it goes
+// in, as the file nests it (frisket, routes, github, operations); Key its
+// key there, or "" in a list; Value what it is; Note what it was made from,
+// kept beside the proposal; and Off an entry proposed only as probable,
+// never applied unless a person moves it into what is proposed.
 type Entry struct {
 	Path  []string
+	Key   string
 	Value any
 	Note  string
 	Off   bool
 }
 
-// endpoint is a list entry for a request no operation matched, as a grant
-// names one.
-type endpoint struct {
-	Methods []string `json:"methods"`
-	Path    string   `json:"path"`
+// at is where e is in the file, a key at a time.
+func (e Entry) at() []string {
+	if e.Key == "" {
+		return e.Path
+	}
+	return append(slices.Clone(e.Path), e.Key)
+}
+
+// pointer is a JSON pointer to e, RFC 6901's.
+func (e Entry) pointer() string {
+	var b strings.Builder
+	for _, k := range e.at() {
+		b.WriteString("/" + strings.NewReplacer("~", "~0", "/", "~1").Replace(k))
+	}
+	return b.String()
 }
 
 // Left is something answered that no grant entry can be: the line, and
@@ -80,8 +93,8 @@ type Proposal struct {
 	Left    []Left
 }
 
-// grantApps are the apps whose lists a grant has, by their route's name,
-// as the launch applies them (internal/grant's applyLists).
+// grantApps are the routes a project's frisket section answers, by name,
+// as the module has them (grant.nix's answerable).
 var grantApps = []string{"cloudflare", "gcloud", "git", "github", "huggingface"}
 
 // highSurface are calls a grant may allow and a person should know they
@@ -154,28 +167,28 @@ func why(l Line) string {
 	return s
 }
 
-func (p *Proposal) add(path []string, v any, note string) {
-	p.Entries = append(p.Entries, Entry{Path: path, Value: v, Note: note})
+func (p *Proposal) add(path []string, key string, v any, note string) {
+	p.Entries = append(p.Entries, Entry{Path: path, Key: key, Value: v, Note: note})
 }
 
-// http is a request on a route: the app's list, by the operation each id
-// the request matched names, or by its method and path where it matched
-// none.
+// http is a request on a route: the route's operations, by the id of each
+// operation the request matched, or by its method and path where it
+// matched none, answered as it was.
 func (p *Proposal) http(l Line) {
 	if !slices.Contains(grantApps, l.Route) {
-		p.Left = append(p.Left, Left{l, fmt.Sprintf("a grant has no lists for the %s route", l.Route)})
+		p.Left = append(p.Left, Left{l, fmt.Sprintf("a project answers none of the %s route's requests", l.Route)})
 		return
 	}
-	list := []string{"apps", l.Route, l.Answer}
+	ops := []string{"frisket", "routes", l.Route, "operations"}
 	secret, path := secretIn(l.Path), l.Path
 	if secret != "" {
-		// The note goes into the checkout's chase.jsonc with the entry.
+		// The note goes into the proposal with the entry.
 		path = " a path that may carry a secret, " + secret
 	}
 	note := fmt.Sprintf("%s %s%s; %s", l.Method, l.Host, path, why(l))
 	if l.Operation != "" {
 		for _, op := range strings.Split(l.Operation, ",") {
-			p.add(list, op, note)
+			p.add(ops, op, l.Answer, note)
 		}
 		return
 	}
@@ -191,7 +204,7 @@ func (p *Proposal) http(l Line) {
 	case secret != "":
 		p.Left = append(p.Left, Left{l, "its path may carry a secret, " + secret + ", and a grant is committed: name it yourself, with * for that segment"})
 	default:
-		p.add(list, endpoint{Methods: []string{l.Method}, Path: l.Path}, note)
+		p.add(ops, l.Method+" "+l.Path, l.Answer, note)
 	}
 }
 
@@ -207,16 +220,16 @@ func (p *Proposal) ssh(l Line, a Against) {
 		p.Left = append(p.Left, Left{l, fmt.Sprintf("%s is not a machine the grant names: its lists are the tier's", l.Route)})
 		return
 	}
-	list := []string{"apps", "ssh", "hosts", l.Route, l.Answer}
+	list := []string{"chase", "apps", "ssh", "hosts", l.Route, l.Answer}
 	secret, command := secretIn(l.Command), l.Command
 	if secret != "" {
-		// The note goes into the checkout's chase.jsonc with the entry.
+		// The note goes into the proposal with the entry.
 		command = "a command that may carry a secret, " + secret
 	}
 	note := fmt.Sprintf("%s@%s: %s; %s", l.User, l.Address, command, why(l))
 	if l.Operation != "" {
 		for _, op := range strings.Split(l.Operation, ",") {
-			p.add(list, op, note)
+			p.add(list, "", op, note)
 		}
 		return
 	}
@@ -236,17 +249,17 @@ func (p *Proposal) ssh(l Line, a Against) {
 			p.Left = append(p.Left, Left{l, err.Error()})
 			return
 		}
-		p.add(list, l.Command, note)
+		p.add(list, "", l.Command, note)
 	}
 }
 
-// egress is a connection to a name no route serves: the grant's network,
-// by the name, which frisket's allowlist holds without a port. A name is
-// allowed or not: one answered ask is allowed, and said so; one refused is
-// refused by the tier already, and nothing is proposed. A name whose
-// address is on the local network, which frisket refuses outside a
-// recording whatever the allowlist holds, is network.lan's instead, with
-// the ports it was dialled at (lan).
+// egress is a connection to a name no route serves: frisket's allowlist,
+// by the name, which it holds without a port. A name is allowed or not:
+// one answered ask is allowed, and said so; one refused is refused by the
+// tier already, and nothing is proposed. A name whose address is on the
+// local network, which frisket refuses outside a recording whatever the
+// allowlist holds, is frisket.lan's too, with the ports it was dialled at
+// (lan).
 func (p *Proposal) egress(l Line) {
 	if l.Name == "" {
 		p.Left = append(p.Left, Left{l, "an address dialled by itself has no name to allow"})
@@ -264,16 +277,20 @@ func (p *Proposal) egress(l Line) {
 	if l.Answer == "ask" {
 		note += ": a name cannot be asked about, so this allows it"
 	}
-	p.add([]string{"network", "allow"}, l.Name, note)
+	p.add(allowPath, l.Name, true, note)
 }
 
-// lanPath is where a name on the local network goes in a grant.
-var lanPath = []string{"network", "lan"}
+// allowPath and lanPath are where a name goes in a chase.json.
+var (
+	allowPath = []string{"frisket", "allow"}
+	lanPath   = []string{"frisket", "lan"}
+)
 
 // lan is a name on the local network, answered allow or ask: one
-// network.lan entry for the name, holding every port it was dialled at,
-// which the launch also puts on the allowlist. A name frisket would not
-// take in its lan list -- a project's own, frisket's -- is left out.
+// frisket.lan entry for the name, holding every port it was dialled at,
+// and the name on the allowlist, which frisket reaches it only through. A
+// name frisket would not take in its lan list -- a project's own,
+// frisket's -- is left out.
 func (p *Proposal) lan(l Line) {
 	if err := grant.CheckLAN([]policy.LANHost{{Name: l.Name, Ports: []int{l.Port}}}); err != nil {
 		p.Left = append(p.Left, Left{l, err.Error()})
@@ -285,7 +302,7 @@ func (p *Proposal) lan(l Line) {
 	}
 	for i := range p.Entries {
 		e := &p.Entries[i]
-		if h, ok := e.Value.(policy.LANHost); ok && slices.Equal(e.Path, lanPath) && h.Name == l.Name {
+		if h, ok := e.Value.(lanPorts); ok && slices.Equal(e.Path, lanPath) && e.Key == l.Name {
 			if !slices.Contains(h.Ports, l.Port) {
 				h.Ports = append(slices.Clone(h.Ports), l.Port)
 				slices.Sort(h.Ports)
@@ -295,15 +312,22 @@ func (p *Proposal) lan(l Line) {
 			return
 		}
 	}
-	p.add(lanPath, policy.LANHost{Name: l.Name, Ports: []int{l.Port}}, note)
+	p.add(lanPath, l.Name, lanPorts{Ports: []int{l.Port}}, note)
+	p.add(allowPath, l.Name, true, "on the local network: frisket reaches a lan name the allowlist allows")
 }
 
-// syscall is a call the filter would have refused: the grant's seccomp
-// allow. Syscalls are never asked about -- the filter is fixed before the
-// session starts -- so a person's recording, and an ask, allow them; a
-// recording that refused everything logs none (Propose).
+// lanPorts is a frisket.lan entry: the ports a name is reached at.
+type lanPorts struct {
+	Ports []int `json:"ports"`
+}
+
+// syscall is a call the filter would have refused: flong's
+// seccomp.syscalls, allowed. Syscalls are never asked about -- the filter
+// is fixed before the session starts -- so a person's recording, and an
+// ask, allow them; a recording that refused everything logs none
+// (Propose).
 func (p *Proposal) syscall(c Syscall, o Options) {
-	list, note := []string{"seccomp", "allow"}, fmt.Sprintf("logged %d time%s; loosens the tier's filter", c.Count, plural(c.Count))
+	calls, note := []string{"flong", "seccomp", "syscalls"}, fmt.Sprintf("logged %d time%s; loosens the tier's filter", c.Count, plural(c.Count))
 	switch o.Default {
 	case "ask":
 		note += "; a syscall cannot be asked about, so this allows it"
@@ -313,7 +337,7 @@ func (p *Proposal) syscall(c Syscall, o Options) {
 	if s, ok := highSurface[c.Name]; ok {
 		note = "high surface, " + s + ": " + note
 	}
-	e := Entry{Path: list, Value: c.Name, Note: note}
+	e := Entry{Path: calls, Key: c.Name, Value: "allow", Note: note}
 	if c.Probable {
 		e.Off = true
 		e.Note = "probable, by when it was made alone: " + note
@@ -396,102 +420,85 @@ func plural(n int) string {
 	return "s"
 }
 
-// comment is s as one line of a // comment: cleaned of what a terminal
+// note is s as one line of a proposal's note: cleaned of what a terminal
 // would act on, as everything chase shows is, and its line breaks spaces.
-func comment(s string) string {
+func note(s string) string {
 	return strings.ReplaceAll(term.Clean(s), "\n", " ")
 }
 
-// JSONC is the proposal as the file `chase record apply` reads: header,
-// each line a comment, then the entries nested as the grant nests them,
-// each with its note on the line above it. Keys are in order; entries in
-// the order they were proposed, each once.
-func (p Proposal) JSONC(header []string) []byte {
-	var b bytes.Buffer
+// File is the proposal as the file `chase record apply` reads,
+// proposal.json, strict JSON in its canonical form: `about`, the header's
+// lines; `propose`, the entries nested as chase.json nests them, which
+// apply adds; `probable`, the same of entries proposed only as probable,
+// which a person moves into `propose` to have them added; and `notes`,
+// what each entry was made from, by a JSON pointer to it. An entry is
+// proposed once; a list's entries in the order they were proposed.
+func (p Proposal) File(header []string) []byte {
+	about := make([]any, 0, len(header))
 	for _, h := range header {
-		b.WriteString("// " + comment(h) + "\n")
+		about = append(about, note(h))
 	}
-	root := &node{}
+	propose, probable := map[string]any{}, map[string]any{}
+	notes := map[string]any{}
 	for _, e := range p.Entries {
-		root.at(e.Path).items = append(root.at(e.Path).items, e)
+		into := propose
+		if e.Off {
+			into = probable
+		}
+		place(into, e)
+		if e.Note != "" {
+			n := note(e.Note)
+			if was, ok := notes[e.pointer()].(string); ok && was != n {
+				n = was + "; " + n
+			}
+			notes[e.pointer()] = n
+		}
 	}
-	if len(root.keys) == 0 {
-		b.WriteString("{}\n")
-		return b.Bytes()
+	out := map[string]any{"about": about, "propose": propose, "probable": probable, "notes": notes}
+	b, err := projpolicy.Encode(jsonValue(out))
+	if err != nil {
+		panic(err)
 	}
-	root.write(&b, 0)
-	b.WriteString("\n")
-	return b.Bytes()
+	return b
 }
 
-// node is one object of the proposal, or, with items, one list.
-type node struct {
-	keys  []string
-	kids  map[string]*node
-	items []Entry
-}
-
-func (n *node) at(path []string) *node {
+// place puts e into v, a chase.json's shape: under its key, or appended to
+// its list, once.
+func place(v map[string]any, e Entry) {
+	m := v
+	path := e.Path
+	if e.Key == "" {
+		path = path[:len(path)-1]
+	}
 	for _, k := range path {
-		if n.kids == nil {
-			n.kids = map[string]*node{}
-		}
-		kid, ok := n.kids[k]
+		next, ok := m[k].(map[string]any)
 		if !ok {
-			kid = &node{}
-			n.kids[k] = kid
-			n.keys = append(n.keys, k)
+			next = map[string]any{}
+			m[k] = next
 		}
-		n = kid
+		m = next
 	}
-	return n
-}
-
-func (n *node) write(b *bytes.Buffer, depth int) {
-	in := strings.Repeat("  ", depth+1)
-	if n.kids == nil {
-		b.WriteString("[\n")
-		seen := map[string]bool{}
-		for _, e := range n.items {
-			v := marshal(e.Value)
-			if seen[string(v)] {
-				continue
-			}
-			seen[string(v)] = true
-			if e.Note != "" {
-				b.WriteString(in + "// " + comment(e.Note) + "\n")
-			}
-			if e.Off {
-				b.WriteString(in + "// ")
-			} else {
-				b.WriteString(in)
-			}
-			b.Write(v)
-			b.WriteString(",\n")
-		}
-		b.WriteString(strings.Repeat("  ", depth) + "]")
+	if e.Key != "" {
+		m[e.Key] = e.Value
 		return
 	}
-	b.WriteString("{\n")
-	keys := slices.Clone(n.keys)
-	slices.Sort(keys)
-	for _, k := range keys {
-		q := marshal(k)
-		b.WriteString(in)
-		b.Write(q)
-		b.WriteString(": ")
-		n.kids[k].write(b, depth+1)
-		b.WriteString(",\n")
+	list := e.Path[len(e.Path)-1]
+	items, _ := m[list].([]any)
+	if !slices.Contains(items, e.Value) {
+		m[list] = append(items, e.Value)
 	}
-	b.WriteString(strings.Repeat("  ", depth) + "}")
 }
 
-// marshal is v as JSON, with what HTML would read left as it is: a
-// command's && is a command's, not \u0026\u0026.
-func marshal(v any) []byte {
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	enc.Encode(v)
-	return bytes.TrimSuffix(b.Bytes(), []byte("\n"))
+// jsonValue is v as the JSON values projpolicy encodes: what a struct
+// marshals to, decoded again.
+func jsonValue(v any) any {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	out, err := projpolicy.Decode(b)
+	if err != nil {
+		panic(err)
+	}
+	return out
 }

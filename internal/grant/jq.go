@@ -9,8 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/danielbodart/chase/internal/policydoc"
 )
 
 // WHAT JQ DID TO A GRANT. The grant was read, compared, shown and
@@ -19,7 +17,7 @@ import (
 // -- `jq -cS .` of the approved and the proposed. So a grant is held
 // here as jq held it: an object's keys in the order they came, a number as
 // the literal it was written as and written back as jq writes it
-// (policydoc.Number), a string escaped as jq escapes one (policydoc.Quote),
+// (number), a string escaped as jq escapes one (jqQuote),
 // and values ordered as jq orders them. Nothing here is a general jq: each
 // function is one filter the script ran, named where it is used.
 
@@ -149,7 +147,7 @@ func (v *value) index(k string) (*value, error) {
 		}
 		return jnull, nil
 	}
-	return nil, fmt.Errorf("Cannot index %s with %s", v.typeName(), policydoc.Quote(k))
+	return nil, fmt.Errorf("Cannot index %s with %s", v.typeName(), jqQuote(k))
 }
 
 // path is .k1.k2...: index, one after another.
@@ -272,7 +270,7 @@ func (v *value) write(b *strings.Builder, sortKeys, pretty bool, depth int) {
 				b.WriteByte(',')
 			}
 			newline(depth + 1)
-			b.WriteString(policydoc.Quote(k))
+			b.WriteString(jqQuote(k))
 			b.WriteByte(':')
 			if pretty {
 				b.WriteByte(' ')
@@ -297,9 +295,9 @@ func (v *value) write(b *strings.Builder, sortKeys, pretty bool, depth int) {
 		newline(depth)
 		b.WriteByte(']')
 	case '"':
-		b.WriteString(policydoc.Quote(v.text))
+		b.WriteString(jqQuote(v.text))
 	case '0':
-		b.WriteString(policydoc.Number(v.text))
+		b.WriteString(number(v.text))
 	case 't':
 		b.WriteString("true")
 	case 'f':
