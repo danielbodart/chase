@@ -150,14 +150,30 @@ Cloudflare, with an account scoped to its zone.
 This is what makes decision 6 more than a preference: there is no broad
 credential to fall back to, so a project either has a narrow one or has none.
 
-**10. A grant is data, not a program.** A project's grant is `chase.jsonc` at
-its root: JSON with comments and trailing commas, which chase reads and never
-runs. chase decodes it into a fixed schema that refuses a key it does not
-name, and checks each value — an image in the one spelling frisket compares,
-a port in range and named once, a syscall's name — so a misspelt key or a bad
-value refuses the launch rather than quietly applying nothing (decision 4).
-The project never loads chase, so there is no version to drift: it names
-fields, and the machine's chase says what they mean.
+**10. A grant is data, not a program.** A project's grant is `chase.json` at
+its root: strict JSON, `"version": 2`, which chase reads and never runs. It
+has a section for each component that reads it — `frisket`, `flong`,
+`signer`, `sudo` and `chase` — each in that component's own shape, every
+one optional. chase decodes it strictly, refusing a key no section names,
+and checks each value — an image in the one spelling frisket compares, a
+port in range, a syscall's name, a field only the host may set — so a
+misspelt key or a bad value refuses the launch rather than quietly applying
+nothing (decision 4). What only the tier can say is checked by the
+component it belongs to, at launch: frisket's section by frisket's own
+project-layer check, merged over the tier's policy document; flong's by
+`flong check --layer project`, against the tier's declaration; the
+signer's by the signer, which reads it for itself on the host. The sudo
+gate's is shaped and checked, but the gate does not read it yet. chase's
+own section holds only what no component owns: the sops file and its
+digest, and what each app binds. The project never loads chase, so there is
+no version to drift: it names fields, and the machine's components say what
+they mean.
+
+Before it, the grant was `chase.jsonc`, JSON with comments and trailing
+commas, decoded into a schema of chase's own and translated, list by list,
+into what each component reads. A launch still reads one for this release,
+as the `chase.json` it migrates to, and `chase migrate` writes that file,
+saying each comment it cannot keep.
 
 This replaces a NixOS module, `chaseModules.default` in the project's flake,
 evaluated against chase's options. That was chosen while chase was Nix, for
@@ -169,10 +185,10 @@ files, so what it evaluated to had to be approved again. Two dialogs for one
 change. A module could also declare an option chase already defines, with a
 type or an `apply` of its own, to put a value past chase's check, so every
 check had to be written to survive that. A data file has none of this: what a
-person approves is what is applied, and one dialog covers it (decision 17).
+person signs is what is applied, and one dialog covers it (decision 17).
 Nothing a project has used needs computing. If a grant ever does, the
-project generates `chase.jsonc` and commits the result, which is then what is
-approved.
+project generates `chase.json` and commits the result, which is then what is
+signed.
 
 Read as the caller, like everything else in a launch (decision 2).
 
@@ -269,49 +285,68 @@ Docker needs no environment beyond what its app sets: `DOCKER_HOST`,
 frisket's route. A Compose file's `localhost` already reaches its ports,
 through the relay, so a project names its ports and nothing else.
 
-**17. Nothing of a checkout's takes effect until a person has approved it.**
+**17. Nothing of a checkout's takes effect until a person has signed it.**
 The checkout is the agent's to edit, and nothing in it is hidden from the
 session, so an agent could write a grant that widens its own sandbox. Each
-launch therefore works on a snapshot of the checkout's tracked `chase.jsonc`,
-and of the sops file it names, and approves once:
+launch therefore works on a snapshot of the checkout's `chase.json`, its
+signature `chase.json.sig`, and the sops file it names, and applies the file
+only once a person has signed it:
 
-- **What it says, and what chase derives beside it.** The grant as chase
-  reads it (decision 10), with the digest of its sops file and, for a grant
-  that binds Docker, `dockerProject`: the `owner/repo` chase read from the
-  checkout's origin rather than anything the grant says
-  ([docs/docker.md](docs/docker.md), decision 9). If that is not what was
-  last approved for the checkout, `chase.approver` is shown the difference
-  and the launch waits for its answer. New ciphertext or a changed origin is
-  a change like any other. A change that says nothing new — a comment, the
-  order things are written in — asks nothing, and the comments never reach
-  the dialog, so the project's words cannot argue for a change.
+- **What it says, and what chase derives beside it.** The file as chase
+  reads it (decision 10), which holds, in chase's section, the digest of its
+  sops file, `secretsSHA256`, and, for a grant that binds Docker,
+  `apps.docker.project`: the `owner/repo` the checkout's origin names
+  ([docs/docker.md](docs/docker.md), decision 9). Both are in the signed
+  bytes, and a file that says other than the checkout does is refused, so
+  new ciphertext or a changed origin is a change like any other; `chase
+  sign` writes them, puts the file in its canonical form and signs it.
+- **Who signed it.** `chase.json.sig` is a stock SSHSIG over the file's
+  exact bytes, in the namespace `frisket-policy:<root>`, so a signature
+  made for one checkout is no signature for another. A file whose
+  signature verifies against `/etc/frisket/allowed_signers` launches with
+  nothing asked. One that does not is put to frisket's signer, through its
+  `policy-sign@frisket` extension, which shows the difference from the file
+  git's HEAD signed, or the whole file when that does not verify, and the
+  launch waits for its answer: signed, the signature is written beside the
+  file and the launch goes on. A file not in its canonical form is refused
+  before anyone is asked, and a file has no comments, so the project's words
+  cannot argue for a change in the dialog.
 
-The approval runs before the session is built, in flong's `seccompPolicy`,
-because a grant can name syscalls beyond its tier's filter, and a filter is
-installed before anything in the session runs. The approved grant is staged
-for `exec` under the session's name, which flong gives both, so two launches
-of one checkout keep their approvals apart; `exec`, still before the session
-is built, applies the rest — secrets, the policy document — without looking
-at the checkout again, and hands what the grant exports and seeds straight to
-the payload it prints, so nothing is written for a session to source. The
-policy document is written for every launch, the tier's own for a checkout
-with no grant, so frisket reads one path for every session of the tier.
+The signature is checked, or asked for, before the session is built, in
+flong's `seccompPolicy`, because a grant can name syscalls beyond its tier's
+filter, and a filter is installed before anything in the session runs. The
+grant is staged for `exec` under the session's name, which flong gives both,
+so two launches of one checkout keep their grants apart; `exec`, still
+before the session is built, applies the rest — secrets, the policy document
+— without looking at the checkout again, and hands what the grant exports
+and seeds straight to the payload it prints, so nothing is written for a
+session to source. The policy document is written for every launch, the
+tier's own for a checkout with no grant, so frisket reads one path for every
+session of the tier.
 
-A checkout with no `chase.jsonc` is the tier as it is, and is never asked
-about. One whose `chase.jsonc` is not tracked is refused rather than passed
-over: a grant that silently did not apply would be a session without what the
-project asked for. Approvals live in `~/.local/state/chase/`, on the host and
-bound into no session. Refused, the launch ends rather than running without
-the grant. Working from the snapshot is what makes the approval mean
-something: a session of the same checkout cannot change a file between the
-approval and its use.
+A checkout with no `chase.json` and no `chase.jsonc` is the tier as it is,
+and is never asked about. No approval is kept on the host: the signature is
+the record of what a person agreed to, and it is committed beside the file.
+Refused, the launch ends rather than running without the grant. Working from
+the snapshot is what makes the signature mean something: a session of the
+same checkout cannot change a file between the signature's check and its
+use.
+
+For this release, a checkout with only a `chase.jsonc` is approved as it
+always was: its tracked file, read as decision 10's old schema, with its
+sops file's digest and Docker project beside it, put to `chase.approver`
+when it differs from what was last approved, in `~/.local/state/chase/`, on
+the host and bound into no session; a change to comments or order asks
+nothing. It is then applied as the `chase.json` it migrates to, and the
+launch says to run `chase migrate`.
 
 The snapshot is taken without running anything the checkout's config names:
 which files are tracked is read from the index alone (`chase ls-files`,
 internal/checkout), in an empty repository, never by `git ls-files` in the
-checkout, whose `core.fsmonitor` is a command git would run; and each file is
+checkout, whose `core.fsmonitor` is a command git would run; the file git's
+HEAD signed is read from its objects alone, the same way; and each file is
 copied (internal/snapshot) following no link above it, so a directory the
-session made a link cannot bring a host file into what is approved and
+session made a link cannot bring a host file into what is signed and
 decrypted.
 
 This replaces decision 8's report for the grant itself: a line printed at
@@ -334,17 +369,20 @@ exception:
 
 A request is answered by the most specific of these that says anything:
 
-1. **The project, by name**: `apps.<app>.allow`, `.ask` and
-   `.refuse`, each a list of operation ids, or methods and an exact path for
-   an endpoint the description does not name. Any operation can be named,
-   guarded ones too; the name is exact, and the list is part of what is
-   approved (decision 17). One name in two lists is an error.
-2. **The project, by category**: `"category:<name>"` in the same lists, the
-   provider's own grouping (GitHub's `x-github.category`, Cloudflare's and
-   Hugging Face's tags), so a project does not list thirty ids to allow its
-   pull requests.
+1. **The project, by name**: `frisket.routes.<app>.operations` in its
+   `chase.json`, a map of operation ids, or methods and a path pattern for
+   an endpoint the description does not name, each to `allow`, `ask` or
+   `refuse`. Any operation can be named, guarded ones too; an id the route
+   does not have is refused, and the map is part of what is signed
+   (decision 17). A map holds one answer for each.
+2. **The project, by category**: `"category:<name>"` as a key of the same
+   map, the provider's own grouping (GitHub's `x-github.category`,
+   Cloudflare's and Hugging Face's tags), so a project does not list thirty
+   ids to allow its pull requests.
 3. **The tier, for one app**: `chase.tiers.<tier>.apps.<app>.writes`,
-   `.guarded` and `.unmatched`, each `allow`, `ask` or `refuse`.
+   `.guarded` and `.unmatched`, each `allow`, `ask` or `refuse`; or the
+   project's own for the route, `frisket.routes.<app>.writes` and so on,
+   which the merge puts in their place.
 4. **The tier, for every app**: `chase.tiers.<tier>.writes`, `.guarded` and
    `.unmatched`. An app that says nothing takes these, so a tier's posture is
    three lines, and one app differs from it in one more: git's writes
@@ -354,6 +392,12 @@ A request is answered by the most specific of these that says anything:
    asks, with the dialog showing what arrived. Not refused: when in doubt, a
    person decides.
 
+Only cloudflare, gcloud, git, github and huggingface take a project's
+answers. What a project answers for any other route — Claude Code's,
+Codex's, Docker's, whose answers are the machine's alone — or for a route
+its tier does not have, is said and left out (decision 8), as is a
+document-wide answer, which would be every route's.
+
 **git is an app of its own, apart from github.** git's smart HTTP and LFS are
 one app, `git`; GitHub's REST and GraphQL APIs are another, `github`, which
 is what gh speaks. They share GitHub's credential binding but not their
@@ -361,8 +405,9 @@ switches, so a tier can let git push while gh's writes still ask. git's
 operations are the protocol's, not GitHub's, so the app is ready for another
 host when one is wanted.
 
-**One way to say it.** There is no `push`: frisket's git rule admits
-`git-receive-pack` because git's writes are allowed, and for no other reason.
+**One way to say it.** There is no `push`: git's push is the operation
+`git-receive-pack`, a write, admitted because git's writes are allowed or
+because a project names it, and for no other reason.
 No app keeps a switch of its own for what these three already say.
 
 **A tier with no one to ask says so, and a project cannot loosen it.** A tier
@@ -370,16 +415,26 @@ for other people's code is `writes`, `guarded` and `unmatched` all `refuse`,
 written out in the tier, not a conversion hidden in each app. frisket's asker is the machine's, not a
 tier's, so there is nothing for a tier to be checked against: saying so is
 what makes it so. An app without `authenticated` refuses all three whatever
-its tier says.
-A project's lists are ignored for both, and that is reported (decision 8):
-in such a tier its grant can name what else it reaches (decision 13), never
-what an app answers; a project that needs that goes into another tier, which
-is the machine's decision (decision 5), not the checkout's.
+its tier says, and its route carries a `ceiling` refusing all three, so
+nothing merged over it can lift what it refuses; a project's answers for
+such a route are left out, and that is reported (decision 8). That is the
+only ceiling chase writes, and it is strict's: what strict holds an
+authenticated app to is its three answers, and a project's answers reach
+none of strict's apps while strict takes no grant. In such a tier a grant
+can name what else it reaches (decision 13), never what an app answers; a
+project that needs that goes into another tier, which is the machine's
+decision (decision 5), not the checkout's.
 
-This all resolves in chase: the tier's and the app's settings at eval, and a
-project's lists at launch, against the tier's own policy document
-(internal/policydoc). frisket gets rules that already say allow, ask or
-refuse, and carries each operation's class and category only to show them. What frisket must add is the ability to name what it
+This all resolves in frisket, at request time, against a policy document of
+frisket's version 2. chase renders each tier's at eval
+(lib/operations.nix): each app's route with its generated operations as
+`paths`, its writes, guarded and unmatched as class answers from the tier's
+and the app's settings, and the ceiling above for an anonymous app; and at
+launch, a project's `frisket` section is merged over it with RFC 7396's
+merge patch by frisket's own project-layer check (`policy.CheckProjectLayer`),
+after chase has refused what only the host says. No translation is left in
+chase: internal/policydoc, which turned a project's lists into per-rule
+booleans, is gone. What frisket had to add is the ability to name what it
 cannot see in a method and a path: a GraphQL mutation by its field, the refs a
 push updates, an LFS batch's operation. Each gets an operation id, so git,
 GraphQL and LFS are listed, switched and named like any other app. GraphQL
@@ -401,9 +456,9 @@ reviewed as Docker's admit.json is ([docs/apps/ssh.md](docs/apps/ssh.md)).
 Its operations are answered by class and the tier's three answers, as here,
 but a project's lists differ in four ways, each for a reason:
 
-- **They are each machine's**, `apps.ssh.hosts.<name>.allow`, not
-  `apps.ssh.allow`: one grant names several machines, and what may run on a
-  gateway is not what may run on a build box.
+- **They are each machine's**, `chase.apps.ssh.hosts.<name>.allow`, not
+  `chase.apps.ssh.allow`: one grant names several machines, and what may run
+  on a gateway is not what may run on a build box.
 - **They take command patterns** as well as ids, `docker compose ps **`: a
   machine's own commands are no catalogue's to name. A pattern has a space
   or a `*`, so it is never read as an id, nor an id as a pattern.
@@ -423,8 +478,16 @@ What a command is, chase reads by frisket's own matcher, its public
 `execrule` package: the catalogue's tests decide commands with it, and what
 a project's pattern ties or an argument operation overrules is put to it as
 a command made to test it, rather than worked out by a copy that could
-drift. So a grant's lists are checked against the catalogue when it is
-approved, and again at launch, for one approved under an older catalogue.
+drift. So a grant's lists are checked against the catalogue before anyone
+is asked to sign it, and again at every launch, for one signed under an
+older catalogue.
+
+These lists stay chase's sugar, in chase's own section: the catalogue's ids
+and categories mean nothing to frisket, so a launch turns each machine's
+lists into exec answers on its route, by frisket's rule names, with the
+catalogue operation under `commands`, and a project's lists of ids mean
+what they did. A tier's own machines may be answered by those rule names
+directly, `frisket.ssh.<machine>.exec`.
 Which variables a command may set in front of itself -- `LANG=C sort x` --
 is the tier's `apps.ssh.env`, never a grant's: a name one program reads as
 code makes every rule for it say less than it seems to, and that is the
@@ -463,9 +526,12 @@ is let through and written down, then proposed as exactly the grant entries
 that would give it, each in the list its answer says: `allow`, `ask` or
 `refuse`, the same three words a person answers with when there is no
 `--default` (Ask is what happens now, and what is proposed). Entries are what
-was seen, never generalised, and a proposal changes nothing until `chase
-record apply` adds it to `chase.jsonc` and the changed grant is approved as
-any change is (decision 17). Recording is manual mode, guarded operations
+was seen, never generalised. The proposal, `proposal.json`, is strict JSON
+in `chase.json`'s own shape, with a note beside each entry of what it was
+made from, and changes nothing until `chase record apply` merges it into
+`chase.json` and has frisket's signer sign the result, showing the change as
+any change is shown (decision 17); refused, the file is written unsigned and
+the next launch asks again. Recording is manual mode, guarded operations
 included, and a call the tier's own `seccomp.deny` takes too: the tier is
 the ready-made fit and the grant the tailored one, so a grant's `allow`
 puts such a call back, as flong reads a project's lines over its
@@ -481,7 +547,7 @@ refused is what the filter does already. What a recording finds is widening
 alone: one from scratch shows every call made, but does not yet propose
 denying what the tier allows and the session never used. A name on the
 local network, which frisket dials outside a recording only for a name in
-its document's `lan`, is proposed for the grant's `network.lan` with the
+its document's `lan`, is proposed for the grant's `frisket.lan` with the
 ports it was dialled at. See [docs/record.md](docs/record.md).
 
 **21. A checkout's devShell is realised by the launcher, and given to the

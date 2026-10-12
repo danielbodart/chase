@@ -34,8 +34,8 @@ its grant. The design and its decisions are in [PLAN.md](PLAN.md).
 | placeholder | What a session holds instead of a credential. |
 | operation | One endpoint of an app's API, classed as a read, a write or guarded. |
 | answer | What frisket does with a request: `allow`, `ask` or `refuse`. |
-| grant | A project's `chase.jsonc`: what it asks for beyond its tier. |
-| approver | The program that asks you to approve a changed grant. |
+| grant | A project's `chase.json`, signed beside it as `chase.json.sig`: what it asks for beyond its tier. |
+| approver | The program that asks you to approve a changed `chase.jsonc`, the grant's old form, read for this release only. A `chase.json` is signed instead, through frisket's signer. |
 | scope | Where an app keeps its state: `session`, `workspace`, `tier` or `host`. |
 
 ## Example
@@ -98,9 +98,14 @@ for each choice.
 | `chase tier --dry-run DIR…` | Show each directory's tier and why. |
 | `chase docker [DIR]` | Show a checkout's project, its address and name, and its approved Docker ports. |
 | `chase record [--default allow\|ask\|refuse] [--base tier\|none] AGENT` | Run the agent in its tier as a recording: what the tier would refuse or ask about is answered, by you or `--default`, and written down; at the end, a report and a proposal of the grant entries it needed. See [docs/record.md](docs/record.md). |
-| `chase record apply [--last\|MACHINE]` | Add a recording's proposal to its checkout's `chase.jsonc`. |
-| `chase check FILE` | Read FILE as chase reads `/etc/chase/config.json`, and say what is wrong with it. |
-| `chase schema` | Print that file's JSON Schema. |
+| `chase record apply [--last\|MACHINE]` | Add a recording's proposal to its checkout's `chase.json`, and have it signed. |
+| `chase check FILE` | Read FILE as a launch reads a project's `chase.json`, say what is wrong with it, and whether it is signed. |
+| `chase fmt [-check] FILE` | Print FILE in its canonical form, the bytes it is signed over; with `-check`, only whether it is. |
+| `chase sign [DIR]` | Write what is derived of the checkout into its `chase.json` -- the sops file's digest, its Docker project -- put it in its canonical form, and sign it through frisket's signer, which shows you the change. |
+| `chase migrate [DIR]` | Write the checkout's `chase.jsonc` as a `chase.json`, say each comment it cannot keep, remove `chase.jsonc`, and sign the new file. |
+| `chase schema` | Print a `chase.json`'s JSON Schema, frisket's own sections included. |
+| `chase check -config FILE` | Read FILE as chase reads `/etc/chase/config.json`, and say what is wrong with it. |
+| `chase schema -config` | Print that file's JSON Schema. |
 
 ```
 $ chase tier --dry-run ~ ~/Projects/thing ~/Projects/a-fork
@@ -121,16 +126,16 @@ a-fork                     strict    first commit by someone@upstream.org
 | `tiers.<name>` | | See [Tiers](#tiers). |
 | `apps.<app>` | | Each app's package and credential. See [Apps](#apps). |
 | `workspaceGroups` | `[]` | Checkouts mounted beside each other, read-write. |
-| `approver` | `null` | The program that approves grants. Null approves none. |
+| `approver` | `null` | The program that approves a `chase.jsonc`, for this release. Null approves none. |
 | `placeholder` | `proxy-injected` | What a session holds in place of a credential. |
 
 The module writes these, and what each app adds, to `/etc/chase/config.json`,
 which every command, hook and unit reads, or the file given before the command
 as `-config FILE`. It is read strictly: an unknown or misspelt key, a second
 JSON value or a word an enum does not have is refused, never half obeyed. The
-module runs `chase check` on the file when the system is built, so a mistake
-fails the build rather than a launch; `chase schema` prints the file's JSON
-Schema.
+module runs `chase check -config` on the file when the system is built, so a
+mistake fails the build rather than a launch; `chase schema -config` prints
+the file's JSON Schema.
 
 ## Tiers
 
@@ -142,7 +147,7 @@ Schema.
 | `allow` | `[]` | Names frisket resolves for it, beyond its apps' own. `"*"` for any. |
 | `forwardPorts` | `[]` | Ports published on the host, at the [project's address](#project-addresses). `"auto"`: whatever a session listens on. |
 | `seccomp` | `{}` | flong's syscall filter. `{}` is `strict`. |
-| `grants` | `false` | Apply a checkout's grant, once approved. |
+| `grants` | `false` | Apply a checkout's grant, once signed. |
 | `caches` | `session` | Where tools keep downloads: `session`, `workspace` or `tier`. |
 | `writes`, `guarded`, `unmatched` | `ask`, `refuse`, `ask` | The answer for each class, in every app. See [Operations](#operations). |
 | `record.enable` | `false` | `chase record` in this tier, which must take grants: a second launcher on its container, every connection through frisket. See [docs/record.md](docs/record.md). |
@@ -246,42 +251,68 @@ nix develop -c chase-generate gcloud
 
 ## Grants
 
-A project's grant is `chase.jsonc` at its root: JSON with comments, read as
-data and never run.
+A project's grant is `chase.json` at its root: strict JSON, read as data and
+never run, with a section for each component that reads it, in that
+component's own shape. Every section is optional.
 
-```jsonc
+```json
 {
-  "secrets": "secrets.yaml",   // sops file in the checkout
-  "apps": {
-    "cloudflare": {
-      "credential": { "secret": "cloudflare-token" },
-      "accountId": "023e105f4ecef8ad9ca31a8372d0c353",
-      "allow": ["workers-ai-post-run-model"],
+  "chase": {
+    "apps": {
+      "cloudflare": {
+        "accountId": "023e105f4ecef8ad9ca31a8372d0c353",
+        "credential": {"secret": "cloudflare-token"}
+      }
     },
-    "github": { "allow": ["category:pulls"], "refuse": ["repos/delete"] },
+    "secrets": "secrets.yaml",
+    "secretsSHA256": "…"
   },
-  "seccomp": { "allow": ["io_uring_setup", "io_uring_enter"] },
+  "flong": {"seccomp": {"syscalls": {"io_uring_enter": "allow", "io_uring_setup": "allow"}}},
+  "frisket": {
+    "routes": {
+      "cloudflare": {"operations": {"workers-ai-post-run-model": "allow"}},
+      "github": {"operations": {"category:pulls": "allow", "repos/delete": "refuse"}}
+    }
+  },
+  "signer": {"ssh": {"hosts": {"gateway": "allow"}}},
+  "version": 2
 }
 ```
 
-| Key | |
+| Section | |
 |---|---|
-| `secrets` | The checkout's sops file. Each `credential.secret` is a key in it. |
-| `apps.<app>` | The app's credential, its other settings, and `allow`, `ask` and `refuse` lists of operation ids or `category:<name>`. ssh's lists are each host's, and take command patterns too, `docker compose ps **` ([docs/apps/ssh.md](docs/apps/ssh.md)). |
-| `network` | Names to `allow` beyond the tier's and its apps', for connections no route serves: exact, or `*.suffix` below a public suffix (never `*.com`). And `lan`, hosts on your own network, `{"name": "nas.home.arpa", "ports": [445]}`: each an exact name, reached at the private address its DNS gives, at those ports (every port when none are given), and put on the allowlist with it. Not a route's host or a project's name. |
-| `apps.nix.devShell` | `true` turns the checkout's devShell on, in any tier with nix: none is evaluated without it, as with `direnv allow`. Realised with no network where the tier's egress is not direct and unfiltered, and a launch is refused where it cannot be ([docs/apps/nix.md](docs/apps/nix.md)). |
-| `seccomp` | Syscalls to `allow` or `deny` beyond the tier's filter. A grant's `allow` overrides the tier's `seccomp.deny`: the tier is the ready-made fit, the grant the tailored one. |
+| `version` | `2`. A file without it is no `chase.json`. |
+| `frisket` | Merged over the tier's policy document, and checked by frisket's own project-layer check ([frisket's docs/policy.md](https://github.com/danielbodart/frisket/blob/trunk/docs/policy.md)). `routes.<app>.operations` answers `allow`, `ask` or `refuse` by operation id, `category:<name>` or `METHOD /path`, and a route's own `writes`, `guarded` and `unmatched` answer the rest. Only cloudflare, gcloud, git, github and huggingface take a project's answers, and only where the tier holds their credential: an answer for any other route, or an anonymous one, is said and left out. `allow` is names beyond the tier's and its apps', for connections no route serves, in frisket's host grammar, `"**.pythonhosted.org": true`, never `**` nor every name below a public suffix. `lan` is hosts on your own network, `"nas.home.arpa": {"ports": [445]}`: each an exact name, reached at the private address its DNS gives, at those ports (every port when none are given), and put on the allowlist with it; not a route's host or a project's name. `ssh.<machine>.exec` answers the tier's own machines by frisket's rule names. A field only the host sets is refused. |
+| `flong` | `seccomp.syscalls`, a call by name to `allow`, `deny` or `log`, and `seccomp.allow` and `deny`, lists of systemd `@groups`, checked by `flong check --layer project` against the tier's filter. A grant's `allow` overrides the tier's `seccomp.deny`: the tier is the ready-made fit, the grant the tailored one. |
+| `signer` | frisket's signer's `ssh.hosts` and `sshsig`, each `allow` or `ask`, read by the signer itself for what this checkout logs in to and signs. |
+| `sudo` | The sudo gate's `exec`, commands to `{"runAs": …, "answer": …}`. Shaped and checked, but not yet read by the gate. |
+| `chase` | What no component owns. `secrets` is the checkout's sops file, each `credential.secret` a key in it, and `secretsSHA256` its digest. `apps.<app>` is what an app binds: its credential, Cloudflare's `accountId`, Docker's `project`, `images` and `ports`, Google's `serviceAccount` and `apis`, and ssh's machines, whose lists still take the catalogue's ids, `category:<name>` and command patterns, `docker compose ps **` ([docs/apps/ssh.md](docs/apps/ssh.md)). `apps.nix.devShell`, `true`, turns the checkout's devShell on, in any tier with nix: none is evaluated without it, as with `direnv allow`, and it is realised with no network where the tier's egress is not direct and unfiltered ([docs/apps/nix.md](docs/apps/nix.md)). |
 
-`chase record` writes most of a grant for you: run the agent again under it,
-do what was refused, and apply the proposal it leaves
-([docs/record.md](docs/record.md)).
+`chase schema` prints the whole shape, and `chase check` says what is wrong
+with a file before a launch does. `chase record` writes most of a grant for
+you: run the agent again under it, do what was refused, and apply the
+proposal it leaves ([docs/record.md](docs/record.md)).
 
 A grant applies only in a tier with `grants = true`. An agent can write to its
-own checkout, so nothing in a grant applies until you approve it: when it
-differs from the one last approved, `chase.approver` shows you the diff and
-the launch waits. Unknown keys and invalid values are refused before you're
-asked. A change to comments or order isn't a difference; a changed secrets
-file or `origin` is.
+own checkout, so nothing in a grant applies until you have signed it:
+`chase.json.sig` beside it, an SSH signature over the file's exact bytes in
+the namespace `frisket-policy:<root>`, by a key `/etc/frisket/allowed_signers`
+allows. A file whose signature verifies launches with nothing asked. One that
+does not is put to frisket's signer, which shows you the diff against the
+file git's `HEAD` signed and the launch waits; signed, the signature is
+written beside the file and the launch goes on; refused, it ends. Unknown keys
+and invalid values are refused before you're asked, and a file not in its
+canonical form is refused unsigned. What chase derives of the checkout is in
+the signed bytes: the sops file's digest and, for a grant that binds Docker,
+the `owner/repo` its `origin` names. A file saying otherwise is refused, so
+new ciphertext or a changed `origin` is signed like any other change. `chase
+sign` writes both, puts the file in its canonical form and signs it.
+
+A checkout with only a `chase.jsonc`, the grant's old form, JSON with
+comments, is still read for this release: approved by `chase.approver` as it
+always was, applied as the `chase.json` it migrates to, and told to run
+`chase migrate`, which writes that file, says each comment it cannot keep,
+removes `chase.jsonc` and signs the new one.
 
 ## Project addresses
 
