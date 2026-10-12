@@ -49,7 +49,7 @@ the last answer stands.
 
 Recording is manual mode: anything the tier's rules refuse can be answered,
 guarded operations included, and so can a call the tier's `seccomp.deny`
-takes: a grant's `seccomp.allow` puts one back, since the grant is the
+takes: a grant's `flong.seccomp.syscalls` allowing it puts one back, since the grant is the
 tailored fit and the tier the ready-made one. What no rule decides stays
 refused, and is reported as such: frisket's structural refusals, a
 credential or Host that does not hold, a path that is not canonical,
@@ -60,11 +60,11 @@ dialled by itself; and flong's fixed filters.
 
 | Layer | Recorded as |
 |---|---|
-| HTTP on a route | the operation's id, or the method and exact path where no operation matched; `apps.<app>.<answer>` for an app a grant has lists for (cloudflare, gcloud, git, github, huggingface) |
-| SSH | the catalogue's operation, or the command itself as a pattern; `apps.ssh.hosts.<machine>.<answer>` for a machine the grant names |
-| Other TCP | the name, `network.allow`; a name on the local network, `network.lan`, with the ports it was dialled at |
+| HTTP on a route | the operation's id, or the method and exact path where no operation matched, as an answer in `frisket.routes.<app>.operations`, for an app a grant answers (cloudflare, gcloud, git, github, huggingface) |
+| SSH | the catalogue's operation, or the command itself as a pattern; `chase.apps.ssh.hosts.<machine>.<answer>` for a machine the grant names |
+| Other TCP | the name, `frisket.allow`; a name on the local network, `frisket.lan`, with the ports it was dialled at |
 | DNS | the names resolved off the allowlist, reported |
-| Syscalls | the call's name, `seccomp.allow`; nothing with `--default refuse` |
+| Syscalls | the call's name, `flong.seccomp.syscalls`; nothing with `--default refuse` |
 
 Every connection goes through frisket while recording, whatever the tier's
 `egress`: the record launcher has no network of flong's, so a name off the
@@ -82,7 +82,7 @@ name, a project's own name -- is left out, and the report says why.
 A name whose address is on the local network -- a NAS, a printer -- is
 refused outside a recording whatever the allowlist says: frisket reaches a
 private address only for a name in its `lan` list. So a name answered
-`allow` or `ask` there is proposed for the grant's `network.lan`, once,
+`allow` or `ask` there is proposed for the grant's `frisket.lan`, once,
 with every port it was dialled at; the launch puts it on the allowlist too.
 Applied, a name the grant has already gains the ports it lacks, and one it
 has for every port is left.
