@@ -34,8 +34,15 @@ import (
 // matter -- what must be refused, what must not run unasked -- so that an
 // edit to the catalogue, or to the tier, that changes one fails the build
 // rather than a session.
+//
+// Interactive is the tier's alone too: frisket's answer for an interactive
+// shell on the machine -- `ssh server` with nothing after it -- allow, ask
+// or refuse, and refused where it is empty, as frisket refuses one by
+// default. Nothing typed into such a shell is decided, so no grant names
+// it, and frisket's own check refuses a project's layer that would.
 type TierHost struct {
 	Host
+	Interactive  string            `json:"interactive,omitempty"`
 	Catalogue    string            `json:"catalogue,omitempty"`
 	Expect       map[string]string `json:"expect,omitempty"`
 	Agent        string            `json:"agent,omitempty"`
@@ -110,6 +117,7 @@ func (c Config) TierRoutes(name string) (map[string]policy.SSHRouteV2, error) {
 	for _, r := range routes {
 		v := V2(r)
 		v.Always = c.Tiers[name].Always
+		v.Interactive = c.Tiers[name].Hosts[r.Name].Interactive
 		out[r.Name] = v
 	}
 	return out, nil
@@ -230,8 +238,8 @@ func expected(r policy.SSHRoute, at string, expect map[string]string) error {
 }
 
 // Validate refuses, when the file is read, an answer that is not allow, ask
-// or refuse: a tier's three, a tier's machine's unmatched, and what its
-// expect pins. Check holds the rest of a tier to what a launch would, and
+// or refuse: a tier's three, a tier's machine's unmatched and interactive,
+// and what its expect pins. Check holds the rest of a tier to what a launch would, and
 // needs the catalogues to.
 func (c Config) Validate() error {
 	for _, name := range slices.Sorted(maps.Keys(c.Tiers)) {
@@ -247,6 +255,9 @@ func (c Config) Validate() error {
 			at := at + ".hosts." + host
 			if h.Unmatched != "" && !slices.Contains(answers, h.Unmatched) {
 				return fmt.Errorf("%s.unmatched is %q, not one of %s", at, h.Unmatched, strings.Join(answers, ", "))
+			}
+			if h.Interactive != "" && !slices.Contains(answers, h.Interactive) {
+				return fmt.Errorf("%s.interactive is %q, not one of %s", at, h.Interactive, strings.Join(answers, ", "))
 			}
 			for _, command := range slices.Sorted(maps.Keys(h.Expect)) {
 				if want := h.Expect[command]; !slices.Contains(answers, want) {

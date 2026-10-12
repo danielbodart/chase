@@ -70,7 +70,7 @@
         # frisket's own code; and golang.org/x/crypto's ssh, which reads an SSH
         # grant's host keys as frisket does. The frisket-pin check holds
         # go.mod's frisket to the one flake.lock pins.
-        vendorHash = "sha256-7iYHzDrRSwoULgaMDy6IZT8soMh9pdTiF11S3IEfuLg=";
+        vendorHash = "sha256-3y+0AhSgDjdbr0TwPGBERsxFFZItkrIt7Vts/zE8uVg=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -938,7 +938,7 @@
                   chase.tiers.trusted.apps.git.sign = false;
                   chase.tiers.strict.apps.ssh = {
                     enable = true;
-                    hosts.modem = { address = "192.168.1.1"; user = "admin"; hostKeys = [ key ]; passwordFile = "/run/secrets/modem-password"; shell = true; };
+                    hosts.modem = { address = "192.168.1.1"; user = "admin"; hostKeys = [ key ]; passwordFile = "/run/secrets/modem-password"; shell = true; interactive = "ask"; };
                   };
                 };
                 c = config.chase.internal.config;
@@ -946,7 +946,7 @@
                 inside = builtins.toJSON config.containers.chase-strict.config.environment.etc;
               in
               failed == [ ]
-              && c.grant.ssh.tiers.strict.hosts == { modem = { address = "192.168.1.1"; user = "admin"; hostKeys = [ key ]; passwordFile = "/run/secrets/modem-password"; shell = true; }; }
+              && c.grant.ssh.tiers.strict.hosts == { modem = { address = "192.168.1.1"; user = "admin"; hostKeys = [ key ]; passwordFile = "/run/secrets/modem-password"; shell = true; interactive = "ask"; }; }
               && ! c.grant.ssh ? agent
               && c.grant.ungranted == [ "strict" ] && lib.elem "strict" c.grantTiers
               && config.flong.chase-strict.seccompPolicy != [ ]

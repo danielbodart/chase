@@ -42,7 +42,7 @@ let
   # A tier's machine as internal/apps/ssh reads it: what it leaves out is
   # the default there.
   hostConfig = h: lib.filterAttrs (n: v: v != null && v != [ ] && v != false && v != { }) {
-    inherit (h) address user hostKeys allow ask refuse unmatched shell catalogue expect agent keyFile passwordFile identity;
+    inherit (h) address user hostKeys allow ask refuse unmatched interactive shell catalogue expect agent keyFile passwordFile identity;
   };
 
   # A catalogue's name, as a tier's machine names one: kebab-case, never a
@@ -83,6 +83,24 @@ let
         type = types.nullOr answer;
         default = null;
         description = "What a command no rule matches is answered with, in place of the tier's `unmatched`.";
+      };
+      interactive = mkOption {
+        type = types.nullOr answer;
+        default = null;
+        example = "ask";
+        description = ''
+          What an interactive shell on this machine is answered with --
+          `ssh server` with no command, from a terminal in a session -- as
+          frisket's version 2 `interactive`: `allow`, `ask`, one question
+          each time a shell is opened, or `refuse`, and refused where null,
+          as frisket refuses one by default. Admitted, frisket logs in with
+          the machine's credential and relays the shell as it is, on the
+          terminal asked for: nothing typed into it is decided, or logged.
+          A command on this machine may then have a terminal too, `ssh -t`,
+          and is still decided by its words. The tier's alone: a grant's
+          machine never has one, and a project's file cannot set it. A
+          `ceiling.interactive` in the tier's `frisket` section clamps it.
+        '';
       };
       catalogue = mkOption {
         type = types.nullOr (types.strMatching catalogueName);

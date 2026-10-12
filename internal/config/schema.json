@@ -427,6 +427,7 @@
         "hostKeys": { "description": "The machine's own keys, as known_hosts writes them less the host.", "type": "array", "items": { "type": "string" } },
         "refuse": { "type": "array", "items": { "type": "string" } },
         "shell": { "description": "Commands are typed into the login shell on a terminal.", "type": "boolean" },
+        "interactive": { "description": "frisket's answer for an interactive shell on the machine; refused where absent.", "$ref": "#/$defs/answer" },
         "unmatched": { "description": "Answers a command no rule matches, in place of the tier's.", "$ref": "#/$defs/answer" },
         "user": { "description": "Who the commands run as.", "type": "string" },
         "catalogue": { "description": "The one of catalogues this machine's commands are decided by.", "type": "string" },

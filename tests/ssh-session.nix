@@ -150,6 +150,9 @@ in
           user = "ops";
           hostKeys = [ snakeoil.snakeOilEd25519PublicKey ];
           inherit passwordFile;
+          # An interactive shell opens unasked, for the subtest that logs in
+          # to it with a terminal, as a person in the session would.
+          interactive = "allow";
         };
       };
     };
@@ -280,6 +283,22 @@ in
           assert out.split() == ["0", "0"], out
           machine.fail(f"grep -qF '${password}' /run/user/1000/chase/{name}/policy.json")
           machine.fail("journalctl -o cat --no-pager | grep -qF '${password}'")
+
+      with subtest("an interactive shell opens on a machine whose interactive allows it, and on no other"):
+          # OpenSSH with a terminal forced, what is typed coming down the
+          # pipe: the machine's own bash runs it, on the terminal frisket
+          # asked for, and its exit status comes back.
+          rc, out = session("printf '%s\\n' 'echo hi-$((6*7)) $TERM' 'tty' 'exit 7' | TERM=xterm-256color ssh -tt -o BatchMode=yes box")
+          assert rc == 7 and "hi-42 xterm-256color" in out.replace("\r", "") and "/dev/pts/" in out, (rc, out)
+          # The grant's machine answers it with the built-in refuse: its
+          # terminal first, which ssh -tt takes as fatal, and without one
+          # the shell, with frisket's reason.
+          rc, out = session("printf 'exit 0\\n' | ssh -tt -o BatchMode=yes server")
+          assert rc == 255 and "PTY allocation request failed" in out, (rc, out)
+          rc, out = session("printf 'exit 0\\n' | ssh -T -o BatchMode=yes server")
+          assert rc == 126 and "interactive" in out, (rc, out)
+          journal = machine.succeed("journalctl -u frisket -o cat --no-pager")
+          assert "phase" in journal and "hi-42" not in journal, journal
 
       with subtest("the session's end ends its route"):
           machine.succeed("runuser -u alice -- touch ${ws}/release")

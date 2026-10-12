@@ -5,8 +5,9 @@ with no key in the session. frisket terminates the session's SSH, logs in to
 the machine with your key, and decides each command: allowed, asked about,
 or refused. Which machines, at which address, as whom and with which host
 key, are a project's grant to name and yours to approve, or the tier's own
-([The tier's machines](#the-tiers-machines)). No interactive shell, no
-forwarding. See frisket's docs/ssh.md for the route itself.
+([The tier's machines](#the-tiers-machines)). No forwarding, and no
+interactive shell but on a tier's machine whose `interactive` says so. See
+frisket's docs/ssh.md for the route itself.
 
 | `chase.apps.ssh.…` | Default | |
 |---|---|---|
@@ -78,6 +79,7 @@ catalogue it is decided by:
 | `passwordFile` | `null` | A file holding the password, for a machine that takes no key: a sops-nix secret's path, say. |
 | `identity` | `null` | The one key of its own `agent` to offer. |
 | `shell` | `false` | For a device whose shell ignores the command an exec carries: see below. |
+| `interactive` | `null` | `allow`, `ask` or `refuse`: an interactive shell on it, `ssh server` with no command, from a terminal in a session. Null is frisket's built-in, refuse. See below. |
 | `catalogue` | `null` | One of `chase.apps.ssh.catalogues`, by its name: see [A machine's own catalogue](#a-machines-own-catalogue). |
 | `expect` | `{ }` | What its commands must be answered, by command -- `{ "sys atcr" = "refuse"; }` -- checked when the system is built: a catalogue edit that changes one fails the build. |
 
@@ -107,6 +109,18 @@ chase.tiers.ops.apps.ssh = {
   };
 };
 ```
+
+A host's `interactive` is frisket's version 2 `interactive` for it: `ask`
+puts one question to you each time a shell is opened, `allow` opens it
+unasked, and `refuse`, as null is, refuses it as frisket refuses a command,
+exit status 126. Admitted, frisket logs in with the machine's credential and
+relays the shell as it is, on the terminal asked for: nothing typed into it
+is decided or logged, only that it opened and how it ended. A command on it
+may then have a terminal too, `ssh -t server htop`, and is still decided by
+its words. Only a tier's machine has one: no grant names it, and frisket
+refuses a project's file that sets it. A tier's `frisket` section's
+`ceiling.interactive` clamps every machine's, as a tier that must never open
+one says `ceiling.interactive = "refuse"`.
 
 A `shell` host is frisket's shell route: a router's or a modem's CLI, which
 runs no command it is given, has the command typed into it on a terminal,

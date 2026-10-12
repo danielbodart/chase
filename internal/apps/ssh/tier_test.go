@@ -58,6 +58,36 @@ func TestEveryMachineIsMarkedAlwaysAsTheTierSays(t *testing.T) {
 	}
 }
 
+// A tier's machine's interactive answer is frisket's interactive, as it
+// is; a grant's machine has none, and an answer that is none is refused
+// when the file is read.
+func TestATierMachinesInteractiveIsFrisketsAsItIs(t *testing.T) {
+	c := withHosts(map[string]TierHost{
+		"gateway": tierHost(t, "10.0.0.1", `{"interactive": "ask"}`),
+		"modem":   tierHost(t, "10.0.0.2", ""),
+	})
+	own, err := c.TierRoutes("trusted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if own["gateway"].Interactive != "ask" || own["modem"].Interactive != "" {
+		t.Errorf("gateway %q, modem %q", own["gateway"].Interactive, own["modem"].Interactive)
+	}
+	p, err := (&App{Config: c, Stderr: io.Discard}).Prepare(context.Background(), apps.Request{
+		Tier: "trusted", Workspace: "/w", Binding: json.RawMessage(binding(t, "")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.SSH["server"].Interactive != "" {
+		t.Errorf("a grant's machine: %q", p.SSH["server"].Interactive)
+	}
+	c = withHosts(map[string]TierHost{"gateway": tierHost(t, "10.0.0.1", `{"interactive": "sometimes"}`)})
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "interactive") {
+		t.Errorf("validate: %v", err)
+	}
+}
+
 // A TIER'S OWN MACHINES (docs/apps/ssh.md): each is an SSH route in every
 // session of the tier, decided by the catalogue, the tier and its own lists
 // as a grant's machine is, and logging in with its own credential -- an
