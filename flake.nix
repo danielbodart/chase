@@ -70,7 +70,7 @@
         # frisket's own code; and golang.org/x/crypto's ssh, which reads an SSH
         # grant's host keys as frisket does. The frisket-pin check holds
         # go.mod's frisket to the one flake.lock pins.
-        vendorHash = "sha256-AMaKxy15fOyeHHKeS0+5u84Mw4gMuM74cvfDj7FvpUY=";
+        vendorHash = "sha256-U30dRuqtGBn31dbx1UyYU7toJ5B+Lq/Eyz2biJhtSVE=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -549,7 +549,8 @@
             # Authenticated, it holds together: no assertion fails, chase's or
             # frisket's, and frisket's configuration -- every generated
             # operation, through frisket's own option types -- is written.
-            # Forcing ExecStart forces the file it names.
+            # Forcing the unit's restart triggers forces the files it reads,
+            # its config and its policies.
             assert
               (let
                 config = configWith {
@@ -558,7 +559,8 @@
                 };
                 failed = map (a: a.message) (lib.filter (a: ! a.assertion) config.assertions);
               in
-              failed == [ ] && lib.hasInfix ''"-config" "/nix/store/'' config.systemd.services.frisket.serviceConfig.ExecStart
+              failed == [ ] && lib.hasInfix ''"-config" "/etc/frisket/config.json"'' config.systemd.services.frisket.serviceConfig.ExecStart
+                && lib.all (t: lib.hasPrefix "/nix/store/" (toString t)) config.systemd.services.frisket.restartTriggers
                 || throw "assertions: a bound cloudflare did not hold together: ${builtins.toJSON failed}");
             # Hugging Face as github is: a tier authenticated with a
             # credential it was not given is refused ...

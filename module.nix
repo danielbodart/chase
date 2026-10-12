@@ -466,7 +466,7 @@ in
       runtime = "/run/user/${toString cfg.uid}";
       tiers = lib.mapAttrs (name: tier: {
         environment = lib.listToAttrs
-          config.environment.etc."flong/chase-${name}.zon".source.declaration.environment;
+          config.environment.etc."flong/chase-${name}.json".source.declaration.environment;
         # A tier with a network publishes its ports on its project's own
         # address, which exec gives flong per launch (internal/grant's
         # Exec): 127.0.0.1 is only where a checkout with no project's go.
