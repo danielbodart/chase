@@ -8,11 +8,11 @@ before the session starts, as you, keeps it rooted in chase's state, gives
 the session its variables and its PATH, and runs its shellHook inside the
 session. `nix` itself in a session is not this; it is flong's to give.
 
-In every tier it is given only where the checkout's approved grant turns
-it on, as `direnv allow` does:
+In every tier it is given only where the checkout's signed `chase.json`
+turns it on, as `direnv allow` does:
 
-```jsonc
-{ "apps": { "nix": { "devShell": true } } }
+```json
+{"chase": {"apps": {"nix": {"devShell": true}}}, "version": 2}
 ```
 
 so the tier must take grants. Without it nothing of the checkout's Nix is
@@ -20,7 +20,7 @@ evaluated, and a launch costs nothing more; a checkout with a shell.nix, or
 a flake.nix that names `devShells`, is told so in a line. With it, a
 devShell that cannot be realised refuses the launch, as any part of a grant
 that cannot be applied does; to launch without it, set `"devShell": false`
-or remove it, and approve that. Never a bare tier, whose agent runs on the
+or remove it, and sign that. Never a bare tier, whose agent runs on the
 host with its own `nix develop`.
 
 In a tier for your own code -- `egress` `direct` and `allow` `[ "*" ]` --

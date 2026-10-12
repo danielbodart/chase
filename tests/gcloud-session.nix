@@ -9,6 +9,7 @@
 
 let
   pkgs = hostPkgs;
+  signing = import ./signing.nix { inherit pkgs lib; chase = self.packages.${pkgs.stdenv.hostPlatform.system}.chase; };
   google4 = "203.0.113.20";
   grpc4 = "203.0.113.22";
   google6 = "2001:db8:113::20";
@@ -262,7 +263,7 @@ let
   '';
 
   # The project as a developer would set it up: its key in sops, to her age
-  # key, and a chase.jsonc binding it.
+  # key, and a signed chase.json binding it.
   mkProject = pkgs.writeShellScript "mk-project" ''
     set -euo pipefail
     export PATH=${lib.makeBinPath (with pkgs; [ coreutils git sops jq ])}
@@ -270,24 +271,22 @@ let
     mkdir -p ~/proj
     cd ~/proj
     git init -q -b main
-    cat > chase.jsonc <<'EOF'
-    {
-      "secrets": "secrets.yaml",
-      "apps": {
-        "gcloud": {
-          "credential": { "secret": "gcloud-key" },
-          "serviceAccount": "${sa}",
-          "apis": { "add": ["pubsub"] },
-        },
-      },
-    }
-    EOF
     tmp=$(mktemp)
     jq -Rs '{"gcloud-key": .}' > "$tmp"
     sops --encrypt --age "$recipient" --input-type json --output-type yaml "$tmp" > secrets.yaml
     rm -f "$tmp"
+    # The sops file's digest is in the signed bytes, as chase sign writes it.
+    jq -n --arg digest "$(sha256sum secrets.yaml | cut -d' ' -f1)" '{
+      version: 2,
+      chase: {
+        secrets: "secrets.yaml",
+        secretsSHA256: $digest,
+        apps: {gcloud: {credential: {secret: "gcloud-key"}, serviceAccount: "${sa}", apis: {pubsub: true}}}
+      }
+    }' > chase.json
+    ${signing.sign} "$PWD"
     printf 'out/\n' > .gitignore
-    git add chase.jsonc secrets.yaml .gitignore
+    git add chase.json chase.json.sig secrets.yaml .gitignore
     git -c user.name=alice -c user.email=alice@example.com commit -qm project
   '';
 in
@@ -374,9 +373,11 @@ in
       uid = 1000;
       gid = 100;
       fallback = "trusted";
+      # Asked nothing: the project's chase.json is signed.
       approver = "${pkgs.writeShellScript "approver" ''
         ${pkgs.coreutils}/bin/cat | ${pkgs.util-linux}/bin/logger -t chase-test-approver
       ''}";
+      signer.allowedSigners = signing.allowedSigners;
       apps = {
         claude.package = pkgs.hello;
         codex.package = pkgs.hello;
@@ -466,15 +467,14 @@ in
           machine.succeed("grep -q ENC /home/alice/proj/secrets.yaml")
           assert machine.succeed(f"grep -cF {real_lines[0]} /home/alice/proj/secrets.yaml || true").strip() == "0"
 
-      with subtest("the launch approves, decrypts, mints and starts the renewer"):
+      with subtest("the signed chase.json launches unasked, and the launch decrypts, mints and starts the renewer"):
           machine.succeed(as_user(f"cd /home/alice/proj && ${launcher} shell -c {shlex.quote('bash ${session}')}") + " >/tmp/session.out 2>&1 &")
           machine.wait_until_succeeds("test -e /home/alice/proj/out/done", timeout=timedelta(minutes=5))
           name = machine.succeed("cat /tmp/last-session").strip()
           leader = machine.succeed("cat /tmp/last-leader").strip()
           run = f"/run/user/1000/chase/{name}"
           print(machine.succeed("cat /tmp/session.out"))
-          approvals = machine.succeed("journalctl -t chase-test-approver -o cat --no-pager")
-          assert '"workspace": "/home/alice/proj"' in approvals and '\\"serviceAccount\\": \\"${sa}\\"' in approvals, approvals
+          machine.fail("journalctl -q -t chase-test-approver -o cat --no-pager | grep -q .")
           assert user_unit("is-active", f"chase-gcloud-renew@{name}.service") == "active"
           issued = [l["issued"] for l in google_log() if "issued" in l]
           assert len(issued) >= 1, google_log()
@@ -482,11 +482,11 @@ in
           assert token_file["access_token"] in issued, token_file
           machine.succeed(f"test \"$(stat -c %a {run}/secrets/gcloud)\" = 600")
           policy = vm_json(machine, f"{run}/policy.json")
-          routes = {r["name"]: r for r in policy["routes"]}
-          ids = {p["operation"]["id"] for p in routes["gcloud"]["paths"] if "operation" in p}
+          routes = policy["routes"]
+          ids = {p["operation"]["id"] for p in routes["gcloud"]["paths"].values() if "operation" in p}
           assert {"storage.objects.get", "pubsub.projects.topics.get"} <= ids and "bigquery.datasets.get" not in ids, sorted(ids)[:40]
           assert routes["gcloud"]["sessionKey"]["issuer"] == "${sa}"
-          assert "*.googleapis.com" in policy["allow"] or "*" in policy["allow"], policy["allow"]
+          assert "**.googleapis.com" in policy["allow"] or "**" in policy["allow"], policy["allow"]
 
       out = "/home/alice/proj/out"
 

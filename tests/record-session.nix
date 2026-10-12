@@ -8,14 +8,18 @@
 # goes through while recording, and is written down: the request and the connection by frisket, in its sink; the call
 # by the kernel's audit, which `chase record` follows and puts down to the
 # session by its cgroup. What is left is a report and a proposal, which
-# `chase record apply` adds to the checkout's chase.jsonc; approved at the
-# next launch, it lets the same session do the same things with nothing
-# recording.
+# `chase record apply` adds to the checkout's chase.json and has signed,
+# by frisket's own signer over a software TPM, through galley -- a stand-in
+# that allows it; signed, it lets the next launch of the same session do
+# the same things with nothing recording and nobody asked. A hand edit
+# that nobody signed is put to the signer by the launch itself.
 { self, home-manager }:
 { lib, hostPkgs, ... }:
 
 let
   pkgs = hostPkgs;
+  system = pkgs.stdenv.hostPlatform.system;
+  fakegalley = lib.getExe self.inputs.frisket.packages.${system}.fakegalley;
   upstream4 = "203.0.113.20";
   upstream6 = "2001:db8:113::20";
   # The same machine on the local network: a private address, which
@@ -132,7 +136,23 @@ in
   };
 
   nodes.machine = { config, pkgs, ... }: {
-    imports = [ self.nixosModules.default home-manager.nixosModules.home-manager ];
+    imports = [ self.nixosModules.default home-manager.nixosModules.home-manager self.inputs.frisket.nixosModules.signer ];
+
+    # frisket's signer, alice's agent, over a software TPM: the key is made
+    # in it as the test runs, so the allowed signers are written then. It
+    # asks alice's galley, a stand-in answering from a script.
+    virtualisation.tpm.enable = true;
+    services.frisket.signer = { enable = true; forUser = "alice"; };
+    services.frisket.policy = {
+      fileName = "chase.json";
+      courier = { enable = true; forUser = "alice"; };
+    };
+    environment.etc."frisket/allowed_signers".source = lib.mkForce "/run/allowed_signers";
+    systemd.tmpfiles.rules = [ "d /run/galley-ask 0755 alice users -" "d /run/fakegalley 0755 alice users -" ];
+    systemd.user.services.galley.serviceConfig = {
+      ExecStart = "${fakegalley} -socket /run/galley-ask/alice.sock -script /run/fakegalley/script -log /run/fakegalley/log";
+      Slice = "app.slice";
+    };
 
     virtualisation.memorySize = 3072;
     virtualisation.diskSize = 8192;
@@ -144,7 +164,7 @@ in
     security.pki.certificateFiles = [ "${certs}/ca.crt" ];
     security.sudo.enable = false;
     nix.settings.experimental-features = [ "nix-command" "flakes" ];
-    environment.systemPackages = with pkgs; [ git jq curl util-linux ];
+    environment.systemPackages = with pkgs; [ git jq curl util-linux ssh-tpm-agent openssh ];
 
     users.users.alice = {
       isNormalUser = true;
@@ -168,9 +188,11 @@ in
       uid = 1000;
       gid = 100;
       fallback = "recorded";
+      # Never asked: chase.json is signed, by the signer.
       approver = "${pkgs.writeShellScript "approver" ''
         ${pkgs.coreutils}/bin/cat | ${pkgs.util-linux}/bin/logger -t chase-test-approver
       ''}";
+      signer.agentSocket = "/run/frisket-signer/agent";
       apps = {
         claude.package = pkgs.hello;
         codex.package = pkgs.hello;
@@ -222,6 +244,20 @@ in
       def result(run, name):
           return vm_read(machine, f"${ws}/out/{run}/{name}")
 
+      def galley(*script):
+          machine.succeed(f"printf '%s\\n' {' '.join(map(shlex.quote, script))} > /run/fakegalley/script")
+          machine.succeed("rm -f /run/galley-ask/alice.sock")
+          machine.succeed("systemctl -M alice@ --user restart galley.service")
+          machine.wait_until_succeeds("test -S /run/galley-ask/alice.sock")
+
+      def questions():
+          out = machine.succeed("cat /run/fakegalley/log 2>/dev/null || true")
+          return [e for e in map(json.loads, out.splitlines()) if e["event"] == "question"]
+
+      def verifies():
+          machine.succeed("ssh-keygen -Y verify -f /etc/frisket/allowed_signers -I alice -n 'frisket-policy:~/proj' "
+                          "-s ${ws}/chase.json.sig < ${ws}/chase.json")
+
       start_all()
       upstream.wait_for_unit("upstream.service")
       upstream.wait_for_unit("dnsmasq.service")
@@ -235,6 +271,17 @@ in
       machine.wait_until_succeeds("curl -sS -m 2 -o /dev/null -X DELETE https://api.github.com/")
       machine.succeed("printf '%s' '${token}' > /home/alice/gh-token && chown alice:users /home/alice/gh-token && chmod 0600 /home/alice/gh-token")
       machine.succeed("runuser -l alice -c ${mkProject}")
+
+      # alice's signing key, made in the TPM, and the allowed signers that
+      # allow it in every frisket-policy namespace.
+      machine.wait_for_unit("frisket-signer.socket")
+      machine.succeed("systemctl start frisket-signer.service")
+      machine.succeed("SSH_ASKPASS_REQUIRE=never ssh-tpm-keygen -f /root/id_ecdsa -C alice@machine </dev/null")
+      machine.succeed("install -o ssh-signer -g ssh-signer -m 0600 /root/id_ecdsa.tpm /var/lib/frisket-signer/")
+      machine.succeed("systemctl restart frisket-signer.service")
+      key = " ".join(machine.succeed("cat /root/id_ecdsa.pub").split()[:2])
+      machine.succeed(f"echo 'alice namespaces=\"frisket-policy:*\" {key}' > /run/allowed_signers")
+      galley("answer 0")
 
       with subtest("the tier refuses all four, with nothing recording"):
           machine.succeed(as_user(f"cd ${ws} && ${launcher} shell -c {shlex.quote('bash ${session} before')}"), timeout=300)
@@ -272,11 +319,15 @@ in
           machine.succeed(f"test ! -e /var/lib/frisket/records/{kept}.jsonl")
           machine.fail("ls /run/user/1000/chase/.record/* 2>/dev/null | grep .")
 
-          proposal = vm_read(machine, f"{at}/proposal.jsonc")
-          print(proposal)
-          for needle in ['"git/delete-ref"', '"plain.test"', '{"name":"nas.test","ports":[80]}', '"ptrace"', "loosens"]:
-              assert needle in proposal, (needle, proposal)
-          machine.fail("test -e ${ws}/chase.jsonc")
+          proposal = vm_json(machine, f"{at}/proposal.json")
+          print(json.dumps(proposal, indent=2))
+          frisket = proposal["propose"]["frisket"]
+          assert frisket["routes"]["github"]["operations"] == {"git/delete-ref": "allow"}, frisket
+          assert frisket["allow"] == {"plain.test": True, "nas.test": True}, frisket
+          assert frisket["lan"] == {"nas.test": {"ports": [80]}}, frisket
+          assert proposal["propose"]["flong"]["seccomp"]["syscalls"]["ptrace"] == "allow", proposal
+          assert "loosens" in proposal["notes"]["/frisket/routes/github/operations/git~1delete-ref"], proposal["notes"]
+          machine.fail("test -e ${ws}/chase.json")
 
       with subtest("from scratch, flong takes the lines, and what the tier allows is reported, not proposed"):
           report = machine.succeed(as_user(f"cd ${ws} && ${chase} record --default allow --base none -- shell -c {shlex.quote('bash ${session} scratch')}"), timeout=300)
@@ -287,29 +338,54 @@ in
           calls = {json.loads(l)["name"] for l in vm_read(machine, f"{at}/record.jsonl").splitlines() if '"syscall"' in l}
           # The tier's own calls are seen, its filter's exceptions proposed.
           assert {"execve", "ptrace"} <= calls, calls
-          proposal = vm_read(machine, f"{at}/proposal.jsonc")
+          proposal = vm_read(machine, f"{at}/proposal.json")
           assert '"ptrace"' in proposal and '"execve"' not in proposal, proposal
 
-      with subtest("chase record apply adds the proposal to the checkout's grant"):
+      with subtest("chase record apply adds the proposal to the checkout's chase.json, and the signer signs it"):
+          asked = len(questions())
           out = machine.succeed(as_user(f"cd ${ws} && ${chase} record apply {kept}"))
           print(out)
-          grant = vm_read(machine, "${ws}/chase.jsonc")
+          grant = vm_read(machine, "${ws}/chase.json")
           print(grant)
           for needle in ['"git/delete-ref"', '"plain.test"', '"nas.test"', '"lan"', '"ptrace"']:
               assert needle in grant, (needle, grant)
+          qs = questions()[asked:]
+          assert len(qs) == 1 and qs[0]["title"] == "sign ~/proj/chase.json", qs
+          assert qs[0]["diff"]["new"] == grant and qs[0]["diff"]["old"] == "", qs[0]["diff"]
+          assert "signed, chase.json.sig written" in out, out
+          verifies()
           assert "nothing to add" in machine.succeed(as_user(f"cd ${ws} && ${chase} record apply {kept}"))
 
-      with subtest("approved at the next launch, the grant lets the session do it all, with nothing recording"):
-          machine.succeed("runuser -l alice -c 'cd ${ws} && git add chase.jsonc && git -c user.name=alice -c user.email=alice@example.com commit -qm grant'")
+      with subtest("signed, the next launch lets the session do it all, with nothing recording and nobody asked"):
+          machine.succeed("runuser -l alice -c 'cd ${ws} && git add chase.json chase.json.sig && git -c user.name=alice -c user.email=alice@example.com commit -qm grant'")
+          asked = len(questions())
           machine.succeed(as_user(f"cd ${ws} && ${launcher} shell -c {shlex.quote('bash ${session} after')}"), timeout=300)
-          approvals = machine.succeed("journalctl -t chase-test-approver -o cat --no-pager")
-          for needle in ["git/delete-ref", "ptrace", "plain.test", "nas.test"]:
-              assert needle in approvals, (needle, approvals)
+          assert len(questions()) == asked, questions()[asked:]
+          machine.fail("journalctl -q -t chase-test-approver -o cat --no-pager | grep -q .")
           assert result("after", "delete").strip() == "204", result("after", "delete")
           assert result("after", "plain") == "plain page\n", result("after", "plain")
           assert result("after", "nas") == "plain page\n", result("after", "nas")
           assert result("after", "strace").splitlines()[-1] == "0", result("after", "strace")
           name = machine.succeed("cat /tmp/last-session").strip()
           machine.wait_until_succeeds(f"test ! -e /run/user/1000/chase/{name}", timeout=60)
+
+      with subtest("a hand edit nobody signed is put to the signer by the launch, against what HEAD signed"):
+          signed = vm_read(machine, "${ws}/chase.json")
+          machine.succeed(as_user("cd ${ws} && jq '.frisket.allow[\"extra.test\"] = true' chase.json > c && mv c chase.json && ${chase} fmt chase.json"))
+          machine.fail("ssh-keygen -Y verify -f /etc/frisket/allowed_signers -I alice -n 'frisket-policy:~/proj' -s ${ws}/chase.json.sig < ${ws}/chase.json")
+          asked = len(questions())
+          machine.succeed(as_user(f"cd ${ws} && ${launcher} shell -c {shlex.quote('bash ${session} edited')}"), timeout=300)
+          qs = questions()[asked:]
+          assert len(qs) == 1 and qs[0]["title"] == "sign ~/proj/chase.json", qs
+          assert qs[0]["diff"]["old"] == signed and '"extra.test": true' in qs[0]["diff"]["new"], qs[0]["diff"]
+          verifies()
+          assert result("edited", "delete").strip() == "204", result("edited", "delete")
+
+      with subtest("refused, the launch ends"):
+          galley("cancel")
+          machine.succeed(as_user("cd ${ws} && jq '.frisket.allow[\"refused.test\"] = true' chase.json > c && mv c chase.json && ${chase} fmt chase.json"))
+          rc, _ = machine.execute(as_user(f"cd ${ws} && ${launcher} shell -c {shlex.quote('bash ${session} refused')}"), timeout=300)
+          assert rc != 0, rc
+          machine.fail("test -e ${ws}/out/refused")
     '';
 }

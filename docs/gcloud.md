@@ -245,18 +245,17 @@ chase.tiers.trusted.apps.gcloud = { enable = true; apis = [ "bigquery" "storage"
 
 ```
 
-and in the project's `chase.jsonc`:
+and in the project's `chase.json`:
 
-```jsonc
+```json
 {
-  "apps": {
-    "gcloud": {
-      "credential": { "secret": "gcloud-key" },
-      "serviceAccount": "agent@my-project.iam.gserviceaccount.com",
-      "apis": { "add": ["secretmanager"] },
-      "allow": ["category:bigquery"],
-    },
-  },
+  "chase": {"apps": {"gcloud": {
+    "apis": {"secretmanager": true},
+    "credential": {"secret": "gcloud-key"},
+    "serviceAccount": "agent@my-project.iam.gserviceaccount.com"
+  }}},
+  "frisket": {"routes": {"gcloud": {"operations": {"category:bigquery": "allow"}}}},
+  "version": 2
 }
 ```
 

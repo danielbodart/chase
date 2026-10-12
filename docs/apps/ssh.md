@@ -30,26 +30,33 @@ chase.apps.ssh.agentSocket = "/run/user/1000/gcr/ssh";
 chase.tiers.trusted.apps.ssh.enable = true;
 ```
 
-Grant:
+In the project's `chase.json`, each machine by the name `ssh` knows it by in
+the session: its address, a literal IP, v4:port or [v6]:port, 22 by
+default; its user; its own key, never learnt on first use; its lists, of
+the catalogue's operation ids, `category:<name>` or command patterns; and
+its `unmatched`, in place of the tier's:
 
-```jsonc
-"ssh": {
-  "hosts": {
-    "server": {                                  // `ssh server …` in the session
-      "address": "192.168.1.10",                 // a literal IP, v4:port or [v6]:port; 22 by default
-      "user": "ops",
-      "hostKeys": ["ssh-ed25519 AAAAC3… server"], // its own key: never learnt on first use
-      "allow": ["service-restart"],              // operation ids, category:<name>,
-      "ask": ["docker compose ps **"],           //   or command patterns
-      "refuse": ["category:packages"],
-      "unmatched": "refuse",                     // in place of the tier's
-    },
-  },
-}
+```json
+"chase": {"apps": {"ssh": {"hosts": {"server": {
+  "address": "192.168.1.10",
+  "allow": ["service-restart"],
+  "ask": ["docker compose ps **"],
+  "hostKeys": ["ssh-ed25519 AAAAC3… server"],
+  "refuse": ["category:packages"],
+  "unmatched": "refuse",
+  "user": "ops"
+}}}}}
 ```
 
+chase makes each a machine of the session's policy document, every rule by
+frisket's own name for it (`exec`) and what the rule is, its catalogue
+operation (`commands`): a project's lists name the catalogue's ids, which
+frisket's document does not. A machine's commands may be answered in the
+`frisket` section too, by rule, `"frisket": {"ssh": {"server": {"exec":
+{"uptime **": "allow"}}}}`.
+
 `ssh-keyscan -t ed25519 <address>` prints a machine's key with its host in
-front; the grant takes the rest of the line. A machine whose key is not one
+front; `hostKeys` takes the rest of the line. A machine whose key is not one
 of these is never reached.
 
 ## The tier's machines
@@ -57,7 +64,7 @@ of these is never reached.
 A tier can name machines of its own, which are in every session of it,
 whatever the checkout's grant says, and need no grant at all: a tier with
 `hosts` and `grants = false` is launched for them, and never reads a
-checkout's `chase.jsonc`. Each takes what a grant's host does --
+checkout's `chase.json`. Each takes what a grant's host does --
 `address`, `user`, `hostKeys`, `allow`, `ask`, `refuse`, `unmatched` --
 held to the same checks, when the system is built and again at every
 launch, and decided the same way, by its catalogue, the tier's answers and

@@ -1,7 +1,7 @@
 # A Docker session end to end: chase's launch, flong's session, frisket's
 # route and relay, and alice's rootless Docker daemon, all on one machine.
 # The checkout is shop as the machine knows it -- its origin, pinned at
-# its path -- with a chase.jsonc binding postgres:18 on 64320, and a
+# its path -- with a signed chase.json binding postgres:18 on 64320, and a
 # one-service Compose file shaped like shop's own. The session runs Compose
 # as its scripts do, reaches the database as localhost and by its .internal
 # name, and is refused whatever would reach the host.
@@ -10,6 +10,7 @@
 
 let
   pkgs = hostPkgs;
+  signing = import ./signing.nix { inherit pkgs lib; chase = self.packages.${pkgs.stdenv.hostPlatform.system}.chase; };
   project = "example/shop";
   address = "127.101.170.171";
   ws = "/home/alice/shop";
@@ -65,8 +66,9 @@ let
     done
   '';
 
-  # shop as a developer has it: its GitHub origin, a chase.jsonc giving
-  # the grant its image and port, and the Compose file its scripts run.
+  # shop as a developer has it: its GitHub origin, a chase.json giving its
+  # Docker project, image and port, signed, and the Compose file its scripts
+  # run.
   mkProject = pkgs.writeShellScript "mk-project" ''
     set -euo pipefail
     export PATH=${lib.makeBinPath (with pkgs; [ coreutils git ])}
@@ -74,17 +76,13 @@ let
     cd ${ws}
     git init -q -b main
     git remote add origin git@github.com:example/shop.git
-    cat > chase.jsonc <<'EOF'
-    {
-      // shop's database, as its Compose file runs it.
-      "apps": {
-        "docker": { "images": ["postgres:18"], "ports": [64320] },
-      },
-    }
+    cat > chase.json <<'EOF'
+    {"version": 2, "chase": {"apps": {"docker": {"project": "${project}", "images": {"postgres:18": true}, "ports": {"64320": true}}}}}
     EOF
+    ${signing.sign} ${ws}
     install -m 0644 ${compose} compose.yaml
     printf 'cmd/\n' > .gitignore
-    git add chase.jsonc compose.yaml .gitignore
+    git add chase.json chase.json.sig compose.yaml .gitignore
     git -c user.name=alice -c user.email=alice@example.com commit -qm project
   '';
 in
@@ -139,9 +137,11 @@ in
       gid = 100;
       order = [ "trusted" ];
       fallback = "trusted";
+      # Asked nothing: shop's chase.json is signed.
       approver = "${pkgs.writeShellScript "approver" ''
         ${pkgs.coreutils}/bin/cat | ${pkgs.util-linux}/bin/logger -t chase-test-approver
       ''}";
+      signer.allowedSigners = signing.allowedSigners;
       apps = {
         claude.package = pkgs.hello;
         codex.package = pkgs.hello;
@@ -253,17 +253,17 @@ in
           # Made on the host, without frisket, so it carries no project's label.
           host_docker("create --name stray postgres:18")
 
-      with subtest("the launch approves shop as its origin names it, and routes its Docker"):
+      with subtest("shop's signed chase.json launches unasked, as its origin names it, and routes its Docker"):
           machine.succeed("runuser -l alice -c ${mkProject}")
           machine.succeed(as_user("cd ${ws} && ${launcher} shell -c 'bash ${runner}'") + " >/tmp/session.out 2>&1 &")
           machine.wait_until_succeeds("test -e ${ws}/cmd/ready", timeout=timedelta(minutes=5))
           print(machine.succeed("cat /tmp/session.out"))
           name = machine.succeed("cat /tmp/last-session").strip()
           run = f"/run/user/1000/chase/{name}"
-          approvals = machine.succeed("journalctl -t chase-test-approver -o cat --no-pager")
-          assert '\\"dockerProject\\": \\"${project}\\"' in approvals, approvals
+          machine.fail("journalctl -q -t chase-test-approver -o cat --no-pager | grep -q .")
           policy = vm_json(machine, f"{run}/policy.json")
-          [route] = [r for r in policy["routes"] if r["name"] == "docker"]
+          assert policy["version"] == 2, policy
+          route = policy["routes"]["docker"]
           d = route["docker"]
           assert d["project"] == "${project}" and d["address"] == "${address}" and d["ports"] == [64320], d
           assert d["names"] == ["shop.example.internal"], d["names"]

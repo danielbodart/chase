@@ -224,11 +224,15 @@ in
           approvals = machine.succeed("journalctl -t chase-test-approver -o cat --no-pager")
           assert "${address}" in approvals, approvals
           policy = vm_json(machine, f"/run/user/1000/chase/{name}/policy.json")
-          routes = {r["name"]: r for r in policy["ssh"]}
+          assert policy["version"] == 2, policy
+          routes = policy["ssh"]
           assert sorted(routes) == ["box", "server"], routes
           route = routes["server"]
-          assert (route["name"], route["address"], route["user"], route["hostKeys"], route["keyFile"]) == \
-              ("server", "${address}", "ops", [host_key], "/home/alice/.ssh/frisket"), route
+          assert (route["address"], route["user"], route["hostKeys"], route["keyFile"]) == \
+              ("${address}", "ops", [host_key], "/home/alice/.ssh/frisket"), route
+          # A legacy chase.jsonc, approved as it always was, for this
+          # release, and told to migrate.
+          assert "run chase migrate" in machine.succeed("cat /tmp/session.out"), machine.succeed("cat /tmp/session.out")
 
       with subtest("the session's ssh reads frisket's files through the tier's config, its CA first"):
           rc, out = session("ssh -G server")

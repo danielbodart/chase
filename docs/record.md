@@ -8,10 +8,10 @@ $ chase record --default allow claude
 ```
 
 do the one action, and exit. chase says what the session needed that its
-tier would have refused or asked about, and leaves a proposal: the grant
-entries that would give it exactly that, each in the list its answer says.
-`chase record apply` adds them to the checkout's `chase.jsonc`, and the
-changed grant is put to you at the next launch, as any change is.
+tier would have refused or asked about, and leaves a proposal: the entries
+of the checkout's `chase.json` that would give it exactly that, each
+answered as it was. `chase record apply` adds them to the checkout's
+`chase.json` and has frisket's signer sign it, which shows you the change.
 
 ```
 chase record [--default allow|ask|refuse] [--base tier|none] [--] AGENT [ARG...]
@@ -110,7 +110,7 @@ session runs and puts each down to the session by its process's cgroup,
 `flong-sessions.service/<container>/<machine>`, or by a pid seen in that
 cgroup. One whose process was gone before either is placed **probably**, by
 when it was made, and only when no other recording ran beside it: it is in
-the proposal as a comment, for you to uncomment.
+the proposal's `probable`, for you to move into `propose`.
 
 `--base tier`, the default, learns against the tier's filter and the
 grant's: what is logged is what the session needs beyond them, a call the
@@ -149,61 +149,60 @@ session:
 |---|---|
 | `record.jsonl` | every line written down: frisket's, as its [docs/record.md](https://github.com/danielbodart/frisket/blob/trunk/docs/record.md) has them, and one of chase's own for each syscall, `kind` `syscall` |
 | `meta.json` | the session, tier, checkout, options, start and end, its exit status, and when it was applied |
-| `proposal.jsonc` | the proposal |
+| `proposal.json` | the proposal |
 
 The last 20 recordings are kept, and any younger than 14 days. frisket's
 own copy, in `/var/lib/frisket/records`, is removed once read.
 
 ## The proposal
 
-The grant's own shape, as JSONC, each entry with what it was made from on
-the line above, a loosening said as one:
+Strict JSON, in its canonical form: `propose` is what `chase record apply`
+adds, in `chase.json`'s own shape; `probable` the same of what it leaves out
+unless you move it into `propose`; `notes` what each entry was made from, by
+a JSON pointer to it, a loosening said as one:
 
-```jsonc
-// chase record: what chase-trusted-4127, a session of trusted in /home/alice/proj, needed beyond its grant.
-// ...
+```json
 {
-  "apps": {
-    "github": {
-      "allow": [
-        // DELETE api.github.com/repos/o/r/git/refs/heads/x; loosens: the tier would refuse (path)
-        "git/delete-ref",
-      ],
-    },
+  "about": ["chase record: what chase-trusted-4127, a session of trusted in /home/alice/proj, needed beyond its chase.json.", "..."],
+  "notes": {
+    "/flong/seccomp/syscalls/io_uring_setup": "high surface, io_uring: logged 1 time; loosens the tier's filter",
+    "/flong/seccomp/syscalls/ptrace": "logged 3 times; loosens the tier's filter",
+    "/frisket/allow/registry.npmjs.org": "port 443; loosens: the tier would refuse (not allowed)",
+    "/frisket/lan/nas.home.arpa": "on the local network, port 445; loosens: the tier would refuse (structural: private)",
+    "/frisket/routes/github/operations/git~1delete-ref": "DELETE api.github.com/repos/o/r/git/refs/heads/x; loosens: the tier would refuse (path)"
   },
-  "network": {
-    "allow": [
-      // port 443; loosens: the tier would refuse (not allowed)
-      "registry.npmjs.org",
-    ],
-    "lan": [
-      // on the local network, port 445; loosens: the tier would refuse (structural: private)
-      {"name":"nas.home.arpa","ports":[445]},
-    ],
-  },
-  "seccomp": {
-    "allow": [
-      // logged 3 times; loosens the tier's filter
-      "ptrace",
-      // high surface, io_uring: logged 1 time; loosens the tier's filter
-      "io_uring_setup",
-    ],
-  },
+  "probable": {},
+  "propose": {
+    "flong": {"seccomp": {"syscalls": {"io_uring_setup": "allow", "ptrace": "allow"}}},
+    "frisket": {
+      "allow": {"nas.home.arpa": true, "registry.npmjs.org": true},
+      "lan": {"nas.home.arpa": {"ports": [445]}},
+      "routes": {"github": {"operations": {"git/delete-ref": "allow"}}}
+    }
+  }
 }
 ```
 
-A call of high kernel surface is said: io_uring, the kernel's keyrings,
+An operation is answered by its id in its route's `operations`, or a
+request no operation matched by its method and exact path; a command on a
+machine the file names is in that machine's list under
+`chase.apps.ssh.hosts`; a name is on frisket's allowlist, and one on the
+local network in its `lan` too; a call is in flong's `seccomp.syscalls`. A
+call of high kernel surface is said: io_uring, the kernel's keyrings,
 userfaultfd, BPF, perf events.
 
-`chase record apply` edits the checkout's `chase.jsonc` rather than
-rewriting it: its comments and layout stay, each entry goes after the last
-of its list -- on a line of its own where the list is on many, inline where
-it is on one -- with its note; one already in its list is left, and one in
-another of the same lists is moved, since a name in two lists is refused.
-What comes out must be a grant chase reads, or nothing is written. Applying
-twice adds nothing. The session could write `chase.jsonc`, so it is read as
-approve takes it: a plain file of at most 1 MiB, never through a link or
-from a pipe. Once the session ends, `^C` stops `chase record` itself.
+`chase record apply` puts each entry of `propose` where `chase.json` has
+it: one there already is left; another answer for the same operation or
+call replaces the old one, and a command in another of its machine's lists
+is moved. What comes out, in its canonical form, must be a `chase.json`
+chase reads, or nothing is written; then frisket's signer is asked to sign
+it, through its `policy-sign@frisket` extension, and shows you the change
+against what git's `HEAD` signed. Refused, the file is written and not
+signed, and the next launch asks again. Applying twice adds nothing. The
+session could write `chase.json`, so it is read as a launch takes it: a
+plain file of at most 1 MiB, never through a link or from a pipe. A
+checkout with only a `chase.jsonc` is migrated first, with `chase migrate`.
+Once the session ends, `^C` stops `chase record` itself.
 
 ## Setting it up
 

@@ -24,12 +24,13 @@ chase.tiers.trusted = {
 };
 ```
 
-Grant:
+In the project's `chase.json`, an API by its name, true to carry it and
+false to do without one of the tier's:
 
-```jsonc
-"gcloud": {
-  "credential": { "secret": "gcloud-key" },
-  "serviceAccount": "ci@project.iam.gserviceaccount.com",
-  "apis": { "add": ["pubsub"], "remove": ["storage"] },
-}
+```json
+"chase": {"apps": {"gcloud": {
+  "apis": {"pubsub": true, "storage": false},
+  "credential": {"secret": "gcloud-key"},
+  "serviceAccount": "ci@project.iam.gserviceaccount.com"
+}}}
 ```

@@ -21,6 +21,7 @@
 
 let
   pkgs = hostPkgs;
+  signing = import ./signing.nix { inherit pkgs lib; chase = self.packages.${pkgs.stdenv.hostPlatform.system}.chase; };
   system = pkgs.stdenv.hostPlatform.system;
   home = "/home/alice";
 
@@ -74,8 +75,8 @@ let
   subFlake = pkgs.writeText "flake.nix" "{ outputs = _: { }; }";
 
   # What a tier with nix needs before it gives a devShell, approved.
-  grantJsonc = pkgs.writeText "chase.jsonc" ''
-    { "apps": { "nix": { "devShell": true } } }
+  grantJson = pkgs.writeText "chase.json" ''
+    {"version": 2, "chase": {"apps": {"nix": {"devShell": true}}}}
   '';
 
   # What a devShell realised with no network cannot do: fetch, and build
@@ -103,6 +104,8 @@ let
       chmod u+w "$2"
       shift 2
     done
+    # A chase.json is signed, as its owner would sign it.
+    if [ -e chase.json ]; then ${signing.sign} "$PWD" /home/alice; fi
     git add -A
     git -c user.name=alice -c user.email=alice@example.com commit -qm checkout --allow-empty
   '';
@@ -161,10 +164,11 @@ in
       uid = 1000;
       gid = 100;
       order = [ "own" "theirs" ];
-      # Approves every grant, and says what it was asked.
+      # Asked nothing: every checkout's chase.json is signed.
       approver = "${pkgs.writeShellScript "approver" ''
         ${pkgs.coreutils}/bin/cat | ${pkgs.util-linux}/bin/logger -t chase-test-approver
       ''}";
+      signer.allowedSigners = signing.allowedSigners;
       fallback = "others";
       apps = {
         claude.package = pkgs.hello;
@@ -245,10 +249,10 @@ in
           s, said = launch("${own}", "mine-nogrant")
           assert s is not None and s["GREETING"] == "", (s, said)
           assert "realising" not in said, said
-          assert '"apps": {"nix": {"devShell": true}}' in said, said
+          assert '"chase": {"apps": {"nix": {"devShell": true}}}' in said, said
 
       with subtest("a shell.nix's devShell is the session's, behind the wrappers and mise's shims"):
-          checkout("mine", "${shellNix}", "shell.nix", "${grantJsonc}", "chase.jsonc")
+          checkout("mine", "${shellNix}", "shell.nix", "${grantJson}", "chase.json")
           s, said = launch("${own}", "mine")
           assert s is not None, said
           path = s["PATH"].split(":")
@@ -277,10 +281,10 @@ in
           assert s is not None and s["GREETING"] == "changed", said
 
       with subtest("a shell.nix is evaluated restricted: a file of the user's outside the checkout is not read, and the launch refused"):
-          checkout("bashrc", "${bashrcNix}", "shell.nix", "${grantJsonc}", "chase.jsonc")
+          checkout("bashrc", "${bashrcNix}", "shell.nix", "${grantJson}", "chase.json")
           s, said = launch("${own}", "bashrc")
           assert s is None and "the session is not started" in said, said
-          assert 'to launch without it, set "apps": {"nix": {"devShell": false}}' in said, said
+          assert 'to launch without it, set "chase": {"apps": {"nix": {"devShell": false}}}' in said, said
           assert "the-users-bashrc" not in said, said
           assert "restricted mode" in said, said
           # Never kept: the next launch tries again.
@@ -289,18 +293,18 @@ in
 
       with subtest("nix sees nothing of the user's outside the checkout: not through getFlake, nor a flake's path: input"):
           machine.succeed("runuser -u alice -- sh -c 'mkdir -p ${home}/secrets && echo the-users-token > ${home}/secrets/token && echo \"{ outputs = _: { }; }\" > ${home}/secrets/flake.nix'")
-          checkout("getflake", "${getFlakeNix}", "shell.nix", "${grantJsonc}", "chase.jsonc")
+          checkout("getflake", "${getFlakeNix}", "shell.nix", "${grantJson}", "chase.json")
           s, said = launch("${own}", "getflake")
           assert s is None and "could not be realised" in said, said
           assert "the-users-token" not in said, said
-          checkout("pathinput", "${pathInputNix}", "flake.nix", "${grantJsonc}", "chase.jsonc")
+          checkout("pathinput", "${pathInputNix}", "flake.nix", "${grantJson}", "chase.json")
           s, said = launch("${own}", "pathinput")
           assert s is None and "could not be realised" in said, said
           assert "the-users-token" not in said, said
           machine.fail("grep -rl the-users-token /nix/store/*-nix-shell-env 2>/dev/null")
 
       with subtest("a flake with a relative path: input is realised from the checkout itself"):
-          checkout("mine-flake", "${flakeNix}", "flake.nix", "${subFlake}", "sub/flake.nix", "${pkgs.pkgsStatic.bash}/bin/bash", "sub/bash", "${grantJsonc}", "chase.jsonc")
+          checkout("mine-flake", "${flakeNix}", "flake.nix", "${subFlake}", "sub/flake.nix", "${pkgs.pkgsStatic.bash}/bin/bash", "sub/bash", "${grantJson}", "chase.json")
           machine.succeed(as_user("cd ${home}/mine-flake && nix --extra-experimental-features 'nix-command flakes' flake lock"))
           checkout("mine-flake")
           s, said = launch("${own}", "mine-flake")
@@ -312,10 +316,10 @@ in
           s, said = launch("${theirs}", "nogrant")
           assert s is not None and s["GREETING"] == "", (s, said)
           assert "realising" not in said, said
-          assert '"apps": {"nix": {"devShell": true}}' in said, said
+          assert '"chase": {"apps": {"nix": {"devShell": true}}}' in said, said
 
       with subtest("the grant turns it on, realised with no network"):
-          checkout("granted", "${shellNix}", "shell.nix", "${grantJsonc}", "chase.jsonc")
+          checkout("granted", "${shellNix}", "shell.nix", "${grantJson}", "chase.json")
           s, said = launch("${theirs}", "granted")
           assert s is not None and s["GREETING"] == "hi", said
           assert s["HELLO"].startswith("/nix/store/") and s["HELLO"].endswith("/bin/hello"), s
@@ -325,22 +329,22 @@ in
           assert s is not None and s["GREETING"] == "hi" and "realising" not in said, said
 
       with subtest("a flake with a relative path: input is realised with no network"):
-          checkout("granted-flake", "${flakeNix}", "flake.nix", "${subFlake}", "sub/flake.nix", "${pkgs.pkgsStatic.bash}/bin/bash", "sub/bash", "${grantJsonc}", "chase.jsonc")
+          checkout("granted-flake", "${flakeNix}", "flake.nix", "${subFlake}", "sub/flake.nix", "${pkgs.pkgsStatic.bash}/bin/bash", "sub/bash", "${grantJson}", "chase.json")
           machine.succeed(as_user("cd ${home}/granted-flake && nix --extra-experimental-features 'nix-command flakes' flake lock"))
           checkout("granted-flake")
           s, said = launch("${theirs}", "granted-flake")
           assert s is not None and s["FLAKE"] == "yes", said
 
       with subtest("one that fetches, or builds anything of its own, refuses the launch"):
-          checkout("fetch", "${fetchNix}", "shell.nix", "${grantJsonc}", "chase.jsonc")
+          checkout("fetch", "${fetchNix}", "shell.nix", "${grantJson}", "chase.json")
           s, said = launch("${theirs}", "fetch")
           assert s is None, said
           assert "the session is not started" in said and "access to URI 'https://example.com/' is forbidden" in said, said
-          checkout("localbuild", "${localBuildNix}", "shell.nix", "${grantJsonc}", "chase.jsonc")
+          checkout("localbuild", "${localBuildNix}", "shell.nix", "${grantJson}", "chase.json")
           s, said = launch("${theirs}", "localbuild")
           assert s is None, said
           assert "not all in the machine's binary caches" in said and "chase-test-not-cached" in said, said
-          assert 'to launch without it, set "apps": {"nix": {"devShell": false}}' in said, said
+          assert 'to launch without it, set "chase": {"apps": {"nix": {"devShell": false}}}' in said, said
           machine.fail("ls -d /nix/store/*-chase-test-not-cached")
 
       with subtest("a tier without nix gives no devShell"):
@@ -350,7 +354,7 @@ in
           assert "realising" not in said, said
 
       with subtest("a checkout that is gone has its devShell let go of"):
-          checkout("gone", "${shellNix}", "shell.nix", "${grantJsonc}", "chase.jsonc")
+          checkout("gone", "${shellNix}", "shell.nix", "${grantJson}", "chase.json")
           s, said = launch("${own}", "gone")
           assert s is not None and s["GREETING"] == "hi", said
           machine.succeed("grep -l '\"workspace\":\"${home}/gone\"' ${home}/.local/state/chase/checkouts/*/devshell/state.json")

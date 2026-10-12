@@ -19,13 +19,13 @@ namespaces. Nothing asks. See [../docker.md](../docker.md).
 chase.tiers.trusted = { egress = "direct"; grants = true; apps.docker.enable = true; };
 ```
 
-Grant:
+In the project's `chase.json`: its images, as `docker pull` shortens each,
+with a tag or digest; the host ports its containers publish, 1024–65535;
+and the project its `origin` names, which `chase sign` writes and a launch
+holds the file to:
 
-```jsonc
-"docker": {
-  "images": ["postgres:18"],   // as `docker pull` shortens it, with a tag or digest
-  "ports": [64320],            // host ports its containers publish, 1024–65535
-}
+```json
+"chase": {"apps": {"docker": {"images": {"postgres:18": true}, "ports": {"64320": true}, "project": "owner/repo"}}}
 ```
 
 The project is the checkout's `origin`, and its ports are published at the

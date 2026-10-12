@@ -20,13 +20,14 @@ description. See [../cloudflare.md](../cloudflare.md).
 chase.tiers.trusted = { grants = true; apps.cloudflare.enable = true; };
 ```
 
-Grant:
+In the project's `chase.json`, the binding in chase's section and the
+answers in frisket's:
 
-```jsonc
-"cloudflare": {
-  "credential": { "secret": "cloudflare-token" },
-  "accountId": "023e105f4ecef8ad9ca31a8372d0c353",
-  "allow": ["workers-ai-post-run-model"],
+```json
+{
+  "chase": {"apps": {"cloudflare": {"accountId": "023e105f4ecef8ad9ca31a8372d0c353", "credential": {"secret": "cloudflare-token"}}}},
+  "frisket": {"routes": {"cloudflare": {"operations": {"workers-ai-post-run-model": "allow"}}}},
+  "version": 2
 }
 ```
 
