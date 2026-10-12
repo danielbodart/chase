@@ -169,6 +169,17 @@ digest, and what each app binds. The project never loads chase, so there is
 no version to drift: it names fields, and the machine's components say what
 they mean.
 
+A tier is a layer of the same shape: `chase.tiers.<tier>.frisket`, `flong`,
+`signer` and `sudo`, merged with RFC 7396's merge patch over what the tier's
+other options and its apps make, as a project's sections are merged over the
+tier's. The tier's own options -- `allow`, `writes`, `guarded`, `unmatched`,
+`seccomp`, `forwardPorts`, the apps' -- are sugar for the commonest of it, and
+a tier may set what a project's check refuses, a route's `ceiling` among
+them. The result is what a project's section is merged over and checked
+against: `/etc/chase/policies/<tier>.json` for frisket, `flong.chase-<tier>`
+for flong. The signer's and the gate's are checked and kept at
+`/etc/chase/layers/<tier>.json` until they read a tier's.
+
 Before it, the grant was `chase.jsonc`, JSON with comments and trailing
 commas, decoded into a schema of chase's own and translated, list by list,
 into what each component reads. A launch still reads one for this release,

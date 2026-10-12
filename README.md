@@ -146,12 +146,38 @@ the file's JSON Schema.
 | `egress` | — | `direct`: its own network. `frisket`: frisket only. Required for a sandbox. |
 | `allow` | `[]` | Names frisket resolves for it, beyond its apps' own. `"*"` for any. |
 | `forwardPorts` | `[]` | Ports published on the host, at the [project's address](#project-addresses). `"auto"`: whatever a session listens on. |
-| `seccomp` | `{}` | flong's syscall filter. `{}` is `strict`. |
+| `seccomp` | `{}` | flong's syscall filter, `flong.seccomp`: a call by name in `syscalls`, systemd `@groups` in `allow` and `deny`. `{}` is `strict`. |
 | `grants` | `false` | Apply a checkout's grant, once signed. |
 | `caches` | `session` | Where tools keep downloads: `session`, `workspace` or `tier`. |
 | `writes`, `guarded`, `unmatched` | `ask`, `refuse`, `ask` | The answer for each class, in every app. See [Operations](#operations). |
 | `record.enable` | `false` | `chase record` in this tier, which must take grants: a second launcher on its container, every connection through frisket. See [docs/record.md](docs/record.md). |
 | `apps.<app>` | | See [Apps](#apps). |
+| `frisket`, `flong`, `signer`, `sudo` | `{}` | The tier as a layer: see below. |
+
+A tier is a layer of the same shape as a project's [`chase.json`](#grants):
+`frisket`, `flong`, `signer` and `sudo`, each that component's own section,
+merged as RFC 7396's merge patch over what the options above and the tier's
+apps make (an object merges key by key, `null` deletes, a list replaces).
+So a tier can say anything a project can, and what only the host may, such
+as a route's `ceiling`; the options above are sugar for the commonest of it.
+
+```nix
+chase.tiers.trusted = {
+  allow = [ "*" ];                                          # sugar: frisket.allow."**" = true
+  apps.git.writes = "allow";                                # sugar: frisket.routes.git.writes
+  frisket.routes.github.operations."category:pulls" = "allow";
+  frisket.routes.github.ceiling.guarded = "refuse";         # no project may lift it
+  flong.seccomp.syscalls.io_uring_setup = "allow";
+  flong.limits.MemoryMax = "8G";
+};
+```
+
+`frisket` is checked by `frisket check` when the system is built and
+installed as `/etc/chase/policies/<tier>.json`, the base a project's section
+is merged over. `flong` is `flong.chase-<tier>`, typed and checked by flong's
+module. `signer` and `sudo` are checked as a `chase.json`'s are and kept at
+`/etc/chase/layers/<tier>.json`: neither the signer nor the sudo gate reads a
+tier's yet.
 
 ### Rules
 

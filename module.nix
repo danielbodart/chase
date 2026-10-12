@@ -11,7 +11,12 @@ let
   # Every tier that is a container. A bare one is only a name the selector
   # can answer with.
   sandboxes = lib.filterAttrs (_: t: !t.bare) cfg.tiers;
+  # Each tier's sections no part of chase applies, for a tier with one.
+  layers = lib.mapAttrs (_: t: { version = 2; } // lib.filterAttrs (_: v: v != { }) { inherit (t) signer sudo; })
+    (lib.filterAttrs (_: t: t.signer != { } || t.sudo != { }) cfg.tiers);
   operations = import ./lib/operations.nix { inherit lib; };
+  mergePatch = import ./lib/merge-patch.nix { inherit lib; };
+  json = pkgs.formats.json { };
   # "owner/name", as a remote URL carries it. Narrow because selector.nix
   # parses every entry as one, and a malformed slug would otherwise sit in the
   # configuration matching nothing until the day you wondered why. Compared
@@ -218,8 +223,9 @@ let
           flong's `seccomp` for this tier's sessions: its tier, and the
           loosenings a tier's own work needs -- a call by name in its
           `syscalls` map (`{ ptrace = "allow"; }`), systemd's @groups in its
-          `allow` and `deny` lists. Empty is flong's default, `strict`. A
-          checkout's signed chase.json can add to it.
+          `allow` and `deny` lists. Empty is flong's default, `strict`. Sugar
+          for `flong.seccomp`, which is merged over it. A checkout's signed
+          chase.json can add to it.
         '';
       };
       caches = mkOption {
@@ -240,11 +246,74 @@ let
         type = types.bool;
         default = false;
         description = ''
-          Whether a checkout's own grant -- what its `chase.jsonc` asks for
-          -- is applied to its sessions in this tier, once approved. In a
-          tier that runs other people's code, too, where it fits the tier to
-          one checkout rather than moving it to a looser one (PLAN.md,
-          decision 13).
+          Whether a checkout's own grant -- what its signed `chase.json`
+          asks for -- is applied to its sessions in this tier. In a tier
+          that runs other people's code, too, where it fits the tier to one
+          checkout rather than moving it to a looser one (PLAN.md, decision
+          13).
+        '';
+      };
+
+      # THE TIER AS A LAYER (PLAN.md, decision 10): a section for each
+      # component, of the same shape as a project's chase.json has, merged
+      # with RFC 7396's merge patch over what the options above and the
+      # tier's apps make of it -- as a project's section is merged over the
+      # tier's at launch. So a tier can say anything a project can, and
+      # what only the host may: a field a project's check refuses is the
+      # tier's to set. The options above are sugar for the commonest of it.
+      frisket = mkOption {
+        type = types.attrsOf json.type;
+        default = { };
+        example = lib.literalExpression ''
+          {
+            allow."**.pythonhosted.org" = true;
+            routes.github.operations."category:pulls" = "allow";
+            routes.github.ceiling.guarded = "refuse";
+          }
+        '';
+        description = ''
+          frisket's policy document for this tier's sessions, version 2
+          (frisket's docs/routes.md), merged over the one `allow`, `writes`,
+          `guarded`, `unmatched` and the apps make: an object merges key by
+          key, null deletes what it is under, and a list replaces. A
+          route's `ceiling`, which no project may set, is a tier's to.
+          Checked by `frisket check` when the system is built, and
+          installed at /etc/chase/policies/<tier>.json, which a project's
+          own `frisket` section is merged over in a tier that takes grants.
+        '';
+      };
+      flong = mkOption {
+        type = types.attrsOf json.type;
+        default = { };
+        example = { seccomp.syscalls.io_uring_setup = "allow"; limits.MemoryMax = "8G"; };
+        description = ''
+          flong's declaration for this tier's sessions, flong.chase-<tier>,
+          merged over the one `seccomp`, `forwardPorts`, `egress` and chase
+          make, as `frisket` is: its fields are flong's options, typed and
+          checked as flong's module types and checks them. The record
+          launcher's filter, binds and overlays follow it.
+        '';
+      };
+      signer = mkOption {
+        type = types.attrsOf json.type;
+        default = { };
+        example = { ssh.hosts.gateway = "allow"; };
+        description = ''
+          frisket's signer's section, `ssh.hosts` and `sshsig`, as a
+          project's chase.json has it, for the tier's sessions. Checked as
+          one when the system is built, and kept, with `sudo`, at
+          /etc/chase/layers/<tier>.json: the signer reads only the host's
+          configuration and a project's file so far, not a tier's.
+        '';
+      };
+      sudo = mkOption {
+        type = types.attrsOf json.type;
+        default = { };
+        description = ''
+          The sudo gate's section, `exec`, as a project's chase.json has it:
+          checked when the system is built, and kept with `signer` at
+          /etc/chase/layers/<tier>.json, for the gate, which reads no
+          project's or tier's section yet.
         '';
       };
     };
@@ -408,10 +477,14 @@ in
     # system is built; a tier that takes grants merges a project's frisket
     # section over it at launch (internal/grant), and one that takes none
     # is served it as it is.
+    #
+    # The tier's own `frisket` section is merged over it here, last, so
+    # what reads it reads the document the tier serves.
     internal.policies = mkOption {
       internal = true;
-      type = types.attrsOf (types.submodule { freeformType = (pkgs.formats.json { }).type; });
+      type = types.attrsOf (types.submodule { freeformType = json.type; });
       default = { };
+      apply = lib.mapAttrs (name: p: mergePatch p (cfg.tiers.${name}.frisket or { }));
     };
 
     signer = {
@@ -474,10 +547,11 @@ in
         }
         {
           assertion = !tier.bare || !(tier.grants
+            || tier.frisket != { } || tier.flong != { }
             || config.containers ? "chase-${name}"
             || config.flong ? "chase-${name}"
             || cfg.internal.policies ? ${name});
-          message = "chase.tiers.${name} is bare, and something gives it a sandbox's settings: an app enabled in it, or `grants`. A bare tier runs with none.";
+          message = "chase.tiers.${name} is bare, and something gives it a sandbox's settings: an app enabled in it, `grants`, or a `frisket` or `flong` section. A bare tier runs with none.";
         }
       ]) cfg.tiers);
 
@@ -556,6 +630,25 @@ in
       fi
     '';
 
+    # The tier's sections no part of chase applies, the signer's and the
+    # sudo gate's, as a chase.json holds them and checked as one: kept for
+    # the components that will read a tier's, for each tier that has one.
+    environment.etc."chase/layers" = lib.mkIf (layers != { }) {
+      source = pkgs.runCommand "chase-layers"
+        {
+          nativeBuildInputs = [ cfg.package ];
+          documents = lib.mapAttrs (_: builtins.toJSON) layers;
+          __structuredAttrs = true;
+        } ''
+        mkdir -p "$out"
+        for name in "''${!documents[@]}"; do
+          printf '%s' "''${documents[$name]}" > "$out/$name.json"
+          chase fmt "$out/$name.json" >/dev/null
+          chase check "$out/$name.json"
+        done
+      '';
+    };
+
     # The user whose credential files the routes read. frisket's own
     # documents for the tiers are empty: a session is served chase's,
     # /etc/chase/policies/<tier>.json or the one exec writes for it
@@ -597,7 +690,9 @@ in
       };
     }) sandboxes;
 
-    flong = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" ({
+    # The tier's `flong` section merged over what chase and its other
+    # options make of the declaration.
+    flong = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" (mergePatch ({
       inherit (tier) seccomp;
       user = cfg.user;
       # The payload, worked out on the host after seccompPolicy, from the
@@ -631,6 +726,6 @@ in
         # 127.0.0.1: the host's localhost has to arrive on the session's.
         hostLoopbackToSession = tier.forwardPorts == "auto";
       };
-    })) sandboxes;
+    }) tier.flong)) sandboxes;
   };
 }

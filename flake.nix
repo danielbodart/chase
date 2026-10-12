@@ -520,6 +520,64 @@
               && config.flong.chase-trusted-record.seccomp.syscalls == config.flong.chase-trusted.seccomp.syscalls
               && lib.hasPrefix "/nix/store/" config.chase.internal.config.record.logged.trusted)
               || throw "assertions: a tier's syscalls map did not reach flong";
+            # A TIER IS A LAYER: its frisket and flong sections are merged
+            # over what its other options and its apps make, as RFC 7396
+            # says -- an object key by key, null deleting, a list replacing
+            # -- and may set what only the host may, a route's ceiling; its
+            # signer and sudo sections are kept beside, as a chase.json
+            # holds them. A bare tier takes none of the sandbox's.
+            assert
+              (let
+                config = configWith {
+                  chase.tiers.trusted = {
+                    record.enable = true;
+                    frisket = {
+                      allow = { "**" = null; "pypi.org" = true; };
+                      routes.github = { ceiling.guarded = "refuse"; operations."category:pulls" = "allow"; };
+                      routes.git.writes = null;
+                    };
+                    flong = { seccomp.syscalls.ptrace = "deny"; limits.MemoryMax = "8G"; };
+                    signer.ssh.hosts.gateway = "allow";
+                  };
+                };
+                p = config.chase.internal.policies.trusted;
+                f = config.flong.chase-trusted;
+                base = configWith { };
+              in
+              lib.all (a: a.assertion) config.assertions
+              && ! p.allow ? "**" && p.allow."pypi.org" && p.allow."github.com"
+              && p.routes.github.ceiling == { guarded = "refuse"; }
+              && p.routes.github.operations == { "category:pulls" = "allow"; }
+              && p.routes.github.paths == base.chase.internal.policies.trusted.routes.github.paths
+              && ! p.routes.git ? writes && p.routes.git.guarded == base.chase.internal.policies.trusted.routes.git.guarded
+              && f.seccomp.debug && f.seccomp.syscalls == { ptrace = "deny"; }
+              && f.limits.MemoryMax == "8G"
+              && config.flong.chase-trusted-record.seccomp == f.seccomp
+              && f.network == base.flong.chase-trusted.network
+              && config.environment.etc."chase/layers".enable
+              && ! base.environment.etc ? "chase/layers"
+              && base.chase.internal.policies.trusted.allow."**")
+              || throw "assertions: a tier's sections were not merged over what it makes";
+            assert refused "a bare tier's frisket section" { chase.tiers.host.frisket.allow."pypi.org" = true; } "host is bare";
+            # mergePatch is RFC 7396's: its appendix's cases.
+            assert
+              (let mp = import ./lib/merge-patch.nix { inherit lib; }; in
+              mp { a = "b"; } { a = "c"; } == { a = "c"; }
+              && mp { a = "b"; } { b = "c"; } == { a = "b"; b = "c"; }
+              && mp { a = "b"; } { a = null; } == { }
+              && mp { a = "b"; b = "c"; } { a = null; } == { b = "c"; }
+              && mp { a = [ "b" ]; } { a = "c"; } == { a = "c"; }
+              && mp { a = "c"; } { a = [ "b" ]; } == { a = [ "b" ]; }
+              && mp { a.b = "c"; } { a = { b = "d"; c = null; }; } == { a.b = "d"; }
+              && mp { a = [ { b = "c"; } ]; } { a = [ 1 ]; } == { a = [ 1 ]; }
+              && mp [ "a" "b" ] [ "c" "d" ] == [ "c" "d" ]
+              && mp { a = "b"; } [ "c" ] == [ "c" ]
+              && mp { a = "foo"; } null == null
+              && mp { a = "foo"; } "bar" == "bar"
+              && mp { e = null; } { a = 1; } == { e = null; a = 1; }
+              && mp [ 1 2 ] { a = "b"; c = null; } == { a = "b"; }
+              && mp { } { a.bb.ccc = null; } == { a.bb = { }; })
+              || throw "assertions: mergePatch is not RFC 7396's";
             # The old selector options say where their replacement is.
             assert refused "a removed selector option" { chase.trustedOrgs = [ "alice" ]; } "chase.tiers.<name>.match";
             # DECLARED BUT UNBOUND REFUSES (PLAN.md, decision 4). trusted's
@@ -950,7 +1008,20 @@
               && ! config.flong.chase-strict.seccomp.debug
               && config.flong.chase-strict.seccompPolicy == [ ])
               || throw "assertions: the tiers' seccomp is not what they say";
-            pkgs.runCommand "assertions" { } "touch $out";
+            # Built, so a tier's signer and sudo sections are put in their
+            # canonical form and checked by chase as a chase.json's are.
+            pkgs.runCommand "assertions"
+              {
+                layers = (configWith {
+                  chase.tiers.trusted = {
+                    signer.ssh.hosts.gateway = "allow";
+                    sudo.exec."/run/current-system/sw/bin/true" = { runAs = "root"; answer = "allow"; };
+                  };
+                }).environment.etc."chase/layers".source;
+              } ''
+              grep -q '"gateway": "allow"' "$layers/trusted.json"
+              touch $out
+            '';
 
           # WHAT A DOCKER BODY MAY HOLD (docs/docker.md): the hand-written
           # tables in apps/docker/fields.json, one per body admit.json names,
