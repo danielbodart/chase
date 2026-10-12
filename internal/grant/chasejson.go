@@ -15,6 +15,7 @@ import (
 	"github.com/danielbodart/frisket/hostpattern"
 	"github.com/danielbodart/frisket/policy"
 	"github.com/danielbodart/frisket/projpolicy"
+	"github.com/danielbodart/frisket/sudo"
 
 	appsssh "github.com/danielbodart/chase/internal/apps/ssh"
 )
@@ -84,10 +85,10 @@ type FlongSeccomp struct {
 	Syscalls map[string]string `json:"syscalls,omitempty"`
 }
 
-// SudoLayer is the sudo gate's section, kept for it: commands by their
-// absolute path and arguments, each with whom it runs as and its answer.
-// The gate does not read a project's file yet (frisket's
-// policy-plan.md, §5).
+// SudoLayer is the sudo gate's section, read by the gate itself for a sudo
+// run in the checkout (frisket's docs/sudo.md, Rules): commands by their
+// absolute path and arguments, each with whom it runs as and its answer,
+// merged over the host's rules.
 type SudoLayer struct {
 	Exec map[string]SudoRule `json:"exec,omitempty"`
 }
@@ -475,6 +476,15 @@ func (s SudoLayer) check() error {
 		case r.Answer != "allow" && r.Answer != "ask" && r.Answer != "refuse":
 			return fmt.Errorf("sudo.exec.%s.answer: %q is not allow, ask or refuse", k, r.Answer)
 		}
+	}
+	// The gate's own reading: a rule it would refuse, and so ignore the
+	// whole file over, is refused here before it is signed.
+	rules := map[string]sudo.Rule{}
+	for k, r := range s.Exec {
+		rules[k] = sudo.Rule{RunAs: r.RunAs, Answer: r.Answer}
+	}
+	if err := sudo.CheckExec(rules); err != nil {
+		return fmt.Errorf("sudo.%w", err)
 	}
 	return nil
 }

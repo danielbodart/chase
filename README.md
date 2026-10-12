@@ -177,7 +177,8 @@ installed as `/etc/chase/policies/<tier>.json`, the base a project's section
 is merged over. `flong` is `flong.chase-<tier>`, typed and checked by flong's
 module. `signer` and `sudo` are checked as a `chase.json`'s are and kept at
 `/etc/chase/layers/<tier>.json`: neither the signer nor the sudo gate reads a
-tier's yet.
+tier's yet; each reads a project's file, and the gate's host rules are its
+own `services.frisket.sudoGate.exec`.
 
 ### Rules
 
@@ -311,7 +312,7 @@ component's own shape. Every section is optional.
 | `frisket` | Merged over the tier's policy document, and checked by frisket's own project-layer check ([frisket's docs/policy.md](https://github.com/danielbodart/frisket/blob/trunk/docs/policy.md)). `routes.<app>.operations` answers `allow`, `ask` or `refuse` by operation id, `category:<name>` or `METHOD /path`, and a route's own `writes`, `guarded` and `unmatched` answer the rest. Only cloudflare, gcloud, git, github and huggingface take a project's answers, and only where the tier holds their credential: an answer for any other route, or an anonymous one, is said and left out. `allow` is names beyond the tier's and its apps', for connections no route serves, in frisket's host grammar, `"**.pythonhosted.org": true`, never `**` nor every name below a public suffix. `lan` is hosts on your own network, `"nas.home.arpa": {"ports": [445]}`: each an exact name, reached at the private address its DNS gives, at those ports (every port when none are given), and put on the allowlist with it; not a route's host or a project's name. `ssh.<machine>.exec` answers the tier's own machines by frisket's rule names. A field only the host sets is refused. |
 | `flong` | `seccomp.syscalls`, a call by name to `allow`, `deny` or `log`, and `seccomp.allow` and `deny`, lists of systemd `@groups`, checked by `flong check --layer project` against the tier's filter. A grant's `allow` overrides the tier's `seccomp.deny`: the tier is the ready-made fit, the grant the tailored one. |
 | `signer` | frisket's signer's `ssh.hosts` and `sshsig`, each `allow` or `ask`, read by the signer itself for what this checkout logs in to and signs. |
-| `sudo` | The sudo gate's `exec`, commands to `{"runAs": …, "answer": …}`. Shaped and checked, but not yet read by the gate. |
+| `sudo` | The sudo gate's `exec`, the resolved command's pattern (`/run/current-system/sw/bin/journalctl **`) to `{"runAs": …, "answer": …}`, `allow`, `ask` or `refuse`, read by the gate itself for a sudo run in the checkout and merged over the host's rules; checked by frisket's own reading, and never deciding a danger ([frisket's docs/sudo.md](https://github.com/danielbodart/frisket/blob/trunk/docs/sudo.md#rules)). |
 | `chase` | What no component owns. `secrets` is the checkout's sops file, each `credential.secret` a key in it, and `secretsSHA256` its digest. `apps.<app>` is what an app binds: its credential, Cloudflare's `accountId`, Docker's `project`, `images` and `ports`, Google's `serviceAccount` and `apis`, and ssh's machines, whose lists still take the catalogue's ids, `category:<name>` and command patterns, `docker compose ps **` ([docs/apps/ssh.md](docs/apps/ssh.md)). `apps.nix.devShell`, `true`, turns the checkout's devShell on, in any tier with nix: none is evaluated without it, as with `direnv allow`, and it is realised with no network where the tier's egress is not direct and unfiltered ([docs/apps/nix.md](docs/apps/nix.md)). |
 
 `chase schema` prints the whole shape, and `chase check` says what is wrong

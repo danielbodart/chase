@@ -312,8 +312,10 @@ let
         description = ''
           The sudo gate's section, `exec`, as a project's chase.json has it:
           checked when the system is built, and kept with `signer` at
-          /etc/chase/layers/<tier>.json, for the gate, which reads no
-          project's or tier's section yet.
+          /etc/chase/layers/<tier>.json. The gate reads a project's section
+          and its host's own rules (services.frisket.sudoGate.exec), not a
+          tier's: only a bare tier's sessions sudo at all, and theirs are
+          the host's.
         '';
       };
       always = mkOption {

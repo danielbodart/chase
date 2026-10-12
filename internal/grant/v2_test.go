@@ -328,6 +328,8 @@ func TestWhatAChaseJSONMayNotSayIsRefused(t *testing.T) {
 		{`{"version": 2, "signer": {"ssh": {"hosts": {"gateway": "refuse"}}}}`, "not allow or ask"},
 		{`{"version": 2, "signer": {"user": "dan"}}`, `unknown field "user"`},
 		{`{"version": 2, "sudo": {"exec": {"systemctl": {"runAs": "root", "answer": "allow"}}}}`, "absolute path"},
+		{`{"version": 2, "sudo": {"exec": {"/run/current-system/sw/bin/cat ** [arg shadow]": {"runAs": "root", "answer": "allow"}}}}`, "only asks or refuses"},
+		{`{"version": 2, "sudo": {"exec": {"/run/current-system/sw/bin/systemctl ** status": {"runAs": "root", "answer": "allow"}}}}`, "only the last word"},
 		{`{"version": 2, "chase": {"secrets": "s.yaml"}}`, "give both or neither"},
 		{`{"version": 2, "chase": {"secrets": "/etc/shadow", "secretsSHA256": "` + strings.Repeat("a", 64) + `"}}`, "not relative to the checkout"},
 		{`{"version": 2, "chase": {"apps": {"docker": {"images": {"docker.io/library/postgres:18": true}}}}}`, "spells out Docker Hub"},

@@ -162,8 +162,8 @@ nothing (decision 4). What only the tier can say is checked by the
 component it belongs to, at launch: frisket's section by frisket's own
 project-layer check, merged over the tier's policy document; flong's by
 `flong check --layer project`, against the tier's declaration; the
-signer's by the signer, which reads it for itself on the host. The sudo
-gate's is shaped and checked, but the gate does not read it yet. chase's
+signer's by the signer, which reads it for itself on the host, and the
+sudo gate's by the gate, likewise, merged over the host's own rules. chase's
 own section holds only what no component owns: the sops file and its
 digest, and what each app binds. The project never loads chase, so there is
 no version to drift: it names fields, and the machine's components say what
