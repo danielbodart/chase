@@ -20,7 +20,10 @@ package session
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/danielbodart/chase/internal/gitsafe"
 )
@@ -116,6 +119,53 @@ type Nix struct {
 	// network -- substituted from the machine's binary caches, nothing
 	// built but nix's record of its environment.
 	Offline bool `json:"offline,omitempty"`
+}
+
+// Validate refuses a Config the module did not write: a tier's nix as Nix's
+// Validate does, and a scope the module's enum options would not
+// give, which a session would otherwise read as one it knows -- an unknown
+// store scope as a workspace's, an unknown Claude Code scope as no host's.
+func (c Config) Validate() error {
+	for _, name := range slices.Sorted(maps.Keys(c.Tiers)) {
+		t := c.Tiers[name]
+		at := "tiers." + name
+		if t.Nix != nil {
+			if err := t.Nix.Validate(); err != nil {
+				return fmt.Errorf("%s: %w", at, err)
+			}
+		}
+		if t.Claude != nil {
+			if err := oneOf(at+".claude.scope", t.Claude.Scope, ClaudeScopes); err != nil {
+				return err
+			}
+		}
+		if t.Codex != nil {
+			if err := oneOf(at+".codex.scope", t.Codex.Scope, CodexScopes); err != nil {
+				return err
+			}
+		}
+		for _, s := range slices.Sorted(maps.Keys(t.Stores)) {
+			if err := oneOf(at+".stores."+s+".scope", t.Stores[s].Scope, StoreScopes); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// The values each enum of the session section may take, as the module's
+// options have them.
+var (
+	ClaudeScopes = []string{"session", "workspace", "host"}
+	CodexScopes  = []string{"session", "workspace", "tier", "host"}
+	StoreScopes  = []string{"workspace", "tier"}
+)
+
+func oneOf(at, v string, want []string) error {
+	if !slices.Contains(want, v) {
+		return fmt.Errorf("%s is %q, not one of %s", at, v, strings.Join(want, ", "))
+	}
+	return nil
 }
 
 // Validate refuses a Nix the module did not write, rather than half obey

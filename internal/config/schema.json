@@ -1,0 +1,430 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "chase config",
+  "description": "/etc/chase/config.json: what the NixOS module tells the chase binary, a section per part of chase that needs one. Read strictly: an unknown key, a second value or a word an enum does not have is refused.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["selector", "session"],
+  "properties": {
+    "selector": {
+      "description": "What sorts a checkout into a tier, and launches a session of each: chase.order, chase.fallback and chase.tiers.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["git", "order", "fallback", "tiers"],
+      "properties": {
+        "git": { "$ref": "#/$defs/git" },
+        "emptySha1": { "$ref": "#/$defs/emptySha1" },
+        "emptySha256": { "$ref": "#/$defs/emptySha256" },
+        "order": {
+          "description": "chase.order: the tiers asked, first to last; the first with a rule that holds is the checkout's.",
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "fallback": {
+          "description": "chase.fallback: the tier a checkout no rule holds for goes to. One of tiers, never a bare one.",
+          "type": "string",
+          "minLength": 1
+        },
+        "tiers": {
+          "description": "chase.tiers, by name.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/selectorTier" }
+        }
+      }
+    },
+    "wrappers": {
+      "description": "The agents a person runs on the host, by the name they run them as: what runs for a bare tier.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["hostCommand"],
+        "properties": {
+          "hostCommand": {
+            "description": "The agent's argv on the host, before the person's own arguments.",
+            "type": "array",
+            "minItems": 1,
+            "prefixItems": [{ "$ref": "#/$defs/absPath" }],
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "claude": {
+      "description": "Claude Code's login refresher and its workspace trust, when the module enables it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["credentials", "claude", "claudeJson"],
+      "properties": {
+        "credentials": { "description": "The host's own login, ~/.claude/.credentials.json.", "type": "string" },
+        "claude": { "description": "The unwrapped claude binary.", "type": "string" },
+        "claudeJson": { "description": "The host's ~/.claude.json, where a bare tier that trusts its checkouts trusts them.", "type": "string" }
+      }
+    },
+    "codex": {
+      "description": "Codex's login refresher and its placeholder login, when the module enables it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["auth", "stateDir", "placeholder"],
+      "properties": {
+        "auth": { "description": "The host's own login, ~/.codex/auth.json.", "type": "string" },
+        "stateDir": { "description": "~/.local/state/chase/codex: the placeholder and each isolated tier's CODEX_HOME.", "type": "string" },
+        "formerStateDir": { "description": "Where an earlier chase kept stateDir, moved from. Empty is nowhere.", "type": "string" },
+        "sqlite": { "description": "The sqlite3 a moved home's thread index is repointed with. Empty is none.", "type": "string" },
+        "placeholder": { "description": "The placeholder login, stateDir/auth-placeholder.json.", "type": "string" },
+        "tokenEndpoint": { "description": "Where the refresh token is exchanged. Empty is OpenAI's; set only by tests.", "type": "string" }
+      }
+    },
+    "gcloudRenew": {
+      "description": "The Google Cloud token renewer's.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tokenUrl": { "$ref": "#/$defs/tokenUrl" }
+      }
+    },
+    "session": {
+      "description": "What a sandbox tier's sessions are given on the host before they start.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["home", "runtime", "placeholder", "tiers"],
+      "properties": {
+        "home": { "description": "chase.home, the user's home on both sides of the boundary.", "type": "string" },
+        "runtime": { "description": "The user's runtime directory, /run/user/<chase.uid>.", "type": "string" },
+        "placeholder": { "description": "chase.placeholder, what a session holds in place of every credential.", "type": "string" },
+        "workspaceGroups": {
+          "description": "chase.workspaceGroups: checkouts worked on together, each member bound beside the others.",
+          "type": "array",
+          "items": { "type": "array", "items": { "type": "string" } }
+        },
+        "tiers": {
+          "description": "What each sandbox tier binds and runs, by tier name.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/sessionTier" }
+        }
+      }
+    },
+    "grant": {
+      "description": "How a checkout's own grant is approved and applied, for the tiers that take one.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["git", "uid", "home", "policies", "dockerTiers", "checkouts", "apps", "sops", "diff"],
+      "properties": {
+        "git": { "$ref": "#/$defs/git" },
+        "emptySha1": { "$ref": "#/$defs/emptySha1" },
+        "emptySha256": { "$ref": "#/$defs/emptySha256" },
+        "uid": { "description": "chase.uid, the user every step runs as.", "type": "integer" },
+        "home": { "description": "chase.home.", "$ref": "#/$defs/absPath" },
+        "state": { "description": "Where chase keeps what it approved. Empty is home/.local/state/chase.", "$ref": "#/$defs/optionalAbsPath" },
+        "runtime": { "description": "The user's runtime directory. Empty is /run/user/<uid>.", "$ref": "#/$defs/optionalAbsPath" },
+        "policies": { "description": "The directory of the tiers' own frisket policy documents.", "$ref": "#/$defs/absPath" },
+        "dockerTiers": {
+          "description": "The tiers apps/docker.nix gives Docker.",
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "checkouts": {
+          "description": "Every tier's pinned checkouts: each owner/repo, and every path any tier pins it at.",
+          "type": ["object", "null"],
+          "additionalProperties": { "type": "array", "items": { "type": "string" } }
+        },
+        "apps": {
+          "description": "chase.internal.projectApps: what an app becomes when a project binds it, by name.",
+          "type": ["object", "null"],
+          "additionalProperties": { "$ref": "#/$defs/grantApp" }
+        },
+        "ungranted": {
+          "description": "The tiers that take no checkout's grant but are launched as those that do, for routes that are the tier's own.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "approver": { "description": "chase.approver: the program that asks a person to approve a grant. Empty is none.", "$ref": "#/$defs/optionalAbsPath" },
+        "recordDir": { "description": "Where frisket appends a recording session's lines. Empty is the journal alone.", "$ref": "#/$defs/optionalAbsPath" },
+        "sops": { "description": "The sops that decrypts a project's secrets.", "$ref": "#/$defs/absPath" },
+        "diff": { "description": "The diff that shows a person what changed.", "$ref": "#/$defs/absPath" },
+        "docker": {
+          "description": "Docker's routes, for each tier with Docker, by tier.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["routes"],
+          "properties": {
+            "routes": {
+              "type": ["object", "null"],
+              "additionalProperties": { "$ref": "#/$defs/frisketRoute" }
+            }
+          }
+        },
+        "gcloud": { "$ref": "#/$defs/gcloud" },
+        "ssh": { "$ref": "#/$defs/ssh" }
+      }
+    },
+    "grantTiers": {
+      "description": "The tiers that take a checkout's grant.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "record": {
+      "description": "`chase record`'s, when any tier records.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["journalctl", "seccomp"],
+      "properties": {
+        "journalctl": { "description": "systemd's journalctl.", "$ref": "#/$defs/absPath" },
+        "seccomp": { "description": "flong's flong-seccomp.", "$ref": "#/$defs/absPath" },
+        "names": {
+          "description": "Each recording tier's names file: the calls its filter allows, one a line.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/absPath" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "absPath": { "type": "string", "pattern": "^/" },
+    "optionalAbsPath": { "type": "string", "pattern": "^(/|$)" },
+    "answer": { "enum": ["allow", "ask", "refuse"] },
+    "git": {
+      "description": "The git every git call runs, never looked up on PATH.",
+      "$ref": "#/$defs/absPath"
+    },
+    "emptySha1": {
+      "description": "The empty sha1 repository, a store path. Both empties or neither.",
+      "$ref": "#/$defs/absPath"
+    },
+    "emptySha256": {
+      "description": "The empty sha256 repository, a store path. Both empties or neither.",
+      "$ref": "#/$defs/absPath"
+    },
+    "tokenUrl": {
+      "description": "Where a token's grant is posted. Empty is Google's; only a check sets it.",
+      "type": "string"
+    },
+    "selectorTier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bare", "match"],
+      "properties": {
+        "bare": { "description": "chase.tiers.<name>.bare: run with no sandbox at all.", "type": "boolean" },
+        "match": {
+          "description": "chase.tiers.<name>.match: any one of these rules, each holding when every predicate it sets does.",
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/rule" }
+        },
+        "launcher": { "description": "A sandbox tier's flong launcher. Empty for a bare tier.", "$ref": "#/$defs/optionalAbsPath" },
+        "recordLauncher": { "description": "The tier's record launcher. Empty for a tier that does not record.", "$ref": "#/$defs/optionalAbsPath" },
+        "trust": {
+          "description": "What a bare tier trusts its checkouts in, on the host.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "claude": { "type": "boolean" },
+            "codex": { "type": "boolean" },
+            "env": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "rule": {
+      "description": "One of chase.tiers.<name>.match. It sets at least one predicate.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "paths": { "type": "array", "items": { "type": "string" } },
+        "checkouts": { "type": "object", "additionalProperties": { "type": "string" } },
+        "repos": { "type": "array", "items": { "type": "string" } },
+        "owners": { "type": "array", "items": { "type": "string" } },
+        "rootAuthorDomains": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "sessionTier": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "claude": {
+          "description": "Claude Code in the tier.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scope", "settings"],
+          "properties": {
+            "scope": { "description": "apps.claude.scope.", "enum": ["session", "workspace", "host"] },
+            "settings": { "description": "The tier's settings file, given as --settings.", "type": "string" },
+            "connectors": { "description": "apps.claude.connectors.", "type": "boolean" },
+            "trust": { "description": "apps.claude.trust.", "type": "boolean" }
+          }
+        },
+        "codex": {
+          "description": "codex in the tier.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scope", "placeholder"],
+          "properties": {
+            "scope": { "description": "apps.codex.scope.", "enum": ["session", "workspace", "tier", "host"] },
+            "placeholder": { "description": "The placeholder login a session's ~/.codex is seeded with.", "type": "string" },
+            "trust": { "description": "apps.codex.trust.", "type": "boolean" }
+          }
+        },
+        "deepsec": {
+          "description": "deepsec in the tier.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "agent": { "description": "The --agent `deepsec init` is given when it names none. Empty is deepsec's own default.", "type": "string" }
+          }
+        },
+        "cloudflare": {
+          "description": "The Cloudflare account the tier's sessions are told.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["accountIdFile"],
+          "properties": {
+            "accountIdFile": { "description": "apps.cloudflare.accountIdFile.", "type": "string" }
+          }
+        },
+        "stores": {
+          "description": "What the tier's sessions keep beyond themselves, by name.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["scope", "root"],
+            "properties": {
+              "scope": { "description": "A directory per workspace, or one for the tier.", "enum": ["workspace", "tier"] },
+              "root": { "description": "Where the tier's directories are made.", "type": "string" },
+              "env": { "description": "Each variable, and the path in the directory it is set to.", "type": "object", "additionalProperties": { "type": "string" } },
+              "files": { "description": "Each path in the directory, and the host file installed there at every launch.", "type": "object", "additionalProperties": { "type": "string" } }
+            }
+          }
+        },
+        "trustEnv": { "description": "The variables set to the workspace, each an app's list of trusted paths.", "type": "array", "items": { "type": "string" } },
+        "environment": { "description": "What the tier's container sets in every session's environment, as flong computes it.", "type": "object", "additionalProperties": { "type": "string" } },
+        "forward": { "description": "Whether the tier's published ports go on the project's own address.", "type": "boolean" },
+        "nix": {
+          "description": "The tier's apps.nix: how a checkout's devShell is realised on the host.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["git", "timeout", "nix", "nixpkgs", "system", "bwrap", "caBundle"],
+          "properties": {
+            "git": { "$ref": "#/$defs/git" },
+            "emptySha1": { "$ref": "#/$defs/emptySha1" },
+            "emptySha256": { "$ref": "#/$defs/emptySha256" },
+            "timeout": { "description": "How many seconds a realisation may take.", "type": "integer", "minimum": 1 },
+            "nix": { "$ref": "#/$defs/absPath" },
+            "nixpkgs": { "description": "What <nixpkgs> is to a checkout's shell.nix.", "$ref": "#/$defs/absPath" },
+            "system": { "description": "The devShells.<system> a flake's is taken from.", "type": "string", "minLength": 1 },
+            "bwrap": { "$ref": "#/$defs/absPath" },
+            "caBundle": { "$ref": "#/$defs/absPath" },
+            "offline": { "description": "Realise with no network.", "type": "boolean" }
+          }
+        },
+        "pathFront": { "description": "The entries of the container's PATH a devShell's go behind.", "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "grantApp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "routes": {
+          "description": "By tier: a frisket route, or a list of them.",
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              { "$ref": "#/$defs/frisketRoute" },
+              { "type": "array", "items": { "$ref": "#/$defs/frisketRoute" } }
+            ]
+          }
+        },
+        "allow": { "type": "array", "items": { "type": "string" } },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+        "envFromGrant": { "description": "Each variable, and the binding's field it is taken from.", "type": "object", "additionalProperties": { "type": "string" } },
+        "credential": { "description": "Whether the app is bound only with the project's secret. Absent is true.", "type": "boolean" }
+      }
+    },
+    "frisketRoute": {
+      "description": "A route as frisket's policy reads it, which frisket's own schema describes.",
+      "type": "object"
+    },
+    "gcloud": {
+      "description": "Google Cloud, for each tier that has it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tiers", "catalogue", "every", "placeholder", "runtimeDir", "systemctl"],
+      "properties": {
+        "tiers": {
+          "type": ["object", "null"],
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["writes", "guarded", "unmatched", "apis"],
+            "properties": {
+              "writes": { "$ref": "#/$defs/answer" },
+              "guarded": { "$ref": "#/$defs/answer" },
+              "unmatched": { "$ref": "#/$defs/answer" },
+              "apis": { "description": "The APIs the tier carries, by Discovery name.", "type": ["array", "null"], "items": { "type": "string" } }
+            }
+          }
+        },
+        "catalogue": { "description": "apps/gcloud in the store.", "type": "string" },
+        "every": { "description": "Every method a rule may name.", "type": ["array", "null"], "items": { "type": "string" } },
+        "placeholder": { "description": "chase.placeholder.", "type": "string" },
+        "runtimeDir": { "description": "The user's runtime directory.", "type": "string" },
+        "systemctl": { "description": "The systemctl the renewer is started with.", "type": "string" },
+        "tokenUrl": { "$ref": "#/$defs/tokenUrl" }
+      }
+    },
+    "ssh": {
+      "description": "SSH, for each tier that has it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tiers", "catalogue"],
+      "properties": {
+        "tiers": {
+          "type": ["object", "null"],
+          "additionalProperties": { "$ref": "#/$defs/sshTier" }
+        },
+        "catalogue": { "description": "The Linux catalogue, in the store.", "type": "string" },
+        "catalogues": { "description": "chase.apps.ssh.catalogues, each in the store, by name.", "type": "object", "additionalProperties": { "type": "string" } },
+        "agent": { "description": "chase.apps.ssh.agentSocket.", "type": "string" },
+        "keyFile": { "description": "chase.apps.ssh.keyFile.", "type": "string" },
+        "identity": { "description": "The one key of the agent's to offer.", "type": "string" }
+      }
+    },
+    "sshTier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["writes", "guarded", "unmatched"],
+      "properties": {
+        "writes": { "$ref": "#/$defs/answer" },
+        "guarded": { "$ref": "#/$defs/answer" },
+        "unmatched": { "$ref": "#/$defs/answer" },
+        "env": { "description": "apps.ssh.env: the variables a command may set for itself in front of it.", "type": "array", "items": { "type": "string" } },
+        "hosts": {
+          "description": "The tier's own machines, by the name ssh knows each by in the sandbox.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/sshHost" }
+        }
+      }
+    },
+    "sshHost": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "address": { "description": "A literal IP, v4:port or [v6]:port.", "type": "string" },
+        "allow": { "type": "array", "items": { "type": "string" } },
+        "ask": { "type": "array", "items": { "type": "string" } },
+        "hostKeys": { "description": "The machine's own keys, as known_hosts writes them less the host.", "type": "array", "items": { "type": "string" } },
+        "refuse": { "type": "array", "items": { "type": "string" } },
+        "shell": { "description": "Commands are typed into the login shell on a terminal.", "type": "boolean" },
+        "unmatched": { "description": "Answers a command no rule matches, in place of the tier's.", "$ref": "#/$defs/answer" },
+        "user": { "description": "Who the commands run as.", "type": "string" },
+        "catalogue": { "description": "The one of catalogues this machine's commands are decided by.", "type": "string" },
+        "expect": { "description": "What each command must be answered when the system is built.", "type": "object", "additionalProperties": { "$ref": "#/$defs/answer" } },
+        "agent": { "type": "string" },
+        "keyFile": { "type": "string" },
+        "passwordFile": { "type": "string" },
+        "identity": { "type": "string" }
+      }
+    }
+  }
+}

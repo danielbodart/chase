@@ -76,6 +76,13 @@ const usage = `chase -- which sandbox a checkout gets, and which credential each
         lower-cased, the loopback address its dev servers and containers
         are published at, and the .internal names that address is known by.
 
+  chase check FILE
+        Read FILE as every command reads the module's configuration, and
+        say what is wrong with it.
+
+  chase schema
+        Print the configuration's JSON Schema.
+
   chase version
         The version this binary was built as.
 
@@ -189,6 +196,10 @@ func main() {
 		exit(gcloud.Run(ctx, args, os.Getenv, os.Stderr, cfg.GCloudRenew))
 	case "ssh-check":
 		err = runSSHCheck(cfgPath)
+	case "check":
+		err = runCheck(args)
+	case "schema":
+		fmt.Print(config.Schema)
 	case "version":
 		fmt.Println(version)
 	case "-h", "--help", "help":
@@ -204,6 +215,16 @@ func main() {
 		fmt.Fprintf(os.Stderr, "chase %s: %v\n", command, err)
 		os.Exit(1)
 	}
+}
+
+// runCheck is what the system's build asks of the file the module writes:
+// that it loads, as every command would load it.
+func runCheck(args []string) error {
+	if len(args) != 1 {
+		return errors.New("name one config file")
+	}
+	_, err := config.Load(args[0])
+	return err
 }
 
 // runSSHCheck is what every launch would refuse of the machine's own SSH

@@ -8,12 +8,17 @@
 // its own origin (chase-checkout refuses those for the same reason).
 //
 // Each section is its package's own Config, decoded strictly: a key the
-// binary does not know is a setting that silently does not apply, and is
-// refused instead.
+// binary does not know, a second JSON value after the first, or a word an
+// enum does not have is a setting that silently does not apply, and is
+// refused instead. `chase check FILE` reads a file as Load does, and the
+// module runs it on the one it writes when the system is built; `chase
+// schema` prints the file's JSON Schema (Schema), which a test holds to the
+// keys Load decodes.
 package config
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +33,11 @@ import (
 	"github.com/danielbodart/chase/internal/selector"
 	"github.com/danielbodart/chase/internal/session"
 )
+
+// Schema is the file's JSON Schema, draft 2020-12.
+//
+//go:embed schema.json
+var Schema string
 
 // Default is where the module installs the file.
 const Default = "/etc/chase/config.json"
@@ -92,16 +102,22 @@ func Load(path string) (Config, error) {
 	if err := c.Selector.Validate(); err != nil {
 		return Config{}, fmt.Errorf("%s: selector: %w", path, err)
 	}
-	for name, t := range c.Session.Tiers {
-		if t.Nix != nil {
-			if err := t.Nix.Validate(); err != nil {
-				return Config{}, fmt.Errorf("%s: session: %s: %w", path, name, err)
-			}
-		}
+	if err := c.Session.Validate(); err != nil {
+		return Config{}, fmt.Errorf("%s: session: %w", path, err)
 	}
 	if c.Grant != nil {
 		if err := grant.Validate(*c.Grant, grant.DefaultApps(*c.Grant, io.Discard)); err != nil {
 			return Config{}, fmt.Errorf("%s: grant: %w", path, err)
+		}
+		if g := c.Grant.Gcloud; g != nil {
+			if err := g.Validate(); err != nil {
+				return Config{}, fmt.Errorf("%s: grant: gcloud: %w", path, err)
+			}
+		}
+		if s := c.Grant.SSH; s != nil {
+			if err := s.Validate(); err != nil {
+				return Config{}, fmt.Errorf("%s: grant: ssh: %w", path, err)
+			}
 		}
 	}
 	if c.Record != nil {

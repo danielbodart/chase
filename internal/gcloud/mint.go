@@ -55,7 +55,7 @@ const (
 type Config struct {
 	// TokenURL is where a grant is posted. Empty is DefaultTokenURL; only a
 	// check sets it: nothing at run time can move it.
-	TokenURL string `json:"tokenURL,omitempty"`
+	TokenURL string `json:"tokenUrl,omitempty"`
 }
 
 func (c Config) tokenURL() string {

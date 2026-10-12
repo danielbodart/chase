@@ -155,7 +155,7 @@ in
       claude = {
         credentials = "${claudeDir}/.credentials.json";
         claude = "${base}/bin/claude";
-        claudeJSON = "${cfg.home}/.claude.json";
+        claudeJson = "${cfg.home}/.claude.json";
       };
       # A bare tier's trust is the wrapper's, on the host, before Claude
       # Code starts; a sandbox's is its session's (internal/session).

@@ -203,8 +203,21 @@
               config = exampleConfig { };
               file = config.environment.etc."chase/config.json".source;
             in
-            pkgs.runCommand "module-config" { nativeBuildInputs = [ self.packages.${system}.chase pkgs.jq ]; } ''
+            pkgs.runCommand "module-config" { nativeBuildInputs = [ self.packages.${system}.chase pkgs.jq pkgs.check-jsonschema ]; } ''
               fail() { echo "module-config: $*" >&2; exit 1; }
+              # What the module writes is what `chase schema` describes, and
+              # what `chase check` refuses -- a key misspelt, a scope no
+              # option has -- the schema refuses too.
+              chase schema > schema.json
+              check-jsonschema --schemafile schema.json ${file} > out 2>&1 || fail "the schema refuses the module's: $(cat out)"
+              chase check ${file} || fail "chase check refuses the module's"
+              jq '.session.tiers.strict.claude.scope = "everything"' ${file} > bad.json
+              ! chase check bad.json 2> out || fail "chase check took a scope no option has"
+              grep -q 'session: tiers.strict.claude.scope is "everything"' out || fail "chase check said $(cat out)"
+              ! check-jsonschema --schemafile schema.json bad.json > /dev/null 2>&1 || fail "the schema took a scope no option has"
+              jq '.selector.tierz = {}' ${file} > bad.json
+              ! chase check bad.json 2> /dev/null || fail "chase check took an unknown key"
+              ! check-jsonschema --schemafile schema.json bad.json > /dev/null 2>&1 || fail "the schema took an unknown key"
               chase -config ${file} tier --dry-run / > out || fail "the tier could not be decided: $(cat out)"
               grep -q ' strict ' out || fail "/ is not the fallback's: $(cat out)"
               # The payload strict's exec prints, from the session section the

@@ -99,6 +99,8 @@ for each choice.
 | `chase docker [DIR]` | Show a checkout's project, its address and name, and its approved Docker ports. |
 | `chase record [--default allow\|ask\|refuse] [--base tier\|none] AGENT` | Run the agent in its tier as a recording: what the tier would refuse or ask about is answered, by you or `--default`, and written down; at the end, a report and a proposal of the grant entries it needed. See [docs/record.md](docs/record.md). |
 | `chase record apply [--last\|MACHINE]` | Add a recording's proposal to its checkout's `chase.jsonc`. |
+| `chase check FILE` | Read FILE as chase reads `/etc/chase/config.json`, and say what is wrong with it. |
+| `chase schema` | Print that file's JSON Schema. |
 
 ```
 $ chase tier --dry-run ~ ~/Projects/thing ~/Projects/a-fork
@@ -121,6 +123,14 @@ a-fork                     strict    first commit by someone@upstream.org
 | `workspaceGroups` | `[]` | Checkouts mounted beside each other, read-write. |
 | `approver` | `null` | The program that approves grants. Null approves none. |
 | `placeholder` | `proxy-injected` | What a session holds in place of a credential. |
+
+The module writes these, and what each app adds, to `/etc/chase/config.json`,
+which every command, hook and unit reads, or the file given before the command
+as `-config FILE`. It is read strictly: an unknown or misspelt key, a second
+JSON value or a word an enum does not have is refused, never half obeyed. The
+module runs `chase check` on the file when the system is built, so a mistake
+fails the build rather than a launch; `chase schema` prints the file's JSON
+Schema.
 
 ## Tiers
 

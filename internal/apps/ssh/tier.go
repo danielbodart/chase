@@ -212,3 +212,32 @@ func expected(r policy.SSHRoute, at string, expect map[string]string) error {
 	}
 	return nil
 }
+
+// Validate refuses, when the file is read, an answer that is not allow, ask
+// or refuse: a tier's three, a tier's machine's unmatched, and what its
+// expect pins. Check holds the rest of a tier to what a launch would, and
+// needs the catalogues to.
+func (c Config) Validate() error {
+	for _, name := range slices.Sorted(maps.Keys(c.Tiers)) {
+		t := c.Tiers[name]
+		at := "tiers." + name
+		for _, s := range []struct{ field, answer string }{{"writes", t.Writes}, {"guarded", t.Guarded}, {"unmatched", t.Unmatched}} {
+			if !slices.Contains(answers, s.answer) {
+				return fmt.Errorf("%s.%s is %q, not one of %s", at, s.field, s.answer, strings.Join(answers, ", "))
+			}
+		}
+		for _, host := range slices.Sorted(maps.Keys(t.Hosts)) {
+			h := t.Hosts[host]
+			at := at + ".hosts." + host
+			if h.Unmatched != "" && !slices.Contains(answers, h.Unmatched) {
+				return fmt.Errorf("%s.unmatched is %q, not one of %s", at, h.Unmatched, strings.Join(answers, ", "))
+			}
+			for _, command := range slices.Sorted(maps.Keys(h.Expect)) {
+				if want := h.Expect[command]; !slices.Contains(answers, want) {
+					return fmt.Errorf("%s.expect: %q expects %q, not one of %s", at, command, want, strings.Join(answers, ", "))
+				}
+			}
+		}
+	}
+	return nil
+}

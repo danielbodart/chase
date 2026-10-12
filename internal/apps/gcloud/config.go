@@ -1,5 +1,11 @@
 package gcloud
 
+import (
+	"fmt"
+	"maps"
+	"slices"
+)
+
 // Config is what the NixOS module decides and the prepare step reads: what
 // apps/gcloud.nix spliced into chase-gcloud-prepare's text, and its stop's.
 type Config struct {
@@ -29,7 +35,7 @@ type Config struct {
 	Systemctl string `json:"systemctl"`
 	// TokenURL is where the first token's grant is posted. Empty is
 	// Google's; only a check sets it.
-	TokenURL string `json:"tokenURL,omitempty"`
+	TokenURL string `json:"tokenUrl,omitempty"`
 }
 
 // Tier is how a tier answers Google's operations -- ops.settings of its
@@ -49,3 +55,20 @@ type Tier struct {
 	// catalogue.
 	APIs []string `json:"apis"`
 }
+
+// Validate refuses a tier answering an operation with anything but allow,
+// ask or refuse: rules.go would read any other word as no answer at all.
+func (c Config) Validate() error {
+	for _, name := range slices.Sorted(maps.Keys(c.Tiers)) {
+		t := c.Tiers[name]
+		for _, s := range []struct{ field, answer string }{{"writes", t.Writes}, {"guarded", t.Guarded}, {"unmatched", t.Unmatched}} {
+			if !slices.Contains(Answers, s.answer) {
+				return fmt.Errorf("tiers.%s.%s is %q, not one of allow, ask, refuse", name, s.field, s.answer)
+			}
+		}
+	}
+	return nil
+}
+
+// Answers are what a tier may answer an operation with.
+var Answers = []string{"allow", "ask", "refuse"}

@@ -484,7 +484,17 @@ in
       }) sandboxes;
     };
 
-    environment.etc."chase/config.json".source = (pkgs.formats.json { }).generate "chase-config.json" cfg.internal.config;
+    # Checked as every hook and unit will read it, strictly, when the
+    # system is built: a key chase does not know, or a word an enum does
+    # not have, fails the build rather than a launch.
+    environment.etc."chase/config.json".source = pkgs.runCommand "chase-config.json"
+      {
+        nativeBuildInputs = [ cfg.package ];
+        config = (pkgs.formats.json { }).generate "chase-config-unchecked.json" cfg.internal.config;
+      } ''
+      cp "$config" "$out"
+      chase check "$out"
+    '';
 
     # The user whose credential files the routes read.
     services.frisket = {

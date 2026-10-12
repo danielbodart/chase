@@ -25,7 +25,7 @@ type Config struct {
 	Claude string `json:"claude"`
 	// ClaudeJSON is the host's ~/.claude.json, where a bare tier that
 	// trusts its checkouts trusts them (Trust).
-	ClaudeJSON string `json:"claudeJSON"`
+	ClaudeJSON string `json:"claudeJson"`
 }
 
 // LoadConfig reads a Config the module wrote.
