@@ -65,6 +65,10 @@ type Tier struct {
 	// A grant's machines are added to them, and never one of the same name
 	// or address.
 	Hosts map[string]TierHost `json:"hosts,omitempty"`
+	// Always marks every machine of the tier's sessions, its own and a
+	// grant's, so frisket offers Always on their questions: the tier's
+	// `always` (PLAN.md, decision 18).
+	Always bool `json:"always,omitempty"`
 }
 
 // LoadConfig reads a Config strictly, as frisket reads a policy.
@@ -113,7 +117,9 @@ func (a *App) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
 	out := map[string]policy.SSHRouteV2{}
 	for i := range routes {
 		routes[i].Agent, routes[i].KeyFile, routes[i].Identity = a.Config.Agent, a.Config.KeyFile, a.Config.Identity
-		out[routes[i].Name] = V2(routes[i])
+		v := V2(routes[i])
+		v.Always = a.Config.Tiers[r.Tier].Always
+		out[routes[i].Name] = v
 	}
 	return apps.Patch{SSH: out}, nil
 }

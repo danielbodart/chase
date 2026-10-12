@@ -54,6 +54,9 @@ type Tier struct {
 	// one, by Discovery name. The module has refused a name not in the
 	// catalogue.
 	APIs []string `json:"apis"`
+	// Always marks the session's route so frisket offers Always on its
+	// questions: the tier's `always` (PLAN.md, decision 18).
+	Always bool `json:"always,omitempty"`
 }
 
 // Validate refuses a tier answering an operation with anything but allow,

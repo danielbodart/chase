@@ -227,6 +227,7 @@ func (a *App) Prepare(ctx context.Context, r apps.Request) (apps.Patch, error) {
 				// guarded and unmatched; a read allowed.
 				Answers: policy.Answers{Writes: s.Writes, Guarded: s.Guarded, Unmatched: s.Unmatched},
 				Refusal: &policy.Refusal{ContentType: refusal.ContentType, Body: refusal.Body},
+				Always:  s.Always,
 			},
 			// Those hosts want a client certificate frisket does not have,
 			// and they are aliases the path rules must not be the only

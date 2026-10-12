@@ -75,7 +75,7 @@ in
     # renewer started and stopped (internal/apps/gcloud).
     chase.internal.config = mkIf (enabled != { }) {
       grant.gcloud = {
-        tiers = lib.mapAttrs (_: tier: ops.settings tier.apps.gcloud // { inherit (tier.apps.gcloud) apis; }) enabled;
+        tiers = lib.mapAttrs (_: tier: ops.mark tier (ops.settings tier.apps.gcloud) // { inherit (tier.apps.gcloud) apis; }) enabled;
         catalogue = "${./gcloud}";
         inherit (ops) every;
         inherit (cfg) placeholder;

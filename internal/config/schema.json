@@ -370,7 +370,8 @@
               "writes": { "$ref": "#/$defs/answer" },
               "guarded": { "$ref": "#/$defs/answer" },
               "unmatched": { "$ref": "#/$defs/answer" },
-              "apis": { "description": "The APIs the tier carries, by Discovery name.", "type": ["array", "null"], "items": { "type": "string" } }
+              "apis": { "description": "The APIs the tier carries, by Discovery name.", "type": ["array", "null"], "items": { "type": "string" } },
+              "always": { "description": "The tier's always: the session's route is marked so frisket offers Always on its questions.", "type": "boolean" }
             }
           }
         },
@@ -408,6 +409,7 @@
         "guarded": { "$ref": "#/$defs/answer" },
         "unmatched": { "$ref": "#/$defs/answer" },
         "env": { "description": "apps.ssh.env: the variables a command may set for itself in front of it.", "type": "array", "items": { "type": "string" } },
+        "always": { "description": "The tier's always: every machine, its own and a grant's, is marked so frisket offers Always on its questions.", "type": "boolean" },
         "hosts": {
           "description": "The tier's own machines, by the name ssh knows each by in the sandbox.",
           "type": "object",

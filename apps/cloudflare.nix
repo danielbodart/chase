@@ -27,7 +27,7 @@ let
   # month is gated from the day it ships. The GraphQL Analytics API, which
   # wrangler reads metrics from, and Cloudforce One's: a query is a read,
   # and there is no schema to name a mutation by, so one is unmatched.
-  route = tier: let s = ops.answers tier.apps.cloudflare; in ops.route s operations // {
+  route = tier: let s = ops.mark tier (ops.answers tier.apps.cloudflare); in ops.route s operations // {
     inherit host;
     upstream = "https://${host}";
     placeholder = cfg.placeholder;

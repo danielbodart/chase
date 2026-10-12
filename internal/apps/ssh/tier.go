@@ -108,7 +108,9 @@ func (c Config) TierRoutes(name string) (map[string]policy.SSHRouteV2, error) {
 	}
 	out := map[string]policy.SSHRouteV2{}
 	for _, r := range routes {
-		out[r.Name] = V2(r)
+		v := V2(r)
+		v.Always = c.Tiers[name].Always
+		out[r.Name] = v
 	}
 	return out, nil
 }

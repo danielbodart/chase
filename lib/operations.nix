@@ -99,7 +99,14 @@ rec {
   # class, a ceiling of the same, so that a project's file answers none of
   # its requests more leniently (PLAN.md, decision 18).
   answering = s: lib.getAttrs names s
-    // lib.optionalAttrs (s.anonymous or false) { ceiling = lib.genAttrs names (_: "refuse"); };
+    // lib.optionalAttrs (s.anonymous or false) { ceiling = lib.genAttrs names (_: "refuse"); }
+    // lib.optionalAttrs (s.always or false) { always = true; };
+
+  # An app's settings s in tier, marked `always` where the tier offers
+  # Always and the app has a credential: frisket then offers, on a question
+  # its route asks, to add the one rule to the checkout's chase.json. Never
+  # an anonymous app's, whose ceiling refuses what Always would allow.
+  mark = tier: s: s // lib.optionalAttrs (tier.always && !(s.anonymous or false)) { always = true; };
 
   # What an app's generated operations make of a version 2 route: what each
   # request IS -- `paths`, and GraphQL's fields -- which frisket answers by

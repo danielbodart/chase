@@ -163,7 +163,7 @@ in
     services.frisket.policies = lib.mapAttrs (name: _: { gitSigning = true; }) signing;
 
     chase.internal.policies = lib.mapAttrs (name: tier: mkIf tier.apps.git.enable (
-      let s = ops.settings tier.apps.git; in
+      let s = ops.mark tier (ops.settings tier.apps.git); in
       {
         # For a tier with an allowlist of names; one allowing `*` has it already.
         allow = ops.allowOf hosts;

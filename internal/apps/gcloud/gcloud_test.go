@@ -52,7 +52,7 @@ func catalogue(t *testing.T) string {
 func config(t *testing.T) Config {
 	return Config{
 		Tiers: map[string]Tier{
-			"trusted": {Writes: "ask", Guarded: "refuse", Unmatched: "ask", APIs: []string{"bigquery", "storage"}},
+			"trusted": {Writes: "ask", Guarded: "refuse", Unmatched: "ask", APIs: []string{"bigquery", "storage"}, Always: true},
 			"loose":   {Writes: "ask", Guarded: "allow", Unmatched: "allow", APIs: []string{"bigquery"}},
 			"closed":  {Writes: "refuse", Guarded: "refuse", Unmatched: "refuse", APIs: []string{}},
 		},
@@ -444,6 +444,20 @@ func TestALooseTierAllowsWhatItSays(t *testing.T) {
 
 // A tier that carries no API and refuses everything still has a route, and
 // refuses what returns a credential.
+// A tier that offers Always marks its session's route, and never the mtls
+// hosts', which refuse everything; one that does not marks neither.
+func TestTheRouteIsMarkedAlwaysAsTheTierSays(t *testing.T) {
+	l := newLaunch(t)
+	marked := l.prepared("trusted", l.session("chase-trusted-1-3", sa), binding(`{}`))
+	if !route(t, marked, "gcloud").Always || route(t, marked, "gcloud-mtls").Always {
+		t.Errorf("trusted's routes are not marked as its tier says: %+v", marked.Routes)
+	}
+	closed := l.prepared("closed", l.session("chase-closed-2", sa), binding(`{}`))
+	if route(t, closed, "gcloud").Always {
+		t.Error("a tier without always marked its route")
+	}
+}
+
 func TestAClosedTierRefusesTheFloor(t *testing.T) {
 	l := newLaunch(t)
 	closed := l.prepared("closed", l.session("chase-closed-1", sa), binding(`{}`))

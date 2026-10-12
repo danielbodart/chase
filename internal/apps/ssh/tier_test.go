@@ -1,12 +1,15 @@
 package ssh
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"maps"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/danielbodart/chase/internal/apps"
 	"github.com/danielbodart/frisket/policy"
 )
 
@@ -29,6 +32,30 @@ func withHosts(hosts map[string]TierHost) Config {
 	tier.Hosts = hosts
 	c.Tiers["trusted"] = tier
 	return c
+}
+
+// A tier that offers Always marks every machine, its own and a grant's;
+// one that does not marks none.
+func TestEveryMachineIsMarkedAlwaysAsTheTierSays(t *testing.T) {
+	for _, always := range []bool{true, false} {
+		c := withHosts(map[string]TierHost{"gateway": tierHost(t, "10.0.0.1", `{"user": "root"}`)})
+		tier := c.Tiers["trusted"]
+		tier.Always = always
+		c.Tiers["trusted"] = tier
+		own, err := c.TierRoutes("trusted")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := (&App{Config: c, Stderr: io.Discard}).Prepare(context.Background(), apps.Request{
+			Tier: "trusted", Workspace: "/w", Binding: json.RawMessage(binding(t, "")),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if own["gateway"].Always != always || len(p.SSH) != 1 || p.SSH["server"].Always != always {
+			t.Errorf("always %v: the tier's machine %v, the grant's %+v", always, own["gateway"].Always, p.SSH)
+		}
+	}
 }
 
 // A TIER'S OWN MACHINES (docs/apps/ssh.md): each is an SSH route in every

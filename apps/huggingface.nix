@@ -159,7 +159,7 @@ in
       # token among them, Xet's write token, with which a session could put
       # bytes in Xet's store with no request here at all.
       routes.huggingface =
-        let s = ops.settings tier.apps.huggingface; in
+        let s = ops.mark tier (ops.settings tier.apps.huggingface); in
         ops.route s operations // {
           inherit host refusal;
           upstream = "https://${host}";

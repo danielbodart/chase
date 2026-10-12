@@ -355,7 +355,7 @@ in
     chase.internal.launchedTiers = lib.attrNames (lib.filterAttrs (_: t: !t.grants) enabled);
     chase.internal.config = mkIf (enabled != { }) {
       grant.ssh = {
-        tiers = lib.mapAttrs (_: tier: ops.answers tier.apps.ssh // { inherit (tier.apps.ssh) env; }
+        tiers = lib.mapAttrs (_: tier: ops.mark tier (ops.answers tier.apps.ssh) // { inherit (tier.apps.ssh) env; }
           // lib.optionalAttrs (tier.apps.ssh.hosts != { }) { hosts = lib.mapAttrs (_: hostConfig) tier.apps.ssh.hosts; }) enabled;
         catalogue = "${./ssh/operations.json}";
       } // lib.optionalAttrs (catalogues != { }) { inherit catalogues; }

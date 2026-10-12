@@ -70,7 +70,7 @@
         # frisket's own code; and golang.org/x/crypto's ssh, which reads an SSH
         # grant's host keys as frisket does. The frisket-pin check holds
         # go.mod's frisket to the one flake.lock pins.
-        vendorHash = "sha256-4Z9uSMibnrCK+iV71urzwUgbC5OCs1qM+4WbDBhUNiw=";
+        vendorHash = "sha256-7iYHzDrRSwoULgaMDy6IZT8soMh9pdTiF11S3IEfuLg=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -633,6 +633,48 @@
               && byDefault.trusted.routes.github.unmatched == "ask" && ghAllows.trusted.routes.github.unmatched == "allow"
               && ! lib.any (lib.hasSuffix " /graphql") (lib.attrNames byDefault.trusted.routes.github.paths)
               || throw "assertions: git's push or gh's GraphQL was not answered as their writes say");
+            # ALWAYS (decision 18): frisket offers it on the routes a project
+            # answers that have a credential, and on every SSH machine, in a
+            # tier that takes grants and asks someone; never on an anonymous
+            # app's route, nor in a tier that refuses everything -- strict,
+            # even given grants -- nor where the tier says no.
+            assert
+              (let
+                key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHp6lanvRi86XJnpME3lUbtyAWnykpE7SwLQXBzaXa/F";
+                config = extra: configWith {
+                  imports = [ extra ];
+                  chase.tiers.strict.grants = true;
+                  chase.tiers.trusted.apps = {
+                    cloudflare.enable = true;
+                    huggingface = { enable = true; authenticated = true; };
+                    gcloud.enable = true;
+                    ssh = { enable = true; hosts.m = { address = "10.0.0.9"; user = "u"; hostKeys = [ key ]; }; };
+                  };
+                  chase.tiers.strict.apps.ssh.enable = true;
+                  chase.apps.huggingface.credentialFile = "/run/secrets/hf_token";
+                };
+                on = config { };
+                anonymous = (config { chase.tiers.trusted.apps.git.authenticated = lib.mkForce false; chase.tiers.trusted.apps.git.sign = false; }).chase.internal.policies;
+                off = config { chase.tiers.trusted.always = false; };
+                p = on.chase.internal.policies;
+                g = on.chase.internal.config.grant;
+                marked = route: route.always or false;
+                unmarked = c: ! lib.any (r: r ? always) (lib.attrValues c.chase.internal.policies.trusted.routes)
+                  && ! c.chase.internal.config.grant.gcloud.tiers.trusted ? always
+                  && ! c.chase.internal.config.grant.ssh.tiers.trusted ? always
+                  && ! c.chase.internal.config.grant.apps.cloudflare.routes.trusted.cloudflare ? always;
+              in
+              lib.all (a: a.assertion) on.assertions
+              && on.chase.tiers.trusted.always && ! on.chase.tiers.strict.always
+              && lib.all marked [ p.trusted.routes.git p.trusted.routes.github p.trusted.routes.huggingface g.apps.cloudflare.routes.trusted.cloudflare ]
+              && g.gcloud.tiers.trusted.always && g.ssh.tiers.trusted.always
+              && ! lib.any marked (lib.attrValues p.strict.routes)
+              && ! g.ssh.tiers.strict ? always && ! g.apps.cloudflare.routes.strict.cloudflare ? always
+              && ! marked anonymous.trusted.routes.git && marked anonymous.trusted.routes.github
+              && unmarked off)
+              || throw "assertions: Always was not marked where the tier and the app say";
+            assert refused "always in a tier that takes no grant"
+              { chase.tiers.strict.always = true; } "chase.tiers.strict.always is set, and the tier takes no grant";
             # Cloudflare needs no token of the tier's own -- a project brings
             # one -- and unless it is authenticated the tier has no
             # Cloudflare route, whatever the machine binds.
@@ -879,7 +921,7 @@
               && lib.hasPrefix "Include /etc/frisket/ssh_config\nGlobalKnownHostsFile /etc/frisket/ssh_known_hosts /etc/ssh/ssh_known_hosts\n" text
               && ! lib.hasInfix "Include ${builtins.storeDir}" text
               && ! lib.hasInfix "/etc/frisket/ssh_config" config.containers.chase-strict.config.environment.etc."ssh/ssh_config".text
-              && c.ssh.tiers == { trusted = { writes = "ask"; guarded = "refuse"; unmatched = "ask"; env = [ "LANG" "LC_*" "TZ" "COLUMNS" "LINES" "NO_COLOR" "SYSTEMD_COLORS" ]; }; }
+              && c.ssh.tiers == { trusted = { writes = "ask"; guarded = "refuse"; unmatched = "ask"; always = true; env = [ "LANG" "LC_*" "TZ" "COLUMNS" "LINES" "NO_COLOR" "SYSTEMD_COLORS" ]; }; }
               && c.ssh.agent == "/run/user/1000/gcr/ssh" && ! c.ssh ? keyFile && ! c.ssh ? identity
               && lib.hasPrefix builtins.storeDir c.ssh.catalogue
               && c.apps.ssh.credential == false

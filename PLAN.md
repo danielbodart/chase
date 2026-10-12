@@ -436,6 +436,14 @@ can name what else it reaches (decision 13), never what an app answers; a
 project that needs that goes into another tier, which is the machine's
 decision (decision 5), not the checkout's.
 
+**Always, where a project's answer would stand.** A tier's `always`, by
+default on where it takes grants and one of its three answers asks, marks
+`"always": true` on its routes a project answers that have a credential,
+the tier's or the project's, and on every SSH machine, so frisket offers
+Always on their questions and writes the one rule into the checkout's
+`chase.json`, signed; an anonymous app's route, behind its ceiling, and a
+tier that asks nobody, are never marked.
+
 This all resolves in frisket, at request time, against a policy document of
 frisket's version 2. chase renders each tier's at eval
 (lib/operations.nix): each app's route with its generated operations as

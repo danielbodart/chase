@@ -326,7 +326,11 @@ the namespace `frisket-policy:<root>`, by a key `/etc/frisket/allowed_signers`
 allows. A file whose signature verifies launches with nothing asked. One that
 does not is put to frisket's signer, which shows you the diff against the
 file git's `HEAD` signed and the launch waits; signed, the signature is
-written beside the file and the launch goes on; refused, it ends. Unknown keys
+written beside the file and the launch goes on; refused, it ends. Where the
+tier's `always` is on -- by default in a tier that takes grants and asks
+someone -- a session's question on a route a project answers, with a
+credential, or on an SSH machine offers Always too: the one rule asked about
+is added to `chase.json`, signed, and admits for the rest of the session. Unknown keys
 and invalid values are refused before you're asked, and a file not in its
 canonical form is refused unsigned. What chase derives of the checkout is in
 the signed bytes: the sops file's digest and, for a grant that binds Docker,

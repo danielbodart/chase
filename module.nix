@@ -157,7 +157,7 @@ let
     GRADLE_USER_HOME = "data/gradle"; # ~/.gradle
   };
 
-  tierType = types.submodule {
+  tierType = types.submodule ({ config, ... }: {
     # writes, guarded and unmatched: how every app in the tier answers what
     # it does not allow outright (PLAN.md, decision 18).
     options = operations.tierOptions // {
@@ -316,8 +316,26 @@ let
           project's or tier's section yet.
         '';
       };
+      always = mkOption {
+        type = types.bool;
+        default = config.grants && lib.elem "ask" [ config.writes config.guarded config.unmatched ];
+        defaultText = lib.literalExpression ''grants && lib.elem "ask" [ writes guarded unmatched ]'';
+        description = ''
+          Whether frisket offers Always on the questions this tier's
+          sessions ask (frisket's docs/routes.md, Always): answered so, the
+          one rule asked about is added to the checkout's chase.json, signed,
+          and admits for the rest of the session. Marked on the routes a
+          project answers -- cloudflare, gcloud, git, github, huggingface --
+          that have a credential, the tier's or the project's, and on every
+          SSH machine; never on an anonymous app's route, whose ceiling a
+          project's file could not lift. Only in a tier that takes grants,
+          and by default only in one whose own answers ask someone: a tier
+          that refuses every write asks nobody on behalf of its code, and
+          offers no Always (PLAN.md, decision 18).
+        '';
+      };
     };
-  };
+  });
 in
 {
   imports = [
@@ -552,6 +570,10 @@ in
             || config.flong ? "chase-${name}"
             || cfg.internal.policies ? ${name});
           message = "chase.tiers.${name} is bare, and something gives it a sandbox's settings: an app enabled in it, `grants`, or a `frisket` or `flong` section. A bare tier runs with none.";
+        }
+        {
+          assertion = !tier.always || tier.grants;
+          message = "chase.tiers.${name}.always is set, and the tier takes no grant: an Always is written into the checkout's chase.json, which only a tier with `grants` reads.";
         }
       ]) cfg.tiers);
 

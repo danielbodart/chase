@@ -86,7 +86,7 @@ in
     })) cfg.tiers;
 
     chase.internal.policies = lib.mapAttrs (name: tier: mkIf tier.apps.github.enable (
-      let s = ops.settings tier.apps.github; in
+      let s = ops.mark tier (ops.settings tier.apps.github); in
       {
         # For a tier with an allowlist of names; one allowing `*` has it already.
         allow.${host} = true;
