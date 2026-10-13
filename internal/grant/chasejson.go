@@ -88,14 +88,12 @@ type FlongSeccomp struct {
 // SudoLayer is the sudo gate's section, read by the gate itself for a sudo
 // run in the checkout (quoin's docs/sudo.md, Rules): commands by their
 // absolute path and arguments, each with whom it runs as and its answer,
-// merged over the host's rules.
+// merged over the host's rules. Each rule is the gate's own type, quoin's
+// sudo.Rule, read as the gate reads it, keys spelt exactly; chase is
+// stricter only in wanting runAs said, where the gate reads none as root,
+// so a project's file says whom it runs a command as.
 type SudoLayer struct {
-	Exec map[string]SudoRule `json:"exec,omitempty"`
-}
-
-type SudoRule struct {
-	RunAs  string `json:"runAs"`
-	Answer string `json:"answer"`
+	Exec map[string]sudo.Rule `json:"exec,omitempty"`
 }
 
 // Section is chase's own: what no component owns.
@@ -479,11 +477,7 @@ func (s SudoLayer) check() error {
 	}
 	// The gate's own reading: a rule it would refuse, and so ignore the
 	// whole file over, is refused here before it is signed.
-	rules := map[string]sudo.Rule{}
-	for k, r := range s.Exec {
-		rules[k] = sudo.Rule{RunAs: r.RunAs, Answer: r.Answer}
-	}
-	if err := sudo.CheckExec(rules); err != nil {
+	if err := sudo.CheckExec(s.Exec); err != nil {
 		return fmt.Errorf("sudo.%w", err)
 	}
 	return nil

@@ -64,8 +64,15 @@ var (
 // few words, by Go type and field.
 var enums = map[string]map[string]any{
 	"FlongSeccomp.Syscalls": callAnswers,
-	"SudoRule.Answer":       answerEnum,
+	"Rule.Answer":           answerEnum,
 	"Host.Unmatched":        answerEnum,
+}
+
+// alsoRequired are fields chase wants said that their own type, another
+// program's, leaves optional: a sudo rule's runAs, which the gate reads as
+// root when absent, and chase.json says explicitly.
+var alsoRequired = map[string]bool{
+	"Rule.RunAs": true,
 }
 
 func signerSchema() map[string]any {
@@ -112,7 +119,7 @@ func schemaOf(t reflect.Type) map[string]any {
 				}
 			}
 			props[name] = p
-			if !strings.Contains(f.Tag.Get("json"), "omitempty") && f.Type.Kind() != reflect.Pointer {
+			if !strings.Contains(f.Tag.Get("json"), "omitempty") && f.Type.Kind() != reflect.Pointer || alsoRequired[key] {
 				required = append(required, name)
 			}
 		}
