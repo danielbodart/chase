@@ -335,7 +335,21 @@ func TestWhatAChaseJSONMayNotSayIsRefused(t *testing.T) {
 		{`{"version": 2, "flong": {"seccomp": {"syscalls": {"ptrace": null}}}}`, "flong.seccomp.syscalls.ptrace is null"},
 		{`{"version": 2, "signer": {"sshsig": {"quoin-policy:~": "allow"}}}`, "not a namespace a rule may name"},
 		{`{"version": 2, "signer": {"ssh": {"hosts": {"gateway": "refuse"}}}}`, "not allow or ask"},
-		{`{"version": 2, "signer": {"user": "dan"}}`, `unknown field "user"`},
+		{`{"version": 2, "signer": {"user": "dan"}}`, `unknown key "user"`},
+		// Keys are matched exactly, case included, as the programs that read
+		// a section look it up: encoding/json alone would take "Signer" for
+		// signer, and chase would check a section nobody applies.
+		{`{"version": 2, "Signer": {"sshsig": {"git": "allow"}}}`, `Signer: no such key, though "signer" is`},
+		{`{"version": 2, "SUDO": {}}`, `SUDO: no such key, though "sudo" is`},
+		{`{"version": 2, "Frisket": {}}`, `Frisket: no such key, though "frisket" is`},
+		{`{"version": 2, "Version": 2}`, `Version: no such key, though "version" is`},
+		{`{"version": 2, "sudo": {"Exec": {}}}`, `sudo.Exec: no such key, though "sudo.exec" is`},
+		{`{"version": 2, "flong": {"Seccomp": {}}}`, `flong.Seccomp: no such key, though "flong.seccomp" is`},
+		{`{"version": 2, "chase": {"apps": {"Docker": {}}}}`, `chase.apps.Docker: no such key, though "chase.apps.docker" is`},
+		{`{"version": 2, "chase": {"apps": {"ssh": {"hosts": {"server": {"Address": "192.168.1.10"}}}}}}`, `chase.apps.ssh.hosts.server.Address: no such key`},
+		{`{"version": 2, "signer": {"SSH": {"hosts": {"gateway": "allow"}}}}`, `signer: unknown key "SSH"`},
+		{`{"version": 2, "signer": {"ssh": {"Hosts": {"gateway": "allow"}}}}`, `signer: ssh: unknown key "Hosts"`},
+		{`{"version": 2, "signer": {"sshSig": {"git": "allow"}}}`, `signer: unknown key "sshSig"`},
 		{`{"version": 2, "sudo": {"exec": {"systemctl": {"runAs": "root", "answer": "allow"}}}}`, "absolute, clean path"},
 		{`{"version": 2, "sudo": {"exec": {"/run/current-system/sw/bin/systemctl": {"answer": "allow"}}}}`, "says whom it runs as"},
 		{`{"version": 2, "sudo": {"exec": {"/run/current-system/sw/bin/systemctl": {"runAs": "Root!", "answer": "allow"}}}}`, "is not a user's name"},

@@ -355,46 +355,18 @@ func checkAllowKeys(a map[string]any) error {
 	return nil
 }
 
-// checkSignerLayer is what the signer reads of a project's section (its
-// readSigner): ssh.hosts and sshsig, each a map of allow, ask or null, a
-// host key in the signer's grammar and no namespace of its own policies.
+// checkSignerLayer is the signer's own reading of a project's section,
+// quoin's projpolicy.ParseSignerSection, so that what chase refuses is
+// what the signer would not apply: ssh.hosts and sshsig, each a map of
+// allow, ask or null, keys spelt exactly, a host key in the signer's
+// grammar and no namespace of its own policies.
 func checkSignerLayer(m map[string]any) error {
 	b, err := json.Marshal(m)
 	if err != nil {
 		return err
 	}
-	var s struct {
-		SSH *struct {
-			Hosts map[string]*string `json:"hosts"`
-		} `json:"ssh"`
-		SSHSig map[string]*string `json:"sshsig"`
-	}
-	if err := strict(b, &s); err != nil {
-		return fmt.Errorf("signer: %w (a project's signer section sets ssh.hosts and sshsig)", err)
-	}
-	rule := func(at string, r *string) error {
-		if r != nil && *r != "allow" && *r != "ask" {
-			return fmt.Errorf("signer.%s: %q is not allow or ask", at, *r)
-		}
-		return nil
-	}
-	if s.SSH != nil {
-		for _, k := range slices.Sorted(maps.Keys(s.SSH.Hosts)) {
-			if _, err := hostpattern.Compile(k); err != nil {
-				return fmt.Errorf("signer.ssh.hosts: %q: %v", k, err)
-			}
-			if err := rule("ssh.hosts."+k, s.SSH.Hosts[k]); err != nil {
-				return err
-			}
-		}
-	}
-	for _, ns := range slices.Sorted(maps.Keys(s.SSHSig)) {
-		if ns == "" || strings.HasPrefix(ns, projpolicy.NamespacePrefix) {
-			return fmt.Errorf("signer.sshsig: %q is not a namespace a rule may name", ns)
-		}
-		if err := rule("sshsig."+ns, s.SSHSig[ns]); err != nil {
-			return err
-		}
+	if _, err := projpolicy.ParseSignerSection(b); err != nil {
+		return fmt.Errorf("signer: %w", err)
 	}
 	return nil
 }

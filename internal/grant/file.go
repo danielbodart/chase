@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -222,7 +224,11 @@ func (n Named) MarshalJSON() ([]byte, error) {
 }
 
 // strict is json.Unmarshal, refusing a member v does not name and anything
-// after the one value.
+// after the one value, and matching every member's name exactly, case
+// included. encoding/json alone takes "Signer" or "SUDO" for a field,
+// but the programs that read a project's file -- the signer, the sudo
+// gate, frisket -- look a section up by its exact key, so a file chase
+// read that way would have it check a section nobody applies.
 func strict(b []byte, v any) error {
 	d := json.NewDecoder(bytes.NewReader(b))
 	d.DisallowUnknownFields()
@@ -231,6 +237,73 @@ func strict(b []byte, v any) error {
 	}
 	if d.More() {
 		return errors.New("more than one value")
+	}
+	var raw any
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	return exactKeys(raw, reflect.TypeOf(v), "")
+}
+
+var unmarshaler = reflect.TypeFor[json.Unmarshaler]()
+
+// exactKeys is the first member of v, read as t, whose name is a field's
+// only in another case. A type that reads itself (json.Unmarshaler) says
+// for itself which keys it takes, as quoin's sudo.Rule does, exactly.
+func exactKeys(v any, t reflect.Type, at string) error {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Implements(unmarshaler) || reflect.PointerTo(t).Implements(unmarshaler) {
+		return nil
+	}
+	join := func(k string) string {
+		if at == "" {
+			return k
+		}
+		return at + "." + k
+	}
+	switch t.Kind() {
+	case reflect.Struct:
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil
+		}
+		fields := jsonFields(t)
+		for _, k := range slices.Sorted(maps.Keys(m)) {
+			f, ok := fields[k]
+			if !ok {
+				for name := range fields {
+					if strings.EqualFold(name, k) {
+						return fmt.Errorf("%s: no such key, though %q is: keys are matched exactly, case included", join(k), join(name))
+					}
+				}
+				return fmt.Errorf("%s: no such key", join(k))
+			}
+			if m[k] != nil {
+				if err := exactKeys(m[k], f.Type, join(k)); err != nil {
+					return err
+				}
+			}
+		}
+	case reflect.Map:
+		if m, ok := v.(map[string]any); ok {
+			for _, k := range slices.Sorted(maps.Keys(m)) {
+				if m[k] != nil {
+					if err := exactKeys(m[k], t.Elem(), join(k)); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	case reflect.Slice:
+		if s, ok := v.([]any); ok {
+			for i, x := range s {
+				if err := exactKeys(x, t.Elem(), fmt.Sprintf("%s[%d]", at, i)); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	return nil
 }
