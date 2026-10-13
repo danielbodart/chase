@@ -1,9 +1,13 @@
 # chase's entry point. Curried on `self` so it can import flong's and
 # frisket's modules from its own inputs: a consumer imports chase and gets
 # all three, rather than having to know that frisket's adapter goes in and
-# frisket's own module does not.
+# frisket's own module does not. quoin's modules -- the signer, the sudo
+# gate, the courier -- it does not import: they are the host's gatekeepers,
+# whether chase is there or not, and the host imports them; chase only
+# wires frisket's Always to them when they are there and it is asked to
+# (chase.signer.always).
 self:
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, options, ... }:
 
 let
   inherit (lib) mkOption types;
@@ -23,6 +27,17 @@ let
   # lower-cased, as the selector lower-cases the remote's.
   slug = types.strMatching "[^/[:space:]]+/[^/[:space:]]+";
   absPath = types.strMatching "/.*";
+
+  # Whether the host imported quoin's signer and policy modules: their
+  # options exist only then, and only then can chase set or read them.
+  quoin = options.services ? quoin && options.services.quoin ? signer && options.services.quoin ? policy;
+  # Where quoin's modules put the signer's agent, the courier's socket and
+  # the allowed signers: fixed by those modules, never options of theirs.
+  quoinPaths = {
+    signer = "/run/quoin-signer/agent";
+    courier = "/run/quoin-courier/sock";
+    allowedSigners = "/etc/quoin/allowed_signers";
+  };
 
   # WHAT PUTS A CHECKOUT IN A TIER. Each predicate is one question the
   # selector can ask of a directory, and says nothing about how far its answer
@@ -333,7 +348,8 @@ let
           project's file could not lift. Only in a tier that takes grants,
           and by default only in one whose own answers ask someone: a tier
           that refuses every write asks nobody on behalf of its code, and
-          offers no Always (PLAN.md, decision 18).
+          offers no Always (PLAN.md, decision 18). frisket offers it only
+          where its own Always is on, as chase.signer.always turns it on.
         '';
       };
     };
@@ -510,7 +526,7 @@ in
     signer = {
       allowedSigners = mkOption {
         type = types.strMatching "/.*";
-        default = "/etc/quoin/allowed_signers";
+        default = quoinPaths.allowedSigners;
         description = ''
           The allowed signers a project's chase.json.sig is verified
           against: quoin's, which `services.quoin.policy.allowedSigners`
@@ -529,10 +545,38 @@ in
           Null: the caller's SSH_AUTH_SOCK.
         '';
       };
+      # ALWAYS IS WIRED HERE, AND ONLY WHEN ASKED. frisket's Always signs
+      # the rule a person answered Always through quoin's signer and writes
+      # it into the checkout through quoin's courier; frisket knows them only
+      # by the paths it is given, and quoin trusts frisket only where the
+      # host names it. chase is what uses all three together, so it is the
+      # one place that knows how they fit -- quoin's fixed paths, chase.json
+      # as the file, frisket.service as the unit -- and says it once, here.
+      # Whether a host gives its sandboxes' answers a way into its signed
+      # files at all is the host's decision, so it is this option, off by
+      # default, and never inferred from quoin's modules being on.
+      always = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Turn on frisket's Always (services.frisket.always) over quoin's
+          signer and courier, as quoin's own modules deploy them: frisket
+          is given /run/quoin-signer/agent, /run/quoin-courier/sock,
+          /etc/quoin/allowed_signers and chase.json, and quoin is told to
+          trust frisket.service -- among the signer's policySigners, to sign
+          the rule an Always answer approved, and among the courier's peers,
+          as chase.user, to write it -- with services.quoin.policy.fileName
+          chase.json by default. Needs quoin's nixosModules.signer and
+          nixosModules.policy imported by the host, the signer and the
+          courier enabled, both for chase.user. Off, a tier's `always` marks
+          routes on which frisket offers Always only if services.frisket.always
+          is set by hand.
+        '';
+      };
     };
   };
 
-  config = {
+  config = lib.mkMerge [ {
     assertions =
       let
         names = lib.attrNames cfg.tiers;
@@ -751,5 +795,44 @@ in
         hostLoopbackToSession = tier.forwardPorts == "auto";
       };
     }) tier.flong)) sandboxes;
-  };
+  }
+
+  # chase.signer.always: frisket's Always over quoin's signer and courier.
+  # quoin's options are set only where its modules declared them, so a host
+  # without quoin evaluates as before.
+  (lib.mkIf cfg.signer.always {
+    assertions = [
+      {
+        assertion = quoin;
+        message = "chase.signer.always needs quoin's nixosModules.signer and nixosModules.policy imported: Always signs through quoin's signer and writes through its courier.";
+      }
+    ] ++ lib.optionals quoin (
+      let q = config.services.quoin; in [
+        {
+          assertion = q.signer.enable && q.signer.forUser == cfg.user;
+          message = "chase.signer.always needs services.quoin.signer enabled for chase.user (${cfg.user}): it signs the rule an Always answer approved.";
+        }
+        {
+          assertion = q.policy.courier.enable && q.policy.courier.forUser == cfg.user;
+          message = "chase.signer.always needs services.quoin.policy.courier enabled for chase.user (${cfg.user}): it writes the signed rule into ${cfg.user}'s checkout.";
+        }
+        {
+          assertion = q.policy.fileName == "chase.json";
+          message = "chase.signer.always needs services.quoin.policy.fileName to be chase.json, the file chase reads, not ${q.policy.fileName}.";
+        }
+      ]);
+    services.frisket.always = {
+      enable = true;
+      inherit (quoinPaths) signer courier allowedSigners;
+      fileName = "chase.json";
+    };
+  })
+  (lib.optionalAttrs quoin {
+    services.quoin = lib.mkIf cfg.signer.always {
+      signer.policySigners = [ "frisket.service" ];
+      policy.fileName = lib.mkDefault "chase.json";
+      policy.courier.peers."frisket.service" = config.services.frisket.user;
+    };
+  })
+  ];
 }

@@ -442,7 +442,14 @@ default on where it takes grants and one of its three answers asks, marks
 the tier's or the project's, and on every SSH machine, so frisket offers
 Always on their questions and writes the one rule into the checkout's
 `chase.json`, signed; an anonymous app's route, behind its ceiling, and a
-tier that asks nobody, are never marked.
+tier that asks nobody, are never marked. frisket signs and writes that rule
+through quoin's signer and courier, and frisket and quoin each know the
+other only by what the host tells them, so chase, which is what uses the
+three together, says it once: `chase.signer.always` gives frisket quoin's
+sockets, its allowed signers and `chase.json`, and names `frisket.service`
+among the signer's policy signers and the courier's peers. It is off by
+default and never inferred from quoin being on, since letting a sandbox's
+answer reach the host's signed files is the host's decision.
 
 This all resolves in frisket, at request time, against a policy document of
 frisket's version 2. chase renders each tier's at eval

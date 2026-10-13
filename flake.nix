@@ -704,6 +704,52 @@
               || throw "assertions: Always was not marked where the tier and the app say";
             assert refused "always in a tier that takes no grant"
               { chase.tiers.strict.always = true; } "chase.tiers.strict.always is set, and the tier takes no grant";
+            # FRISKET'S ALWAYS OVER QUOIN'S SIGNER AND COURIER, only when
+            # chase.signer.always asks for it: then frisket is given quoin's
+            # paths and chase.json, and quoin trusts frisket.service to sign
+            # and to write. Off, frisket's Always stays off and quoin is told
+            # nothing, though its modules are on; asked for without them, or
+            # with them for another user or another file, it is refused.
+            assert
+              (let
+                quoin = extra: configWith {
+                  imports = [ self.inputs.quoin.nixosModules.signer self.inputs.quoin.nixosModules.policy extra ];
+                  services.quoin.signer = { enable = true; forUser = "alice"; };
+                  services.quoin.policy.courier = { enable = true; forUser = "alice"; };
+                };
+                on = quoin { chase.signer.always = true; };
+                off = quoin { };
+                plain = configWith { };
+              in
+              lib.all (a: a.assertion) on.assertions
+              && on.services.frisket.always == {
+                enable = true;
+                signer = "/run/quoin-signer/agent";
+                courier = "/run/quoin-courier/sock";
+                allowedSigners = "/etc/quoin/allowed_signers";
+                fileName = "chase.json";
+              }
+              && on.services.quoin.signer.policySigners == [ "frisket.service" ]
+              && on.services.quoin.policy.courier.peers == { "frisket.service" = "alice"; "quoin-signer.service" = "ssh-signer"; }
+              && on.services.quoin.policy.fileName == "chase.json"
+              && on.chase.signer.allowedSigners == "/etc/quoin/allowed_signers"
+              && lib.all (a: a.assertion) off.assertions
+              && ! off.services.frisket.always.enable
+              && off.services.quoin.signer.policySigners == [ ]
+              && ! off.services.quoin.policy.courier.peers ? "frisket.service"
+              && ! plain.services.frisket.always.enable)
+              || throw "assertions: chase.signer.always did not wire frisket's Always to quoin as it should";
+            assert refused "Always with no quoin"
+              { chase.signer.always = true; } "chase.signer.always needs quoin's nixosModules.signer and nixosModules.policy imported";
+            assert refused "Always with quoin's signer off"
+              { imports = [ self.inputs.quoin.nixosModules.signer self.inputs.quoin.nixosModules.policy ]; chase.signer.always = true; services.quoin.policy.courier.enable = true; services.quoin.policy.courier.forUser = "alice"; }
+              "chase.signer.always needs services.quoin.signer enabled for chase.user (alice)";
+            assert refused "Always with quoin's courier for another user"
+              { imports = [ self.inputs.quoin.nixosModules.signer self.inputs.quoin.nixosModules.policy ]; chase.signer.always = true; services.quoin.signer = { enable = true; forUser = "alice"; }; services.quoin.policy.courier.enable = true; services.quoin.policy.courier.forUser = "root"; }
+              "chase.signer.always needs services.quoin.policy.courier enabled for chase.user (alice)";
+            assert refused "Always over another policy file"
+              { imports = [ self.inputs.quoin.nixosModules.signer self.inputs.quoin.nixosModules.policy ]; chase.signer.always = true; services.quoin.signer = { enable = true; forUser = "alice"; }; services.quoin.policy = { fileName = "other.json"; courier = { enable = true; forUser = "alice"; }; }; }
+              "chase.signer.always needs services.quoin.policy.fileName to be chase.json";
             # Cloudflare needs no token of the tier's own -- a project brings
             # one -- and unless it is authenticated the tier has no
             # Cloudflare route, whatever the machine binds.

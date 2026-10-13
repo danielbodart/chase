@@ -331,7 +331,11 @@ written beside the file and the launch goes on; refused, it ends. Where the
 tier's `always` is on -- by default in a tier that takes grants and asks
 someone -- a session's question on a route a project answers, with a
 credential, or on an SSH machine offers Always too: the one rule asked about
-is added to `chase.json`, signed, and admits for the rest of the session. Unknown keys
+is added to `chase.json`, signed, and admits for the rest of the session.
+frisket offers it once its own Always is on, which `chase.signer.always =
+true` does where the host runs quoin's signer and courier (its
+`nixosModules.signer` and `nixosModules.policy`) for chase's user: frisket is
+pointed at them, and they at `frisket.service`. Unknown keys
 and invalid values are refused before you're asked, and a file not in its
 canonical form is refused unsigned. What chase derives of the checkout is in
 the signed bytes: the sops file's digest and, for a grant that binds Docker,
