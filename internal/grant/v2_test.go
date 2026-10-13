@@ -144,6 +144,15 @@ func TestAnUnsignedFileIsPutToTheSigner(t *testing.T) {
 	}
 	s.Refuse(false)
 
+	// A signer that fails rather than refuses is still named as the one
+	// that failed, though quoin's client returns its failure bare.
+	s.Fail(true)
+	if h.approve(ws, "m3f", "trusted", "") == 0 {
+		t.Error("a failed signature was approved")
+	}
+	h.mustSay("chase.json was not signed: the signer: agent: generic extension failure")
+	s.Fail(false)
+
 	// A file not in its canonical form is not put to anyone.
 	write(t, ws+"/chase.json", `{"version":2}`)
 	n := len(s.Asked())
@@ -327,7 +336,10 @@ func TestWhatAChaseJSONMayNotSayIsRefused(t *testing.T) {
 		{`{"version": 2, "signer": {"sshsig": {"quoin-policy:~": "allow"}}}`, "not a namespace a rule may name"},
 		{`{"version": 2, "signer": {"ssh": {"hosts": {"gateway": "refuse"}}}}`, "not allow or ask"},
 		{`{"version": 2, "signer": {"user": "dan"}}`, `unknown field "user"`},
-		{`{"version": 2, "sudo": {"exec": {"systemctl": {"runAs": "root", "answer": "allow"}}}}`, "absolute path"},
+		{`{"version": 2, "sudo": {"exec": {"systemctl": {"runAs": "root", "answer": "allow"}}}}`, "absolute, clean path"},
+		{`{"version": 2, "sudo": {"exec": {"/run/current-system/sw/bin/systemctl": {"answer": "allow"}}}}`, "says whom it runs as"},
+		{`{"version": 2, "sudo": {"exec": {"/run/current-system/sw/bin/systemctl": {"runAs": "Root!", "answer": "allow"}}}}`, "is not a user's name"},
+		{`{"version": 2, "sudo": {"exec": {"/run/current-system/sw/bin/systemctl": {"runAs": "root", "answer": "maybe"}}}}`, "not allow, ask or refuse"},
 		{`{"version": 2, "sudo": {"exec": {"/run/current-system/sw/bin/cat ** [arg shadow]": {"runAs": "root", "answer": "allow"}}}}`, "only asks or refuses"},
 		{`{"version": 2, "sudo": {"exec": {"/run/current-system/sw/bin/systemctl ** status": {"runAs": "root", "answer": "allow"}}}}`, "only the last word"},
 		{`{"version": 2, "chase": {"secrets": "s.yaml"}}`, "give both or neither"},

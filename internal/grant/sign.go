@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,10 +109,13 @@ func (c Config) askSigner(ctx context.Context, g *gitsafe.Git, root string, b []
 	}
 	sig, err := policysign.Sign(ctx, sock, req)
 	if err != nil {
-		// quoin's client says the signer's own refusals itself; a socket
-		// that cannot be dialled it returns as it is, said here.
-		var dial *net.OpError
-		if errors.As(err, &dial) {
+		// quoin's client says the signer's own refusals itself, and an
+		// agent that is not the signer; anything else -- a socket that
+		// cannot be dialled, a connection the signer closed mid-request
+		// (a bare EOF), an agent failure reply, a reply that does not
+		// parse -- it returns as it is, and is said here to be the
+		// signer's, so the person knows which program to look at.
+		if msg := err.Error(); !strings.HasPrefix(msg, "the signer") && !strings.HasPrefix(msg, "the agent at ") {
 			err = fmt.Errorf("the signer: %w", err)
 		}
 		return nil, err

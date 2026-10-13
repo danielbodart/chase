@@ -37,6 +37,7 @@ type Signer struct {
 
 	mu     sync.Mutex
 	refuse bool
+	fail   bool
 	asked  []policysign.Request
 }
 
@@ -97,6 +98,15 @@ func (s *Signer) Refuse(refuse bool) {
 	s.refuse = refuse
 }
 
+// Fail makes the signer answer every signing from now with an agent
+// failure, as an agent does whose extension broke rather than refused, or
+// answer as before.
+func (s *Signer) Fail(fail bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fail = fail
+}
+
 // Asked is every policy-sign the signer was asked, in order.
 func (s *Signer) Asked() []policysign.Request {
 	s.mu.Lock()
@@ -137,8 +147,11 @@ func (e extension) Extension(typ string, contents []byte) ([]byte, error) {
 	}
 	e.s.mu.Lock()
 	e.s.asked = append(e.s.asked, r)
-	refuse := e.s.refuse
+	refuse, fail := e.s.refuse, e.s.fail
 	e.s.mu.Unlock()
+	if fail {
+		return nil, errors.New("broken")
+	}
 	if refuse {
 		return refused("refused")
 	}

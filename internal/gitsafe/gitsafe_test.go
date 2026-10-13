@@ -180,11 +180,14 @@ func TestOutputHeldPastGitIsAFailure(t *testing.T) {
 	g := gitsafetest.Safe(t)
 	gitsafe.SetTimeout(g, 10*time.Second, 300*time.Millisecond)
 	start := time.Now()
-	r := sh(g, sleep+" 5 & echo partial")
+	r := sh(g, sleep+" 30 & echo partial")
 	if r.OK() {
 		t.Errorf("a call whose output was held open succeeded: %q", r.Stdout)
 	}
-	if d := time.Since(start); d > 4*time.Second {
+	// Whether KillAfter's deadline fired, not how fast: the bound is far
+	// above its 300ms, for a loaded builder, and as far below the 30s the
+	// output is held for, which a call that waited it out would take.
+	if d := time.Since(start); d > 15*time.Second {
 		t.Errorf("the held output was waited on for %s", d)
 	}
 }

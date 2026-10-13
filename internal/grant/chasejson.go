@@ -464,15 +464,15 @@ func (f *FlongLayer) Lines() Result {
 }
 
 func (s SudoLayer) check() error {
+	// chase's one rule of its own: a rule says whom it runs as, which the
+	// gate would read as root when absent. Everything else -- a command by
+	// its absolute, clean path, runAs a user's name, the answer one of
+	// three -- is the gate's own reading, quoin's sudo.CheckExec, and is
+	// left to it, so that what chase refuses cannot drift from what the
+	// gate reads.
 	for _, k := range slices.Sorted(maps.Keys(s.Exec)) {
-		r := s.Exec[k]
-		switch {
-		case !strings.HasPrefix(k, "/"):
-			return fmt.Errorf("sudo.exec: %q is not a command by its absolute path", k)
-		case !loginName.MatchString(r.RunAs):
-			return fmt.Errorf("sudo.exec.%s.runAs: %q is not a user's name", k, r.RunAs)
-		case r.Answer != "allow" && r.Answer != "ask" && r.Answer != "refuse":
-			return fmt.Errorf("sudo.exec.%s.answer: %q is not allow, ask or refuse", k, r.Answer)
+		if s.Exec[k].RunAs == "" {
+			return fmt.Errorf("sudo.exec.%s.runAs: a project's rule says whom it runs as, root too", k)
 		}
 	}
 	// The gate's own reading: a rule it would refuse, and so ignore the
@@ -484,7 +484,6 @@ func (s SudoLayer) check() error {
 }
 
 var (
-	loginName   = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
 	sha256Hex   = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	projectSlug = regexp.MustCompile(`^[a-z0-9-]+/[a-z0-9._-]+$`)
 	portKey     = regexp.MustCompile(`^[1-9][0-9]*$`)
