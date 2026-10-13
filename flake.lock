@@ -27,14 +27,17 @@
         ],
         "nixpkgs": [
           "nixpkgs"
+        ],
+        "quoin": [
+          "quoin"
         ]
       },
       "locked": {
-        "lastModified": 1791829060,
-        "narHash": "sha256-LrU3iNj5BP05/oL0ZBdMjfsnS3V3NqZglRVDDEn3MmI=",
+        "lastModified": 1791887678,
+        "narHash": "sha256-6SR2PCfUidsy8yCvbcbem5+1HtIePlnGQqznt9uAmWk=",
         "owner": "danielbodart",
         "repo": "frisket",
-        "rev": "20ea5c91625bdeed489a6e79ea820b2b07dc17ec",
+        "rev": "437ab2c96b8e884abd8019c8ba077754184b1226",
         "type": "github"
       },
       "original": {
@@ -79,12 +82,33 @@
         "type": "github"
       }
     },
+    "quoin": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1791887725,
+        "narHash": "sha256-pxf7NNHAM18zsxHvs2yArr12Q+4MQhMg/yE3W+NgbZQ=",
+        "owner": "danielbodart",
+        "repo": "quoin",
+        "rev": "cf0341104aaa62297d466aa3d8baf082d5e21c79",
+        "type": "github"
+      },
+      "original": {
+        "owner": "danielbodart",
+        "repo": "quoin",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "flong": "flong",
         "frisket": "frisket",
         "home-manager": "home-manager",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "quoin": "quoin"
       }
     }
   },

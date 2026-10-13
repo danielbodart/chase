@@ -35,7 +35,7 @@ its grant. The design and its decisions are in [PLAN.md](PLAN.md).
 | operation | One endpoint of an app's API, classed as a read, a write or guarded. |
 | answer | What frisket does with a request: `allow`, `ask` or `refuse`. |
 | grant | A project's `chase.json`, signed beside it as `chase.json.sig`: what it asks for beyond its tier. |
-| approver | The program that asks you to approve a changed `chase.jsonc`, the grant's old form, read for this release only. A `chase.json` is signed instead, through frisket's signer. |
+| approver | The program that asks you to approve a changed `chase.jsonc`, the grant's old form, read for this release only. A `chase.json` is signed instead, through quoin's signer. |
 | scope | Where an app keeps its state: `session`, `workspace`, `tier` or `host`. |
 
 ## Example
@@ -101,7 +101,7 @@ for each choice.
 | `chase record apply [--last\|MACHINE]` | Add a recording's proposal to its checkout's `chase.json`, and have it signed. |
 | `chase check FILE` | Read FILE as a launch reads a project's `chase.json`, say what is wrong with it, and whether it is signed. |
 | `chase fmt [-check] FILE` | Print FILE in its canonical form, the bytes it is signed over; with `-check`, only whether it is. |
-| `chase sign [DIR]` | Write what is derived of the checkout into its `chase.json` -- the sops file's digest, its Docker project -- put it in its canonical form, and sign it through frisket's signer, which shows you the change. |
+| `chase sign [DIR]` | Write what is derived of the checkout into its `chase.json` -- the sops file's digest, its Docker project -- put it in its canonical form, and sign it through quoin's signer, which shows you the change. |
 | `chase migrate [DIR]` | Write the checkout's `chase.jsonc` as a `chase.json`, say each comment it cannot keep, remove `chase.jsonc`, and sign the new file. |
 | `chase schema` | Print a `chase.json`'s JSON Schema, frisket's own sections included. |
 | `chase check -config FILE` | Read FILE as chase reads `/etc/chase/config.json`, and say what is wrong with it. |
@@ -176,9 +176,9 @@ chase.tiers.trusted = {
 installed as `/etc/chase/policies/<tier>.json`, the base a project's section
 is merged over. `flong` is `flong.chase-<tier>`, typed and checked by flong's
 module. `signer` and `sudo` are checked as a `chase.json`'s are and kept at
-`/etc/chase/layers/<tier>.json`: neither the signer nor the sudo gate reads a
-tier's yet; each reads a project's file, and the gate's host rules are its
-own `services.frisket.sudoGate.exec`.
+`/etc/chase/layers/<tier>.json`: neither quoin's signer nor its sudo gate
+reads a tier's yet; each reads a project's file, and the gate's host rules
+are its own `services.quoin.sudo.exec`.
 
 ### Rules
 
@@ -311,8 +311,8 @@ component's own shape. Every section is optional.
 | `version` | `2`. A file without it is no `chase.json`. |
 | `frisket` | Merged over the tier's policy document, and checked by frisket's own project-layer check ([frisket's docs/policy.md](https://github.com/danielbodart/frisket/blob/trunk/docs/policy.md)). `routes.<app>.operations` answers `allow`, `ask` or `refuse` by operation id, `category:<name>` or `METHOD /path`, and a route's own `writes`, `guarded` and `unmatched` answer the rest. Only cloudflare, gcloud, git, github and huggingface take a project's answers, and only where the tier holds their credential: an answer for any other route, or an anonymous one, is said and left out. `allow` is names beyond the tier's and its apps', for connections no route serves, in frisket's host grammar, `"**.pythonhosted.org": true`, never `**` nor every name below a public suffix. `lan` is hosts on your own network, `"nas.home.arpa": {"ports": [445]}`: each an exact name, reached at the private address its DNS gives, at those ports (every port when none are given), and put on the allowlist with it; not a route's host or a project's name. `ssh.<machine>.exec` answers the tier's own machines by frisket's rule names. A field only the host sets is refused. |
 | `flong` | `seccomp.syscalls`, a call by name to `allow`, `deny` or `log`, and `seccomp.allow` and `deny`, lists of systemd `@groups`, checked by `flong check --layer project` against the tier's filter. A grant's `allow` overrides the tier's `seccomp.deny`: the tier is the ready-made fit, the grant the tailored one. |
-| `signer` | frisket's signer's `ssh.hosts` and `sshsig`, each `allow` or `ask`, read by the signer itself for what this checkout logs in to and signs. |
-| `sudo` | The sudo gate's `exec`, the resolved command's pattern (`/run/current-system/sw/bin/journalctl **`) to `{"runAs": …, "answer": …}`, `allow`, `ask` or `refuse`, read by the gate itself for a sudo run in the checkout and merged over the host's rules; checked by frisket's own reading, and never deciding a danger ([frisket's docs/sudo.md](https://github.com/danielbodart/frisket/blob/trunk/docs/sudo.md#rules)). |
+| `signer` | quoin's signer's `ssh.hosts` and `sshsig`, each `allow` or `ask`, read by the signer itself for what this checkout logs in to and signs. |
+| `sudo` | The sudo gate's `exec`, the resolved command's pattern (`/run/current-system/sw/bin/journalctl **`) to `{"runAs": …, "answer": …}`, `allow`, `ask` or `refuse`, read by the gate itself for a sudo run in the checkout and merged over the host's rules; checked by the gate's own reading, quoin's `sudo.CheckExec`, and never deciding a danger ([quoin's docs/sudo.md](https://github.com/danielbodart/quoin/blob/trunk/docs/sudo.md#rules)). |
 | `chase` | What no component owns. `secrets` is the checkout's sops file, each `credential.secret` a key in it, and `secretsSHA256` its digest. `apps.<app>` is what an app binds: its credential, Cloudflare's `accountId`, Docker's `project`, `images` and `ports`, Google's `serviceAccount` and `apis`, and ssh's machines, whose lists still take the catalogue's ids, `category:<name>` and command patterns, `docker compose ps **` ([docs/apps/ssh.md](docs/apps/ssh.md)). `apps.nix.devShell`, `true`, turns the checkout's devShell on, in any tier with nix: none is evaluated without it, as with `direnv allow`, and it is realised with no network where the tier's egress is not direct and unfiltered ([docs/apps/nix.md](docs/apps/nix.md)). |
 
 `chase schema` prints the whole shape, and `chase check` says what is wrong
@@ -323,9 +323,9 @@ proposal it leaves ([docs/record.md](docs/record.md)).
 A grant applies only in a tier with `grants = true`. An agent can write to its
 own checkout, so nothing in a grant applies until you have signed it:
 `chase.json.sig` beside it, an SSH signature over the file's exact bytes in
-the namespace `frisket-policy:<root>`, by a key `/etc/frisket/allowed_signers`
+the namespace `quoin-policy:<root>`, by a key `/etc/quoin/allowed_signers`
 allows. A file whose signature verifies launches with nothing asked. One that
-does not is put to frisket's signer, which shows you the diff against the
+does not is put to quoin's signer, which shows you the diff against the
 file git's `HEAD` signed and the launch waits; signed, the signature is
 written beside the file and the launch goes on; refused, it ends. Where the
 tier's `always` is on -- by default in a tier that takes grants and asks

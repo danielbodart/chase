@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/danielbodart/frisket/policy"
-	"github.com/danielbodart/frisket/projpolicy"
+	"github.com/danielbodart/quoin/projpolicy"
 
 	"github.com/danielbodart/chase/internal/apps/ssh"
 	"github.com/danielbodart/chase/internal/grant"

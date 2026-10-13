@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/danielbodart/frisket/execrule"
 	"github.com/danielbodart/frisket/policy"
+	"github.com/danielbodart/quoin/execrule"
 )
 
 // TierHost is one machine a tier names for itself (apps/ssh.nix's
@@ -217,7 +217,7 @@ func expected(r policy.SSHRoute, at string, expect map[string]string) error {
 	if len(expect) == 0 {
 		return nil
 	}
-	rules, err := execrule.Compile(r)
+	rules, err := execrule.Compile(r.Spec)
 	if err != nil {
 		return fmt.Errorf("%s: %v", at, err)
 	}

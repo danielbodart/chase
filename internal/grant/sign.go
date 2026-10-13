@@ -3,7 +3,6 @@ package grant
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,9 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/ssh/agent"
-
-	"github.com/danielbodart/frisket/projpolicy"
+	"github.com/danielbodart/quoin/policysign"
+	"github.com/danielbodart/quoin/projpolicy"
 
 	"github.com/danielbodart/chase/internal/checkout"
 	"github.com/danielbodart/chase/internal/gitsafe"
@@ -24,10 +22,10 @@ import (
 
 // A SIGNATURE REPLACES THE APPROVAL. A chase.json is a project's own words
 // only once a person has signed them: chase.json.sig beside it, an SSHSIG
-// over its exact bytes in the namespace frisket-policy:<root>, by a key
-// /etc/frisket/allowed_signers allows there. A launch whose file verifies
-// asks nothing. One that does not is put to the signer, through its agent
-// extension policy-sign@frisket, as `frisket policy sign` puts it: the
+// over its exact bytes in the namespace quoin-policy:<root>, by a key
+// /etc/quoin/allowed_signers allows there. A launch whose file verifies
+// asks nothing. One that does not is put to quoin-signer, through its agent
+// extension policy-sign@quoin, as `quoin policy sign` puts it: the
 // signer shows the change in galley -- against the file git's HEAD signed,
 // when that still verifies, or against nothing -- and, allowed, signs the
 // new bytes, which chase writes beside the file as chase.json.sig, and the
@@ -40,29 +38,9 @@ import (
 // says other than the checkout does. `chase sign` writes them, puts the
 // file in its canonical form, and signs it.
 
-// DefaultAllowedSigners is root's allowed signers file, which frisket's
-// module renders.
-const DefaultAllowedSigners = "/etc/frisket/allowed_signers"
-
-// policySignExtension is the signer's agent extension (frisket's
-// internal/agentsrv), and policySignRequest and policySignResponse its
-// wire, as JSON: the project's directory and its file's name, the new
-// bytes, and the bytes the old signature was made over with that
-// signature.
-const policySignExtension = "policy-sign@frisket"
-
-type policySignRequest struct {
-	Root   string `json:"root"`
-	Name   string `json:"name"`
-	New    []byte `json:"new"`
-	Old    []byte `json:"old,omitempty"`
-	OldSig []byte `json:"oldSig,omitempty"`
-}
-
-type policySignResponse struct {
-	Sig   []byte `json:"sig,omitempty"`
-	Error string `json:"error,omitempty"`
-}
+// DefaultAllowedSigners is root's allowed signers file, which quoin's
+// policy module renders.
+const DefaultAllowedSigners = "/etc/quoin/allowed_signers"
 
 func (c Config) allowedSigners() string {
 	if c.AllowedSigners != "" {
@@ -122,50 +100,28 @@ func (c Config) askSigner(ctx context.Context, g *gitsafe.Git, root string, b []
 	if sock == "" {
 		return nil, errors.New("no signer to ask: the module names no agent, and SSH_AUTH_SOCK is not set")
 	}
-	req := policySignRequest{Root: root, Name: FileName, New: b}
+	// quoin's own client and wire, which its signer serves: one definition
+	// of the extension, so the two cannot drift.
+	req := policysign.Request{Root: root, Name: FileName, New: b}
 	if g != nil {
 		if old, oldSig := headFiles(ctx, g, root); oldSig != nil {
 			req.Old, req.OldSig = old, oldSig
 		}
 	}
-	sig, err := policySign(sock, req)
+	sig, err := policysign.Sign(ctx, sock, req)
 	if err != nil {
+		// quoin's client says the signer's own refusals itself; a socket
+		// that cannot be dialled it returns as it is, said here.
+		var dial *net.OpError
+		if errors.As(err, &dial) {
+			err = fmt.Errorf("the signer: %w", err)
+		}
 		return nil, err
 	}
 	if err := c.verify(root, b, sig); err != nil {
 		return nil, fmt.Errorf("the signer's signature does not verify: %w", err)
 	}
 	return sig, nil
-}
-
-func policySign(sock string, req policySignRequest) ([]byte, error) {
-	contents, err := json.Marshal(req)
-	if err != nil {
-		return nil, err
-	}
-	conn, err := net.Dial("unix", sock)
-	if err != nil {
-		return nil, fmt.Errorf("the signer: %w", err)
-	}
-	defer conn.Close()
-	out, err := agent.NewClient(conn).Extension(policySignExtension, contents)
-	if errors.Is(err, agent.ErrExtensionUnsupported) {
-		return nil, fmt.Errorf("the agent at %s does not sign policies: it is not frisket-signer", sock)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("the signer: %w", err)
-	}
-	var resp policySignResponse
-	if len(out) < 1 || json.Unmarshal(out[1:], &resp) != nil {
-		return nil, fmt.Errorf("the agent's answer is not policy-sign's")
-	}
-	if resp.Error != "" {
-		return nil, fmt.Errorf("the signer: %s", resp.Error)
-	}
-	if resp.Sig == nil {
-		return nil, errors.New("the signer sent no signature")
-	}
-	return resp.Sig, nil
 }
 
 // maxHeadFile is the most of a file git's HEAD has that is read: a

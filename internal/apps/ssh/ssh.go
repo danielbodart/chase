@@ -15,8 +15,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/danielbodart/frisket/execrule"
 	"github.com/danielbodart/frisket/policy"
+	"github.com/danielbodart/quoin/execrule"
 
 	"github.com/danielbodart/chase/internal/apps"
 	"github.com/danielbodart/chase/internal/term"
@@ -212,7 +212,7 @@ func (c Config) hostRoutes(name, at string, hosts map[string]Host, catalogues ma
 	}
 	// frisket's own reading of the names, said of the tier that lists them
 	// rather than of every machine that inherits them.
-	if _, err := execrule.Compile(policy.SSHRoute{Env: tier.Env}); err != nil {
+	if _, err := execrule.Compile(execrule.Spec{Env: tier.Env}); err != nil {
 		return nil, fmt.Errorf("%s's %v", name, err)
 	}
 	if err := (Binding{Hosts: hosts}).Check(at); err != nil {
@@ -235,13 +235,11 @@ func (c Config) hostRoutes(name, at string, hosts map[string]Host, catalogues ma
 			return nil, fmt.Errorf("%s.hosts.%s: %v", at, host, err)
 		}
 		r := policy.SSHRoute{
-			Name:      host,
-			Address:   h.Address,
-			User:      h.User,
-			HostKeys:  h.HostKeys,
-			Shell:     h.Shell,
-			Exec:      exec,
-			Unmatched: unmatched,
+			Name:     host,
+			Address:  h.Address,
+			User:     h.User,
+			HostKeys: h.HostKeys,
+			Spec:     execrule.Spec{Shell: h.Shell, Exec: exec, Unmatched: unmatched},
 		}
 		// A device's shell is no shell frisket knows the grammar of, so
 		// nothing is taken off the front of a command typed into it, and a
@@ -252,7 +250,7 @@ func (c Config) hostRoutes(name, at string, hosts map[string]Host, catalogues ma
 		// Whatever else frisket refuses to load of how a route decides,
 		// refused here, where the machine is named, rather than by a
 		// session that does not start.
-		if _, err := execrule.Compile(r); err != nil {
+		if _, err := execrule.Compile(r.Spec); err != nil {
 			return nil, fmt.Errorf("%s.hosts.%s: %v", at, host, err)
 		}
 		routes = append(routes, r)
@@ -469,7 +467,7 @@ func literalWords(pattern string) int {
 }
 
 // matcher holds two patterns, or a glob and a pattern, to each other by
-// frisket's own reading of a command (its execrule): each question is put
+// frisket's own reading of a command (quoin's execrule): each question is put
 // as a command made to test it, which frisket decides with a rule of the
 // one pattern or glob alone. What is checked here is then what frisket
 // does, and not a copy of it that could drift. Each rule is compiled once.
@@ -481,7 +479,7 @@ type matcher map[policy.ExecRule]*execrule.Rules
 func (m matcher) decides(e policy.ExecRule, command string) execrule.Outcome {
 	r, ok := m[e]
 	if !ok {
-		r, _ = execrule.Compile(policy.SSHRoute{Exec: []policy.ExecRule{e}, Unmatched: "ask"})
+		r, _ = execrule.Compile(execrule.Spec{Exec: []execrule.Rule{e}, Unmatched: "ask"})
 		m[e] = r
 	}
 	if r == nil {

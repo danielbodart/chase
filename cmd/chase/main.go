@@ -81,7 +81,7 @@ const usage = `chase -- which sandbox a checkout gets, and which credential each
   chase sign [DIR | DIR/chase.json]
         The checkout's chase.json with what is derived of the checkout --
         its sops file's digest, its Docker project -- in its canonical form,
-        signed through frisket's signer, which shows you the change.
+        signed through quoin's signer, which shows you the change.
 
   chase migrate [DIR]
         The checkout's chase.jsonc written as a chase.json, the comments it

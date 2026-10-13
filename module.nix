@@ -299,7 +299,7 @@ let
         default = { };
         example = { ssh.hosts.gateway = "allow"; };
         description = ''
-          frisket's signer's section, `ssh.hosts` and `sshsig`, as a
+          quoin's signer's section, `ssh.hosts` and `sshsig`, as a
           project's chase.json has it, for the tier's sessions. Checked as
           one when the system is built, and kept, with `sudo`, at
           /etc/chase/layers/<tier>.json: the signer reads only the host's
@@ -313,7 +313,7 @@ let
           The sudo gate's section, `exec`, as a project's chase.json has it:
           checked when the system is built, and kept with `signer` at
           /etc/chase/layers/<tier>.json. The gate reads a project's section
-          and its host's own rules (services.frisket.sudoGate.exec), not a
+          and its host's own rules (services.quoin.sudo.exec), not a
           tier's: only a bare tier's sessions sudo at all, and theirs are
           the host's.
         '';
@@ -510,12 +510,12 @@ in
     signer = {
       allowedSigners = mkOption {
         type = types.strMatching "/.*";
-        default = "/etc/frisket/allowed_signers";
+        default = "/etc/quoin/allowed_signers";
         description = ''
           The allowed signers a project's chase.json.sig is verified
-          against: frisket's, which `services.frisket.policy.allowedSigners`
+          against: quoin's, which `services.quoin.policy.allowedSigners`
           renders. A chase.json whose signature verifies, in the namespace
-          frisket-policy:<its directory>, is launched with no dialog.
+          quoin-policy:<its directory>, is launched with no dialog.
         '';
       };
       agentSocket = mkOption {
@@ -523,8 +523,8 @@ in
         default = cfg.apps.ssh.agentSocket;
         defaultText = lib.literalExpression "config.chase.apps.ssh.agentSocket";
         description = ''
-          frisket-signer's agent, which a launch asks to sign a project's
-          chase.json that does not verify, through its policy-sign@frisket
+          quoin-signer's agent, which a launch asks to sign a project's
+          chase.json that does not verify, through its policy-sign@quoin
           extension: the signer shows the change and, allowed, signs it.
           Null: the caller's SSH_AUTH_SOCK.
         '';

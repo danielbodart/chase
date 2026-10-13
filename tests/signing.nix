@@ -1,7 +1,7 @@
 # A key of the test's own that signs a project's chase.json, as `ssh-keygen
-# -Y sign` would by hand (frisket's docs/policy.md), and the allowed signers
-# that allow it in every frisket-policy namespace: what the session tests
-# give chase.signer.allowedSigners. frisket's signer, which signs through
+# -Y sign` would by hand (quoin's docs/policy.md), and the allowed signers
+# that allow it in every quoin-policy namespace: what the session tests
+# give chase.signer.allowedSigners. quoin's signer, which signs through
 # galley, is record-session's.
 { pkgs, lib, chase }:
 
@@ -9,7 +9,7 @@ rec {
   keys = pkgs.runCommand "chase-test-signing-key" { nativeBuildInputs = [ pkgs.openssh ]; } ''
     mkdir $out
     ssh-keygen -q -t ed25519 -N "" -C chase-test -f $out/key
-    echo "alice namespaces=\"frisket-policy:*\" $(cut -d' ' -f1,2 $out/key.pub)" > $out/allowed_signers
+    echo "alice namespaces=\"quoin-policy:*\" $(cut -d' ' -f1,2 $out/key.pub)" > $out/allowed_signers
   '';
 
   allowedSigners = "${keys}/allowed_signers";
@@ -27,6 +27,6 @@ rec {
     trap 'rm -f "$key"' EXIT
     install -m 0600 ${keys}/key "$key"
     rm -f "$ws/chase.json.sig"
-    ssh-keygen -q -Y sign -f "$key" -n "frisket-policy:~/''${ws#"$home"/}" "$ws/chase.json"
+    ssh-keygen -q -Y sign -f "$key" -n "quoin-policy:~/''${ws#"$home"/}" "$ws/chase.json"
   '';
 }

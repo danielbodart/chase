@@ -739,7 +739,7 @@ func TestApplyAddsTheProposalToTheCheckout(t *testing.T) {
 	if asked := signer.Asked(); len(asked) != 1 || string(asked[0].New) != want || asked[0].Name != "chase.json" {
 		t.Errorf("the signer was asked %+v", asked)
 	}
-	verify := exec.Command("ssh-keygen", "-Y", "verify", "-f", signer.AllowedSigners, "-I", "dan", "-n", "frisket-policy:~/ws", "-s", ws+"/chase.json.sig")
+	verify := exec.Command("ssh-keygen", "-Y", "verify", "-f", signer.AllowedSigners, "-I", "dan", "-n", "quoin-policy:~/ws", "-s", ws+"/chase.json.sig")
 	verify.Stdin = strings.NewReader(want)
 	if out, err := verify.CombinedOutput(); err != nil && !errors.Is(err, exec.ErrNotFound) {
 		t.Errorf("stock ssh-keygen does not verify the signature: %v: %s", err, out)

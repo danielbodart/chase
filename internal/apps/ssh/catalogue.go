@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/danielbodart/frisket/execrule"
 	"github.com/danielbodart/frisket/policy"
+	"github.com/danielbodart/quoin/execrule"
 )
 
 // Operation is one of the catalogue's, apps/ssh/operations.json: what a
@@ -151,10 +151,11 @@ func argNames(commands []string, glob string) []string {
 }
 
 // CheckPattern is whether p is a command pattern frisket loads, by
-// frisket's own reading (its execrule), held to it here, before a grant is
-// approved, rather than when a session fails to start.
+// frisket's own reading (quoin's execrule, which it imports), held to it
+// here, before a grant is approved, rather than when a session fails to
+// start.
 func CheckPattern(p string) error {
-	_, err := execrule.Compile(policy.SSHRoute{Exec: []policy.ExecRule{{Command: p}}})
+	_, err := execrule.Compile(execrule.Spec{Exec: []execrule.Rule{{Command: p}}})
 	if err != nil {
 		return fmt.Errorf("pattern %q: %w", p, cause(err))
 	}
@@ -166,7 +167,7 @@ func CheckGlob(g string) error {
 	if g == "" {
 		return errors.New("an empty arg glob")
 	}
-	_, err := execrule.Compile(policy.SSHRoute{Exec: []policy.ExecRule{{Arg: g, Refuse: true}}})
+	_, err := execrule.Compile(execrule.Spec{Exec: []execrule.Rule{{Arg: g, Refuse: true}}})
 	if err != nil {
 		return fmt.Errorf("arg glob %w", cause(err))
 	}

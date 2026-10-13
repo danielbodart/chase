@@ -119,8 +119,8 @@
         "state": { "description": "Where chase keeps what it approved. Empty is home/.local/state/chase.", "$ref": "#/$defs/optionalAbsPath" },
         "runtime": { "description": "The user's runtime directory. Empty is /run/user/<uid>.", "$ref": "#/$defs/optionalAbsPath" },
         "policies": { "description": "The directory of the tiers' own frisket policy documents, version 2.", "$ref": "#/$defs/absPath" },
-        "allowedSigners": { "description": "The allowed signers a project's chase.json.sig is verified against. Empty is /etc/frisket/allowed_signers.", "$ref": "#/$defs/optionalAbsPath" },
-        "signerAgent": { "description": "frisket-signer's agent socket, which signs a project's chase.json. Empty is the caller's SSH_AUTH_SOCK.", "$ref": "#/$defs/optionalAbsPath" },
+        "allowedSigners": { "description": "The allowed signers a project's chase.json.sig is verified against. Empty is /etc/quoin/allowed_signers.", "$ref": "#/$defs/optionalAbsPath" },
+        "signerAgent": { "description": "quoin-signer's agent socket, which signs a project's chase.json. Empty is the caller's SSH_AUTH_SOCK.", "$ref": "#/$defs/optionalAbsPath" },
         "flong": { "description": "A path flong's binary is run by, to check a project's flong section. Empty: not run.", "$ref": "#/$defs/optionalAbsPath" },
         "declarations": { "description": "Where flong's declarations are. Empty is /etc/flong.", "$ref": "#/$defs/optionalAbsPath" },
         "answerable": {

@@ -11,7 +11,7 @@ do the one action, and exit. chase says what the session needed that its
 tier would have refused or asked about, and leaves a proposal: the entries
 of the checkout's `chase.json` that would give it exactly that, each
 answered as it was. `chase record apply` adds them to the checkout's
-`chase.json` and has frisket's signer sign it, which shows you the change.
+`chase.json` and has quoin's signer sign it, which shows you the change.
 
 ```
 chase record [--default allow|ask|refuse] [--base tier|none] [--] AGENT [ARG...]
@@ -195,8 +195,8 @@ userfaultfd, BPF, perf events.
 it: one there already is left; another answer for the same operation or
 call replaces the old one, and a command in another of its machine's lists
 is moved. What comes out, in its canonical form, must be a `chase.json`
-chase reads, or nothing is written; then frisket's signer is asked to sign
-it, through its `policy-sign@frisket` extension, and shows you the change
+chase reads, or nothing is written; then quoin's signer is asked to sign
+it, through its `policy-sign@quoin` extension, and shows you the change
 against what git's `HEAD` signed. Refused, the file is written and not
 signed, and the next launch asks again. Applying twice adds nothing. The
 session could write `chase.json`, so it is read as a launch takes it: a

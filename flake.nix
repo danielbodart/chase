@@ -24,6 +24,20 @@
       url = "github:danielbodart/frisket";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flong.follows = "flong";
+      inputs.quoin.follows = "quoin";
+    };
+
+    # quoin, the host's gatekeepers: the signer a project's chase.json is
+    # signed through, the courier that writes it, and the sudo gate that
+    # reads its sudo section. chase's binary compiles quoin's public
+    # packages -- projpolicy, policysign, execrule, hostpattern, sudo --
+    # from the version go.mod requires, and the quoin-pin check holds the
+    # two to one commit. Its modules the module does not import (they are
+    # the host's, see ./module.nix); the checks and the VM tests do. frisket
+    # follows this one, so the lock holds one quoin.
+    quoin = {
+      url = "github:danielbodart/quoin";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
 
     # TEST-ONLY. Nothing outside `checks` reads this. chase writes
@@ -67,10 +81,13 @@
         # Pinned rather than null, because there are dependencies: frisket's
         # public packages, the address and names a project is known by and the
         # policy document's types, so chase builds what frisket reads with
-        # frisket's own code; and golang.org/x/crypto's ssh, which reads an SSH
-        # grant's host keys as frisket does. The frisket-pin check holds
-        # go.mod's frisket to the one flake.lock pins.
-        vendorHash = "sha256-ScHm/6F000yLSFtmDeH5nmcJZttzrjjnHrgcqHuhQBc=";
+        # frisket's own code; quoin's, a project's signed file, the signer's
+        # policy-sign wire, command patterns, host patterns and the sudo
+        # gate's rules, so chase reads and signs a chase.json as the
+        # gatekeepers do; and golang.org/x/crypto's ssh, which reads an SSH
+        # grant's host keys as frisket does. The frisket-pin and quoin-pin
+        # checks hold go.mod's frisket and quoin to the ones flake.lock pins.
+        vendorHash = "sha256-Tlfkuo/D5qDLqZhMVE7U9pFOZbPGWZ3SCEI0NgxeJ1U=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -131,6 +148,21 @@
       checks = forAllSystems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+
+          # The commit go.mod requires of one of Dan's modules, which a
+          # pseudo-version ends in the first twelve hex digits of, against
+          # the one flake.lock pins for the input of the same name.
+          pin = name:
+            let
+              locked = (builtins.fromJSON (builtins.readFile ./flake.lock)).nodes.${name}.locked.rev;
+              required = builtins.head (builtins.match ".*\n[[:space:]]*github.com/danielbodart/${name} (v[^[:space:]]+).*" (builtins.readFile ./go.mod));
+              commit = builtins.head (builtins.match ".*-([0-9a-f]{12})" required);
+            in
+            assert nixpkgs.lib.assertMsg (builtins.match ".*replace[[:space:]].*" (builtins.readFile ./go.mod) == null)
+              "go.mod replaces a module, so what it builds is not what it requires";
+            assert nixpkgs.lib.assertMsg (nixpkgs.lib.hasPrefix commit locked)
+              "go.mod requires ${name} ${required}, but flake.lock pins ${locked}";
+            pkgs.writeText "${name}-pin" locked;
 
           # A system with ./examples/tiers.nix and CHASE (more of the chase
           # section), for what a check needs of its configuration.
@@ -298,17 +330,14 @@
           # build documents and name projects with one frisket's code while
           # another serves them. go.mod's pseudo-version ends in the commit's
           # first twelve hex digits, so the two must agree there.
-          frisket-pin =
-            let
-              locked = (builtins.fromJSON (builtins.readFile ./flake.lock)).nodes.frisket.locked.rev;
-              required = builtins.head (builtins.match ".*\n[[:space:]]*github.com/danielbodart/frisket (v[^[:space:]]+).*" (builtins.readFile ./go.mod));
-              commit = builtins.head (builtins.match ".*-([0-9a-f]{12})" required);
-            in
-            assert nixpkgs.lib.assertMsg (builtins.match ".*replace[[:space:]].*" (builtins.readFile ./go.mod) == null)
-              "go.mod replaces a module, so what it builds is not what it requires";
-            assert nixpkgs.lib.assertMsg (nixpkgs.lib.hasPrefix commit locked)
-              "go.mod requires frisket ${required}, but flake.lock pins ${locked}";
-            pkgs.writeText "frisket-pin" locked;
+          frisket-pin = pin "frisket";
+
+          # ONE QUOIN, for the same reason: chase verifies and signs a
+          # chase.json with one quoin's projpolicy and policysign, and the
+          # signer, the courier and the VM tests' modules are another's
+          # unless the two agree. The lock's quoin is frisket's too, by
+          # follows; frisket's own binary is built from its go.mod's.
+          quoin-pin = pin "quoin";
 
           # A refusal happens at evaluation, so it is checked by evaluating.
           # This is also the only thing that proves the module stands alone:

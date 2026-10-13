@@ -78,11 +78,11 @@ type Config struct {
 	// a launch merges a project's frisket section over.
 	Policies string `json:"policies"`
 	// AllowedSigners is root's allowed signers file, which a project's
-	// chase.json.sig is verified against: frisket's,
-	// /etc/frisket/allowed_signers, when empty.
+	// chase.json.sig is verified against: quoin's,
+	// /etc/quoin/allowed_signers, when empty.
 	AllowedSigners string `json:"allowedSigners,omitempty"`
-	// SignerAgent is the socket of frisket-signer's agent, which signs a
-	// project's chase.json through its policy-sign@frisket extension when
+	// SignerAgent is the socket of quoin-signer's agent, which signs a
+	// project's chase.json through its policy-sign@quoin extension when
 	// a person allows it. Empty: the caller's SSH_AUTH_SOCK.
 	SignerAgent string `json:"signerAgent,omitempty"`
 	// Flong is a path flong's binary is run by, to check a project's flong

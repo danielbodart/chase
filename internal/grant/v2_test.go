@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danielbodart/frisket/projpolicy"
+	"github.com/danielbodart/quoin/projpolicy"
 
 	"github.com/danielbodart/chase/internal/grant"
 	"github.com/danielbodart/chase/internal/grant/signertest"
@@ -97,7 +97,7 @@ func TestASignedFileLaunchesUnasked(t *testing.T) {
 	}
 }
 
-// AN UNSIGNED CHASE.JSON is put to the signer, as `frisket policy sign`
+// AN UNSIGNED CHASE.JSON is put to the signer, as `quoin policy sign`
 // puts one: against what git's HEAD signed, when that verifies, else
 // against nothing. Its signature is written beside it, and the launch goes
 // on; refused, the launch ends, and nothing is staged.
@@ -324,7 +324,7 @@ func TestWhatAChaseJSONMayNotSayIsRefused(t *testing.T) {
 		{`{"version": 2, "flong": {"seccomp": {"syscalls": {"@debug": "allow"}}}}`, "is not a call's name"},
 		{`{"version": 2, "flong": {"seccomp": {"syscalls": {"ptrace": "maybe"}}}}`, "not allow, deny or log"},
 		{`{"version": 2, "flong": {"seccomp": {"syscalls": {"ptrace": null}}}}`, "flong.seccomp.syscalls.ptrace is null"},
-		{`{"version": 2, "signer": {"sshsig": {"frisket-policy:~": "allow"}}}`, "not a namespace a rule may name"},
+		{`{"version": 2, "signer": {"sshsig": {"quoin-policy:~": "allow"}}}`, "not a namespace a rule may name"},
 		{`{"version": 2, "signer": {"ssh": {"hosts": {"gateway": "refuse"}}}}`, "not allow or ask"},
 		{`{"version": 2, "signer": {"user": "dan"}}`, `unknown field "user"`},
 		{`{"version": 2, "sudo": {"exec": {"systemctl": {"runAs": "root", "answer": "allow"}}}}`, "absolute path"},

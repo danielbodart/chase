@@ -15,7 +15,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/danielbodart/frisket/projpolicy"
+	"github.com/danielbodart/quoin/projpolicy"
 
 	"github.com/danielbodart/chase/internal/checkout"
 	"github.com/danielbodart/chase/internal/files"

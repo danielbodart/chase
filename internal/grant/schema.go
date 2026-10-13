@@ -36,7 +36,7 @@ func Schema() []byte {
 			"version": map[string]any{"const": 2},
 			"frisket": frisket,
 			"flong":   titled(schemaOf(reflect.TypeFor[FlongLayer]()), "flong's section: the syscall filter, applied as a project's seccompPolicy lines"),
-			"signer":  titled(signerSchema(), "frisket-signer's section, which the signer reads itself"),
+			"signer":  titled(signerSchema(), "quoin-signer's section, which the signer reads itself"),
 			"sudo":    titled(schemaOf(reflect.TypeFor[SudoLayer]()), "the sudo gate's section, kept for it"),
 			"chase":   titled(schemaOf(reflect.TypeFor[Section]()), "chase's own: the secrets file and the apps a project binds"),
 		},

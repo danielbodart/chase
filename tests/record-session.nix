@@ -9,7 +9,7 @@
 # by the kernel's audit, which `chase record` follows and puts down to the
 # session by its cgroup. What is left is a report and a proposal, which
 # `chase record apply` adds to the checkout's chase.json and has signed,
-# by frisket's own signer over a software TPM, through galley -- a stand-in
+# by quoin's signer over a software TPM, through galley -- a stand-in
 # that allows it; signed, it lets the next launch of the same session do
 # the same things with nothing recording and nobody asked. A hand edit
 # that nobody signed is put to the signer by the launch itself.
@@ -19,7 +19,7 @@
 let
   pkgs = hostPkgs;
   system = pkgs.stdenv.hostPlatform.system;
-  fakegalley = lib.getExe self.inputs.frisket.packages.${system}.fakegalley;
+  fakegalley = lib.getExe self.inputs.quoin.packages.${system}.fakegalley;
   upstream4 = "203.0.113.20";
   upstream6 = "2001:db8:113::20";
   # The same machine on the local network: a private address, which
@@ -136,18 +136,18 @@ in
   };
 
   nodes.machine = { config, pkgs, ... }: {
-    imports = [ self.nixosModules.default home-manager.nixosModules.home-manager self.inputs.frisket.nixosModules.signer ];
+    imports = [ self.nixosModules.default home-manager.nixosModules.home-manager self.inputs.quoin.nixosModules.signer ];
 
-    # frisket's signer, alice's agent, over a software TPM: the key is made
+    # quoin's signer, alice's agent, over a software TPM: the key is made
     # in it as the test runs, so the allowed signers are written then. It
     # asks alice's galley, a stand-in answering from a script.
     virtualisation.tpm.enable = true;
-    services.frisket.signer = { enable = true; forUser = "alice"; };
-    services.frisket.policy = {
+    services.quoin.signer = { enable = true; forUser = "alice"; };
+    services.quoin.policy = {
       fileName = "chase.json";
       courier = { enable = true; forUser = "alice"; };
     };
-    environment.etc."frisket/allowed_signers".source = lib.mkForce "/run/allowed_signers";
+    environment.etc."quoin/allowed_signers".source = lib.mkForce "/run/allowed_signers";
     systemd.tmpfiles.rules = [ "d /run/galley-ask 0755 alice users -" "d /run/fakegalley 0755 alice users -" ];
     systemd.user.services.galley.serviceConfig = {
       ExecStart = "${fakegalley} -socket /run/galley-ask/alice.sock -script /run/fakegalley/script -log /run/fakegalley/log";
@@ -192,7 +192,7 @@ in
       approver = "${pkgs.writeShellScript "approver" ''
         ${pkgs.coreutils}/bin/cat | ${pkgs.util-linux}/bin/logger -t chase-test-approver
       ''}";
-      signer.agentSocket = "/run/frisket-signer/agent";
+      signer.agentSocket = "/run/quoin-signer/agent";
       apps = {
         claude.package = pkgs.hello;
         codex.package = pkgs.hello;
@@ -255,7 +255,7 @@ in
           return [e for e in map(json.loads, out.splitlines()) if e["event"] == "question"]
 
       def verifies():
-          machine.succeed("ssh-keygen -Y verify -f /etc/frisket/allowed_signers -I alice -n 'frisket-policy:~/proj' "
+          machine.succeed("ssh-keygen -Y verify -f /etc/quoin/allowed_signers -I alice -n 'quoin-policy:~/proj' "
                           "-s ${ws}/chase.json.sig < ${ws}/chase.json")
 
       start_all()
@@ -273,14 +273,14 @@ in
       machine.succeed("runuser -l alice -c ${mkProject}")
 
       # alice's signing key, made in the TPM, and the allowed signers that
-      # allow it in every frisket-policy namespace.
-      machine.wait_for_unit("frisket-signer.socket")
-      machine.succeed("systemctl start frisket-signer.service")
+      # allow it in every quoin-policy namespace.
+      machine.wait_for_unit("quoin-signer.socket")
+      machine.succeed("systemctl start quoin-signer.service")
       machine.succeed("SSH_ASKPASS_REQUIRE=never ssh-tpm-keygen -f /root/id_ecdsa -C alice@machine </dev/null")
-      machine.succeed("install -o ssh-signer -g ssh-signer -m 0600 /root/id_ecdsa.tpm /var/lib/frisket-signer/")
-      machine.succeed("systemctl restart frisket-signer.service")
+      machine.succeed("install -o ssh-signer -g ssh-signer -m 0600 /root/id_ecdsa.tpm /var/lib/quoin-signer/")
+      machine.succeed("systemctl restart quoin-signer.service")
       key = " ".join(machine.succeed("cat /root/id_ecdsa.pub").split()[:2])
-      machine.succeed(f"echo 'alice namespaces=\"frisket-policy:*\" {key}' > /run/allowed_signers")
+      machine.succeed(f"echo 'alice namespaces=\"quoin-policy:*\" {key}' > /run/allowed_signers")
       galley("answer 0")
 
       with subtest("the tier refuses all four, with nothing recording"):
@@ -372,7 +372,7 @@ in
       with subtest("a hand edit nobody signed is put to the signer by the launch, against what HEAD signed"):
           signed = vm_read(machine, "${ws}/chase.json")
           machine.succeed(as_user("cd ${ws} && jq '.frisket.allow[\"extra.test\"] = true' chase.json > c && mv c chase.json && ${chase} fmt chase.json"))
-          machine.fail("ssh-keygen -Y verify -f /etc/frisket/allowed_signers -I alice -n 'frisket-policy:~/proj' -s ${ws}/chase.json.sig < ${ws}/chase.json")
+          machine.fail("ssh-keygen -Y verify -f /etc/quoin/allowed_signers -I alice -n 'quoin-policy:~/proj' -s ${ws}/chase.json.sig < ${ws}/chase.json")
           asked = len(questions())
           machine.succeed(as_user(f"cd ${ws} && ${launcher} shell -c {shlex.quote('bash ${session} edited')}"), timeout=300)
           qs = questions()[asked:]

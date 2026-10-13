@@ -671,8 +671,9 @@ func TestASecretNamedAnywhereIsRefused(t *testing.T) {
 }
 
 // THE MATCHER TESTED IS THE ONE RUN: decide, which every test of what the
-// catalogue answers goes through, is frisket's execrule as go.mod pins it,
-// and a session is decided by the frisket the flake runs. So that frisket
+// catalogue answers goes through, is quoin's execrule as go.mod pins it,
+// while a session is decided by the frisket the flake runs, with the quoin
+// its own go.mod pins. So that frisket
 // itself answers the same commands -- the catalogue's examples and commands
 // made of its own words, secrets, devices, env names and what no rule can
 // read -- under routes that answer by every kind of rule, and must answer

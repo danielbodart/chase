@@ -12,10 +12,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/danielbodart/frisket/hostpattern"
 	"github.com/danielbodart/frisket/policy"
-	"github.com/danielbodart/frisket/projpolicy"
-	"github.com/danielbodart/frisket/sudo"
+	"github.com/danielbodart/quoin/hostpattern"
+	"github.com/danielbodart/quoin/projpolicy"
+	"github.com/danielbodart/quoin/sudo"
 
 	appsssh "github.com/danielbodart/chase/internal/apps/ssh"
 )
@@ -23,8 +23,8 @@ import (
 // A PROJECT'S FILE is chase.json at the checkout's root: strict JSON, one
 // section per component, each that component's own shape, and signed
 // beside it as chase.json.sig, a stock SSHSIG over its exact bytes in the
-// namespace frisket-policy:<root> (frisket's docs/policy.md). A file whose
-// signature verifies against /etc/frisket/allowed_signers is launched with
+// namespace quoin-policy:<root> (quoin's docs/policy.md). A file whose
+// signature verifies against /etc/quoin/allowed_signers is launched with
 // no dialog; one that does not is put to the signer, which shows the
 // change and signs it (sign.go).
 //
@@ -86,7 +86,7 @@ type FlongSeccomp struct {
 }
 
 // SudoLayer is the sudo gate's section, read by the gate itself for a sudo
-// run in the checkout (frisket's docs/sudo.md, Rules): commands by their
+// run in the checkout (quoin's docs/sudo.md, Rules): commands by their
 // absolute path and arguments, each with whom it runs as and its answer,
 // merged over the host's rules.
 type SudoLayer struct {

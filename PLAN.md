@@ -312,11 +312,11 @@ only once a person has signed it:
   new ciphertext or a changed origin is a change like any other; `chase
   sign` writes them, puts the file in its canonical form and signs it.
 - **Who signed it.** `chase.json.sig` is a stock SSHSIG over the file's
-  exact bytes, in the namespace `frisket-policy:<root>`, so a signature
+  exact bytes, in the namespace `quoin-policy:<root>`, so a signature
   made for one checkout is no signature for another. A file whose
-  signature verifies against `/etc/frisket/allowed_signers` launches with
-  nothing asked. One that does not is put to frisket's signer, through its
-  `policy-sign@frisket` extension, which shows the difference from the file
+  signature verifies against `/etc/quoin/allowed_signers` launches with
+  nothing asked. One that does not is put to quoin's signer, through its
+  `policy-sign@quoin` extension, which shows the difference from the file
   git's HEAD signed, or the whole file when that does not verify, and the
   launch waits for its answer: signed, the signature is written beside the
   file and the launch goes on. A file not in its canonical form is refused
@@ -548,7 +548,7 @@ that would give it, each in the list its answer says: `allow`, `ask` or
 was seen, never generalised. The proposal, `proposal.json`, is strict JSON
 in `chase.json`'s own shape, with a note beside each entry of what it was
 made from, and changes nothing until `chase record apply` merges it into
-`chase.json` and has frisket's signer sign the result, showing the change as
+`chase.json` and has quoin's signer sign the result, showing the change as
 any change is shown (decision 17); refused, the file is written unsigned and
 the next launch asks again. Recording is manual mode, guarded operations
 included, and a call the tier's own `seccomp.deny` takes too: the tier is
