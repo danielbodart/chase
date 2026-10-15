@@ -42,6 +42,7 @@
       },
       "original": {
         "owner": "danielbodart",
+        "ref": "v0.179.111",
         "repo": "frisket",
         "type": "github"
       }
@@ -98,6 +99,7 @@
       },
       "original": {
         "owner": "danielbodart",
+        "ref": "v0.81.13",
         "repo": "quoin",
         "type": "github"
       }

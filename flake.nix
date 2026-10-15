@@ -21,7 +21,7 @@
     };
 
     frisket = {
-      url = "github:danielbodart/frisket";
+      url = "github:danielbodart/frisket/v0.179.111";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flong.follows = "flong";
       inputs.quoin.follows = "quoin";
@@ -32,11 +32,11 @@
     # reads its sudo section. chase's binary compiles quoin's public
     # packages -- projpolicy, policysign, execrule, hostpattern, sudo --
     # from the version go.mod requires, and the quoin-pin check holds the
-    # two to one commit. Its modules the module does not import (they are
+    # two to one release tag, which scripts/pin.sh sets in both. Its modules the module does not import (they are
     # the host's, see ./module.nix); the checks and the VM tests do. frisket
     # follows this one, so the lock holds one quoin.
     quoin = {
-      url = "github:danielbodart/quoin";
+      url = "github:danielbodart/quoin/v0.81.13";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -86,8 +86,9 @@
         # gate's rules, so chase reads and signs a chase.json as the
         # gatekeepers do; and golang.org/x/crypto's ssh, which reads an SSH
         # grant's host keys as frisket does. The frisket-pin and quoin-pin
-        # checks hold go.mod's frisket and quoin to the ones flake.lock pins.
-        vendorHash = "sha256-THK6ZSQhFhx8BQ6fL8Scv0S8TUM+gdnRYwjoVspLCCw=";
+        # checks hold go.mod's frisket and quoin to the tags flake.lock pins,
+        # and scripts/pin.sh works this out again when it moves them.
+        vendorHash = "sha256-WOLlCgR1qgKsjnOjCIl3m4EbSZpH07ImDdKt+H8OfY8=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -149,20 +150,25 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
 
-          # The commit go.mod requires of one of Dan's modules, which a
-          # pseudo-version ends in the first twelve hex digits of, against
-          # the one flake.lock pins for the input of the same name.
+          # The release tag go.mod requires of one of Dan's modules against
+          # the tag flake.lock pins the input of the same name to, which it
+          # records as the input's ref beside the commit. Both are a tag the
+          # module's CI cut once its checks passed, so neither half takes a
+          # commit CI has not passed, and a tag never moves. scripts/pin.sh
+          # sets both.
           pin = name:
             let
-              locked = (builtins.fromJSON (builtins.readFile ./flake.lock)).nodes.${name}.locked.rev;
+              node = (builtins.fromJSON (builtins.readFile ./flake.lock)).nodes.${name};
+              tag = node.original.ref or "no tag";
               required = builtins.head (builtins.match ".*\n[[:space:]]*github.com/danielbodart/${name} (v[^[:space:]]+).*" (builtins.readFile ./go.mod));
-              commit = builtins.head (builtins.match ".*-([0-9a-f]{12})" required);
             in
             assert nixpkgs.lib.assertMsg (builtins.match ".*replace[[:space:]].*" (builtins.readFile ./go.mod) == null)
               "go.mod replaces a module, so what it builds is not what it requires";
-            assert nixpkgs.lib.assertMsg (nixpkgs.lib.hasPrefix commit locked)
-              "go.mod requires ${name} ${required}, but flake.lock pins ${locked}";
-            pkgs.writeText "${name}-pin" locked;
+            assert nixpkgs.lib.assertMsg (builtins.match "v[0-9]+\\.[0-9]+\\.[0-9]+" required != null)
+              "go.mod requires ${name} ${required}, which is not a release tag: scripts/pin.sh ${name} vX.Y.Z";
+            assert nixpkgs.lib.assertMsg (tag == required)
+              "go.mod requires ${name} ${required}, but flake.lock pins ${tag}: scripts/pin.sh ${name} ${required}";
+            pkgs.writeText "${name}-pin" node.locked.rev;
 
           # A system with ./examples/tiers.nix and CHASE (more of the chase
           # section), for what a check needs of its configuration.
@@ -328,8 +334,7 @@
           # flake.lock, and the binary compiles frisket's public packages from
           # the version go.mod requires. Were they two commits, chase would
           # build documents and name projects with one frisket's code while
-          # another serves them. go.mod's pseudo-version ends in the commit's
-          # first twelve hex digits, so the two must agree there.
+          # another serves them. Both name the same release tag.
           frisket-pin = pin "frisket";
 
           # ONE QUOIN, for the same reason: chase verifies and signs a
