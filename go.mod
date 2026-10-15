@@ -6,7 +6,7 @@ go 1.26.0
 
 require (
 	github.com/danielbodart/frisket v0.176.111-0.20261013103438-437ab2c96b8e
-	github.com/danielbodart/quoin v0.79.12-0.20261015154323-6328bd89832c
+	github.com/danielbodart/quoin v0.80.13-0.20261015154355-22bebd528389
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
 	github.com/vektah/gqlparser/v2 v2.5.58
 	go.yaml.in/yaml/v3 v3.0.5
