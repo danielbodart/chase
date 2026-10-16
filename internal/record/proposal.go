@@ -158,9 +158,10 @@ func Propose(lines []Line, calls []Syscall, o Options, a Against) Proposal {
 
 // entryOf is what one entry is made from: frisket's subject, the last
 // answer of which stands, except for a request on a route proposed by its
-// path, which is its method and path. frisket's subject there is the
-// operation where a rule named one, so two requests of one operation to
-// two paths -- two workers' uploads -- are one subject and two entries.
+// path, which is its method and path. frisket keys that subject by method
+// and path too, so two requests of one operation to two paths -- two
+// workers' uploads -- are two lines and two entries; keying the entry by
+// them as well holds whatever frisket's subject is.
 func (o Options) entryOf(l Line) string {
 	if l.Kind != "http" || o.byOperation(l) {
 		return l.subject()

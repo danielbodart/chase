@@ -1,5 +1,5 @@
-github.com/danielbodart/frisket v0.179.111 h1:h3GRjSUzYKFfklwgM2QrPKn/rCQGQlhDDMjNK3ucGJI=
-github.com/danielbodart/frisket v0.179.111/go.mod h1:rduNf/WbCy12jkZ2+POvSTDo5bnxNjBZXSSoSzTVejY=
+github.com/danielbodart/frisket v0.182.113 h1:tDz661q+FzgYLZ0Pw/Q86Op7q63yLDwsYyHuC2JM5i8=
+github.com/danielbodart/frisket v0.182.113/go.mod h1:nXpj3v/3yphrjHlNSu2a/vl5jCG6K6uuIYulZE6wahg=
 github.com/danielbodart/galley v0.30.22-0.20261013085913-4f8859f2327b h1:4/zAa1Vy05ez6my4uYlZJ+D+IowpK4gZkAweMLnLBxg=
 github.com/danielbodart/galley v0.30.22-0.20261013085913-4f8859f2327b/go.mod h1:LG67o+3WXE7Kj9BQ0WclOtCq0Fbx46NP3pe6PqrLzs8=
 github.com/danielbodart/quoin v0.81.13 h1:CoMgbkhP/lV4E3Fxs+aIL0EKSQ13cln5DNueb1XTkFw=
