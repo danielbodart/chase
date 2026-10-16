@@ -16,8 +16,8 @@ import (
 
 // A PROPOSAL is what a recording turns into: the entries of the
 // checkout's chase.json the session needed, each exactly what was seen --
-// an operation's id, or a request's method and exact path where no
-// operation was matched, answered in its route's operations; a command on
+// a request's method and exact path, answered in its route's operations,
+// or with --by-operation the id of the operation it matched; a command on
 // a machine, or its catalogue operation, in the machine's list its answer
 // says, `allow`, `ask` or `refuse`; a name; a syscall. It is written in
 // chase.json's own shape, as strict JSON, beside what each entry was made
@@ -32,10 +32,14 @@ import (
 // allowlist.
 
 // Options are how a recording was made: `chase record`'s --default, ""
-// for a person's answers, and --base.
+// for a person's answers, --base, and --by-operation.
 type Options struct {
 	Default string `json:"default"`
 	Base    string `json:"base"`
+	// ByOperation proposes a request on a route by the id of the operation
+	// it matched, which admits that operation on every object it names,
+	// rather than by its exact path, which admits it on the one it touched.
+	ByOperation bool `json:"byOperation,omitempty"`
 }
 
 // Against is what the proposal is made against: the machines the
@@ -125,14 +129,14 @@ func Propose(lines []Line, calls []Syscall, o Options, a Against) Proposal {
 			answered = append(answered, l)
 		}
 	}
-	for _, l := range latest(answered) {
+	for _, l := range latestBy(answered, o.entryOf) {
 		if rank(l.Answer) < 0 {
 			p.Left = append(p.Left, Left{l, fmt.Sprintf("%q is not an answer", l.Answer)})
 			continue
 		}
 		switch l.Kind {
 		case "http":
-			p.http(l)
+			p.http(l, o)
 		case "ssh":
 			p.ssh(l, a)
 		case "egress":
@@ -150,6 +154,25 @@ func Propose(lines []Line, calls []Syscall, o Options, a Against) Proposal {
 		p.syscall(c, o)
 	}
 	return p
+}
+
+// entryOf is what one entry is made from: frisket's subject, the last
+// answer of which stands, except for a request on a route proposed by its
+// path, which is its method and path. frisket's subject there is the
+// operation where a rule named one, so two requests of one operation to
+// two paths -- two workers' uploads -- are one subject and two entries.
+func (o Options) entryOf(l Line) string {
+	if l.Kind != "http" || o.byOperation(l) {
+		return l.subject()
+	}
+	return l.Kind + "\x00" + l.Route + "\x00" + l.Method + "\x00path\x00" + l.Path + "\x00" + l.GraphQL
+}
+
+// byOperation is whether a request on a route is proposed by the
+// operation it matched: with --by-operation, and always for a git push or
+// a GraphQL field, which no path names.
+func (o Options) byOperation(l Line) bool {
+	return l.Operation != "" && (o.ByOperation || l.GraphQL != "" || l.Operation == policy.ReceivePackID)
 }
 
 // why is what the policy would have done, and by which rule.
@@ -171,10 +194,16 @@ func (p *Proposal) add(path []string, key string, v any, note string) {
 	p.Entries = append(p.Entries, Entry{Path: path, Key: key, Value: v, Note: note})
 }
 
-// http is a request on a route: the route's operations, by the id of each
-// operation the request matched, or by its method and path where it
-// matched none, answered as it was.
-func (p *Proposal) http(l Line) {
+// http is a request on a route: the route's operations, by its method and
+// exact path, answered as it was. The path is the least the request needs:
+// an operation's id admits it on every worker, bucket and database its
+// template names, and the token behind most routes reaches all of them.
+// With --by-operation, the id of each operation it matched instead, and
+// its path only where it matched none. A git push and a GraphQL field are
+// by their operation either way: frisket decides each before any endpoint
+// pattern, by what it is rather than where it was sent, so a path names
+// neither.
+func (p *Proposal) http(l Line, o Options) {
 	if !slices.Contains(grantApps, l.Route) {
 		p.Left = append(p.Left, Left{l, fmt.Sprintf("a project answers none of the %s route's requests", l.Route)})
 		return
@@ -186,7 +215,7 @@ func (p *Proposal) http(l Line) {
 		path = " a path that may carry a secret, " + secret
 	}
 	note := fmt.Sprintf("%s %s%s; %s", l.Method, l.Host, path, why(l))
-	if l.Operation != "" {
+	if o.byOperation(l) {
 		for _, op := range strings.Split(l.Operation, ",") {
 			p.add(ops, op, l.Answer, note)
 		}

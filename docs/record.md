@@ -14,7 +14,7 @@ answered as it was. `chase record apply` adds them to the checkout's
 `chase.json` and has quoin's signer sign it, which shows you the change.
 
 ```
-chase record [--default allow|ask|refuse] [--base tier|none] [--] AGENT [ARG...]
+chase record [--default allow|ask|refuse] [--base tier|none] [--by-operation] [--] AGENT [ARG...]
 chase record apply [--last | MACHINE]
 ```
 
@@ -60,7 +60,7 @@ dialled by itself; and flong's fixed filters.
 
 | Layer | Recorded as |
 |---|---|
-| HTTP on a route | the operation's id, or the method and exact path where no operation matched, as an answer in `frisket.routes.<app>.operations`, for an app a grant answers (cloudflare, gcloud, git, github, huggingface) |
+| HTTP on a route | the method and exact path it was sent to, or with `--by-operation` the operation's id where one matched; a git push and a GraphQL field by their operation either way. An answer in `frisket.routes.<app>.operations`, for an app a grant answers (cloudflare, gcloud, git, github, huggingface) |
 | SSH | the catalogue's operation, or the command itself as a pattern; `chase.apps.ssh.hosts.<machine>.<answer>` for a machine the grant names |
 | Other TCP | the name, `frisket.allow`; a name on the local network, `frisket.lan`, with the ports it was dialled at |
 | DNS | the names resolved off the allowlist, reported |
@@ -74,7 +74,21 @@ network loses, for the recording, what pasta gives it: ports forwarded to
 the project's address, and UDP.
 
 Entries are exactly what was seen, never generalised. Edit the proposal to
-widen one before applying it. What was answered and cannot be an entry --
+widen one before applying it.
+
+A request is proposed by its exact path, not by the operation it matched,
+because an operation's id is a template: `worker-script-upload-worker-module`
+is `PUT /client/v4/accounts/*/workers/scripts/*`, every worker in the
+account, and the token behind a route usually reaches all of them. The
+path is the least the session needed --
+`PUT /client/v4/accounts/023e…/workers/scripts/my-site` -- and frisket
+ranks it above the operation's id, so a grant can allow one worker and an
+id elsewhere cannot widen it. Widen it yourself, a `*` for the segment that
+varies, where the session needs more: an R2 object's key, a deployment's
+id. `--by-operation` proposes the ids instead, for a recording meant to
+be broad. A git push and a GraphQL field are by their operation either
+way: frisket decides each by what it is, before any endpoint pattern, so a
+path does not name one. What was answered and cannot be an entry --
 a route no grant has lists for, a machine that is the tier's own, a
 one-word command, a command frisket cut short at 4 KiB, a refusal of a
 name, a project's own name -- is left out, and the report says why.

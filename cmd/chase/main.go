@@ -58,14 +58,16 @@ const usage = `chase -- which sandbox a checkout gets, and which credential each
         Where a checkout's Docker containers are reached from the host, as
         the tier it would run in has them.
 
-  chase record [--default allow|ask|refuse] [--base tier|none] [--] AGENT [ARG...]
+  chase record [--default allow|ask|refuse] [--base tier|none] [--by-operation] [--] AGENT [ARG...]
         AGENT -- claude, codex, deepsec or shell -- in this checkout's
         tier, as a recording: what the tier would refuse or ask about is
         put to you, or answered by --default, and written down; once it
         ends, a report of what it needed and a proposal of the grant
         entries that would give it. --base none learns syscalls against
         nothing but the calls every process makes, rather than the tier's
-        filter.
+        filter. A route's requests are proposed by their exact paths;
+        --by-operation proposes the ids of the operations they matched,
+        which admit each on every object its template names.
 
   chase record apply [--last | MACHINE]
         A recording's proposal, the last one's by default, added to its

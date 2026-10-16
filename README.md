@@ -97,7 +97,7 @@ for each choice.
 | `chase shell` | A login shell in that tier's sandbox, as an agent gets it. |
 | `chase tier --dry-run DIR…` | Show each directory's tier and why. |
 | `chase docker [DIR]` | Show a checkout's project, its address and name, and its approved Docker ports. |
-| `chase record [--default allow\|ask\|refuse] [--base tier\|none] AGENT` | Run the agent in its tier as a recording: what the tier would refuse or ask about is answered, by you or `--default`, and written down; at the end, a report and a proposal of the grant entries it needed. See [docs/record.md](docs/record.md). |
+| `chase record [--default allow\|ask\|refuse] [--base tier\|none] [--by-operation] AGENT` | Run the agent in its tier as a recording: what the tier would refuse or ask about is answered, by you or `--default`, and written down; at the end, a report and a proposal of the grant entries it needed, a route's requests by their exact paths or, with `--by-operation`, by the operations they matched. See [docs/record.md](docs/record.md). |
 | `chase record apply [--last\|MACHINE]` | Add a recording's proposal to its checkout's `chase.json`, and have it signed. |
 | `chase check FILE` | Read FILE as a launch reads a project's `chase.json`, say what is wrong with it, and whether it is signed. |
 | `chase fmt [-check] FILE` | Print FILE in its canonical form, the bytes it is signed over; with `-check`, only whether it is. |

@@ -171,11 +171,14 @@ func journalRecords(ctx context.Context, journalctl string, since time.Time, ses
 // latest is lines with only the last of each subject's: a person asked
 // again, or a refusal for want of an answer then answered, is what was
 // answered last.
-func latest(lines []Line) []Line {
+func latest(lines []Line) []Line { return latestBy(lines, Line.subject) }
+
+// latestBy is lines with only the last of each key's.
+func latestBy(lines []Line, key func(Line) string) []Line {
 	at := map[string]int{}
 	var out []Line
 	for _, l := range lines {
-		k := l.subject()
+		k := key(l)
 		if i, ok := at[k]; ok {
 			out[i] = l
 			continue

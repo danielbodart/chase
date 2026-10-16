@@ -57,8 +57,12 @@ func (r Report) Write(w io.Writer) {
 	if m.Options.Default != "" {
 		how = "--default " + m.Options.Default
 	}
-	fmt.Fprintf(&b, "chase: recorded %s, %s in %s, with %s and --base %s: %s, exited %d\n",
-		m.Machine, m.Tier, m.Workspace, how, m.Options.Base, m.Ended.Sub(m.Started).Round(time.Second), m.Exit)
+	base := "--base " + m.Options.Base
+	if m.Options.ByOperation {
+		base += " and --by-operation"
+	}
+	fmt.Fprintf(&b, "chase: recorded %s, %s in %s, with %s and %s: %s, exited %d\n",
+		m.Machine, m.Tier, m.Workspace, how, base, m.Ended.Sub(m.Started).Round(time.Second), m.Exit)
 
 	var answered, hard, unanswered, dns []Line
 	for _, l := range r.Lines {

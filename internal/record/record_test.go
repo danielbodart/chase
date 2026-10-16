@@ -33,6 +33,8 @@ func TestTheAgentsArgumentsAreItsOwn(t *testing.T) {
 		{[]string{"--default=refuse", "--", "shell"}, record.Args{Options: record.Options{Default: "refuse", Base: "tier"}, Agent: "shell", Args: []string{}}},
 		{[]string{"codex", "--default", "allow"}, record.Args{Options: record.Options{Base: "tier"}, Agent: "codex", Args: []string{"--default", "allow"}}},
 		{[]string{"--base", "tier", "--default", "ask", "shell"}, record.Args{Options: record.Options{Default: "ask", Base: "tier"}, Agent: "shell", Args: []string{}}},
+		{[]string{"--by-operation", "--default", "allow", "claude"}, record.Args{Options: record.Options{Default: "allow", Base: "tier", ByOperation: true}, Agent: "claude", Args: []string{}}},
+		{[]string{"shell", "--by-operation"}, record.Args{Options: record.Options{Base: "tier"}, Agent: "shell", Args: []string{"--by-operation"}}},
 	} {
 		got, err := record.ParseArgs(c.args)
 		if err != nil || got.Options != c.want.Options || got.Agent != c.want.Agent || !slices.Equal(got.Args, c.want.Args) {
@@ -41,7 +43,7 @@ func TestTheAgentsArgumentsAreItsOwn(t *testing.T) {
 	}
 	for _, bad := range [][]string{
 		{}, {"--default", "always", "claude"}, {"--default=Allow", "claude"}, {"--base", "everything", "shell"},
-		{"--what", "shell"}, {"--default"}, {"--", "-p"}, {"--default", "allow"}, {""},
+		{"--what", "shell"}, {"--default"}, {"--by-operation=true", "shell"}, {"--by-operation"}, {"--", "-p"}, {"--default", "allow"}, {""},
 		// Refusing, nothing is logged, and from scratch every call refused.
 		{"--default", "refuse", "--base", "none", "shell"},
 	} {
@@ -281,7 +283,7 @@ func TestWhatWasAnsweredIsProposed(t *testing.T) {
 		notes[at+" "+string(v)] = e.Note
 	}
 	want := []entry{
-		{"frisket.routes.github.operations git/delete-ref", `"allow"`, false},
+		{"frisket.routes.github.operations DELETE /repos/o/r/git/refs/heads/x", `"allow"`, false},
 		{"frisket.routes.github.operations POST /new/thing", `"refuse"`, false},
 		{"chase.apps.ssh.hosts.server.allow", `"restart"`, false},
 		{"chase.apps.ssh.hosts.server.ask", `"ls -la /srv"`, false},
@@ -297,12 +299,12 @@ func TestWhatWasAnsweredIsProposed(t *testing.T) {
 		t.Errorf("proposed\n%v\nnot\n%v", got, want)
 	}
 	for v, needle := range map[string]string{
-		`frisket.routes.github.operations git/delete-ref "allow"`: "loosens: the tier would refuse (path)",
-		`chase.apps.ssh.hosts.server.allow "restart"`:             "loosens: the tier would ask (systemctl restart *)",
-		`frisket.allow intranet.example true`:                     "a name cannot be asked about",
-		`frisket.lan nas.lan {"ports":[139,445]}`:                 "on the local network, port 139",
-		`flong.seccomp.syscalls io_uring_setup "allow"`:           "high surface, io_uring",
-		`flong.seccomp.syscalls keyctl "allow"`:                   "probable",
+		`frisket.routes.github.operations DELETE /repos/o/r/git/refs/heads/x "allow"`: "loosens: the tier would refuse (path)",
+		`chase.apps.ssh.hosts.server.allow "restart"`:                                 "loosens: the tier would ask (systemctl restart *)",
+		`frisket.allow intranet.example true`:                                         "a name cannot be asked about",
+		`frisket.lan nas.lan {"ports":[139,445]}`:                                     "on the local network, port 139",
+		`flong.seccomp.syscalls io_uring_setup "allow"`:                               "high surface, io_uring",
+		`flong.seccomp.syscalls keyctl "allow"`:                                       "probable",
 	} {
 		if !strings.Contains(notes[v], needle) {
 			t.Errorf("%s's note is %q, without %q", v, notes[v], needle)
@@ -339,6 +341,63 @@ func TestWhatWasAnsweredIsProposed(t *testing.T) {
 	p = record.Propose(lines[:1], calls, record.Options{Default: "refuse", Base: "tier"}, against)
 	if len(p.Entries) != 1 || strings.Join(p.Entries[0].Path, ".") != "frisket.routes.github.operations" {
 		t.Errorf("%+v", p.Entries)
+	}
+}
+
+// A request on a route is proposed by its exact path, even where it
+// matched an operation: the operation's id would admit it on every object
+// its template names -- every worker in the account, for one deploy -- and
+// the token behind the route reaches all of them. --by-operation proposes
+// the id instead. A git push and a GraphQL field are by their operation
+// either way, since frisket decides neither by a path.
+func TestARequestIsProposedByItsPathUnlessByOperation(t *testing.T) {
+	lines := []record.Line{
+		line("http", func(l *record.Line) {
+			l.Route, l.Method, l.Host, l.Path, l.Operation, l.Rule = "cloudflare", "PUT", "api.cloudflare.com", "/client/v4/accounts/023e/workers/scripts/my-site", "worker-script-upload-worker-module", "path"
+		}),
+		line("http", func(l *record.Line) {
+			l.Route, l.Method, l.Host, l.Path, l.Operation = "github", "POST", "github.com", "/o/r.git/git-receive-pack", "git-receive-pack"
+		}),
+		line("http", func(l *record.Line) {
+			l.Route, l.Method, l.Host, l.Path, l.Operation, l.GraphQL = "github", "POST", "api.github.com", "/graphql", "closePullRequest", "mutation"
+		}),
+		line("http", func(l *record.Line) {
+			l.Route, l.Method, l.Host, l.Path = "cloudflare", "POST", "api.cloudflare.com", "/client/v4/accounts/023e/unknown"
+		}),
+		// One operation, and so one of frisket's subjects, at a second
+		// path: a second entry by path, the same one by operation.
+		line("http", func(l *record.Line) {
+			l.Route, l.Method, l.Host, l.Path, l.Operation, l.Rule = "cloudflare", "PUT", "api.cloudflare.com", "/client/v4/accounts/023e/workers/scripts/other", "worker-script-upload-worker-module", "path"
+		}),
+	}
+	keys := func(o record.Options) []string {
+		var out []string
+		for _, e := range record.Propose(lines, nil, o, record.Against{}).Entries {
+			out = append(out, e.Path[2]+" "+e.Key)
+		}
+		return out
+	}
+	for _, c := range []struct {
+		o    record.Options
+		want []string
+	}{
+		{record.Options{Default: "allow", Base: "tier"}, []string{
+			"cloudflare PUT /client/v4/accounts/023e/workers/scripts/my-site",
+			"github git-receive-pack",
+			"github closePullRequest",
+			"cloudflare POST /client/v4/accounts/023e/unknown",
+			"cloudflare PUT /client/v4/accounts/023e/workers/scripts/other",
+		}},
+		{record.Options{Default: "allow", Base: "tier", ByOperation: true}, []string{
+			"cloudflare worker-script-upload-worker-module",
+			"github git-receive-pack",
+			"github closePullRequest",
+			"cloudflare POST /client/v4/accounts/023e/unknown",
+		}},
+	} {
+		if got := keys(c.o); !slices.Equal(got, c.want) {
+			t.Errorf("with %+v proposed\n%q\nnot\n%q", c.o, got, c.want)
+		}
 	}
 }
 

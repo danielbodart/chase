@@ -68,7 +68,7 @@ func (c Config) Validate() error {
 }
 
 // Usage is `chase record`'s.
-const Usage = `usage: chase record [--default allow|ask|refuse] [--base tier|none] [--] AGENT [ARG...]
+const Usage = `usage: chase record [--default allow|ask|refuse] [--base tier|none] [--by-operation] [--] AGENT [ARG...]
        chase record apply [--last | MACHINE]`
 
 // Args are `chase record`'s: how to record, and the agent -- claude,
@@ -93,6 +93,10 @@ func ParseArgs(args []string) (Args, error) {
 		}
 		if !strings.HasPrefix(arg, "-") {
 			break
+		}
+		if arg == "--by-operation" {
+			a.ByOperation, args = true, args[1:]
+			continue
 		}
 		name, value, inline := strings.Cut(arg, "=")
 		if name != "--default" && name != "--base" {

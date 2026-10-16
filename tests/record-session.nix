@@ -322,11 +322,13 @@ in
           proposal = vm_json(machine, f"{at}/proposal.json")
           print(json.dumps(proposal, indent=2))
           frisket = proposal["propose"]["frisket"]
-          assert frisket["routes"]["github"]["operations"] == {"git/delete-ref": "allow"}, frisket
+          # By the exact path it was sent to, not the operation's id, which
+          # would admit deleting any ref of any repository the token reaches.
+          assert frisket["routes"]["github"]["operations"] == {"DELETE /repos/o/r/git/refs/heads/x": "allow"}, frisket
           assert frisket["allow"] == {"plain.test": True, "nas.test": True}, frisket
           assert frisket["lan"] == {"nas.test": {"ports": [80]}}, frisket
           assert proposal["propose"]["flong"]["seccomp"]["syscalls"]["ptrace"] == "allow", proposal
-          assert "loosens" in proposal["notes"]["/frisket/routes/github/operations/git~1delete-ref"], proposal["notes"]
+          assert "loosens" in proposal["notes"]["/frisket/routes/github/operations/DELETE ~1repos~1o~1r~1git~1refs~1heads~1x"], proposal["notes"]
           machine.fail("test -e ${ws}/chase.json")
 
       with subtest("from scratch, flong takes the lines, and what the tier allows is reported, not proposed"):
@@ -347,7 +349,7 @@ in
           print(out)
           grant = vm_read(machine, "${ws}/chase.json")
           print(grant)
-          for needle in ['"git/delete-ref"', '"plain.test"', '"nas.test"', '"lan"', '"ptrace"']:
+          for needle in ['"DELETE /repos/o/r/git/refs/heads/x"', '"plain.test"', '"nas.test"', '"lan"', '"ptrace"']:
               assert needle in grant, (needle, grant)
           qs = questions()[asked:]
           assert len(qs) == 1 and qs[0]["title"] == "sign ~/proj/chase.json", qs
