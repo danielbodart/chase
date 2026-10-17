@@ -36,7 +36,7 @@
     # the host's, see ./module.nix); the checks and the VM tests do. frisket
     # follows this one, so the lock holds one quoin.
     quoin = {
-      url = "github:danielbodart/quoin/v0.81.13";
+      url = "github:danielbodart/quoin/v0.84.16";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -88,7 +88,7 @@
         # grant's host keys as frisket does. The frisket-pin and quoin-pin
         # checks hold go.mod's frisket and quoin to the tags flake.lock pins,
         # and scripts/pin.sh works this out again when it moves them.
-        vendorHash = "sha256-7oowLyx2Daluv2Gq2SkXwjoUIz/XaCZECMYyfSm/sPs=";
+        vendorHash = "sha256-TmzbXB3fd0TuUHnmwDd9yS3P+kPYRbhuzOyS4MaAs0k=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
