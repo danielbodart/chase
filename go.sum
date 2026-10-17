@@ -2,8 +2,8 @@ github.com/danielbodart/frisket v0.182.113 h1:tDz661q+FzgYLZ0Pw/Q86Op7q63yLDwsYy
 github.com/danielbodart/frisket v0.182.113/go.mod h1:nXpj3v/3yphrjHlNSu2a/vl5jCG6K6uuIYulZE6wahg=
 github.com/danielbodart/galley v0.30.22-0.20261013085913-4f8859f2327b h1:4/zAa1Vy05ez6my4uYlZJ+D+IowpK4gZkAweMLnLBxg=
 github.com/danielbodart/galley v0.30.22-0.20261013085913-4f8859f2327b/go.mod h1:LG67o+3WXE7Kj9BQ0WclOtCq0Fbx46NP3pe6PqrLzs8=
-github.com/danielbodart/quoin v0.84.16 h1:7SXulNm05Hqq9bqC3oU9gl+oDhxuwYbk2PjdF3v43ho=
-github.com/danielbodart/quoin v0.84.16/go.mod h1:hPDymvRhmcRWqPh2BKLRd3IPHZMsyGAQlSpIhnvPXCE=
+github.com/danielbodart/quoin v0.85.17 h1:Bwsv5s6FhxSQekG8bzJXRjHcwBZDaRcZULKyijnq42A=
+github.com/danielbodart/quoin v0.85.17/go.mod h1:hPDymvRhmcRWqPh2BKLRd3IPHZMsyGAQlSpIhnvPXCE=
 github.com/go-jose/go-jose/v4 v4.1.5 h1:RjgjO2LOtWOJKUC5wpwY9LR3B3vwVAz6JS2YHfYU6eA=
 github.com/go-jose/go-jose/v4 v4.1.5/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=

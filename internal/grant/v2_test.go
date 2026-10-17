@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danielbodart/quoin/projpolicy"
 
@@ -603,5 +604,45 @@ func TestTheRootOfTheWorkingDirectoryIsAbsolute(t *testing.T) {
 	want, _ := filepath.EvalSymlinks(ws)
 	if root != want || !filepath.IsAbs(root) {
 		t.Fatalf("Root(\".\") = %q, want %q", root, want)
+	}
+}
+
+// A GIT WORKTREE's chase.json is signed as its repository's, the namespace
+// quoin's courier names it by: the signature committed in the checkout
+// launches a worktree of it unasked, and a change made in the worktree is
+// put to the signer as the repository's.
+func TestAWorktreesFileIsSignedAsItsRepositorys(t *testing.T) {
+	h, s := v2(t)
+	ws := h.cfg.Home + "/Projects/w"
+	file := canonical(t, `{"version": 2, "frisket": {"allow": {"pypi.org": true}}}`)
+	h.project(s, ws, file, true)
+	h.fx.Run("-C", ws, "add", "-A")
+	h.fx.Run("-C", ws, "-c", "user.name=a", "-c", "user.email=a@example.com", "commit", "-qm", "signed")
+	wt := ws + "/.claude/worktrees/pi"
+	h.fx.Run("-C", ws, "worktree", "add", "-q", wt)
+
+	h.approved(wt, "m1", "trusted", "")
+	if len(s.Asked()) != 0 {
+		t.Errorf("the repository's signature was not taken in its worktree: %v", s.Asked())
+	}
+
+	changed := canonical(t, `{"version": 2, "frisket": {"allow": {"pypi.org": true, "crates.io": true}}}`)
+	write(t, wt+"/chase.json", changed)
+	h.approved(wt, "m2", "trusted", "")
+	root, _ := grant.Root(ws)
+	if asked := s.Asked(); len(asked) != 1 || asked[0].Root != root {
+		t.Fatalf("asked %+v, want one for %s", asked, root)
+	}
+	sig, err := os.ReadFile(wt + "/chase.json.sig")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signers, err := projpolicy.ReadAllowedSigners(s.AllowedSigners)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ns, _ := projpolicy.Namespace(root, h.cfg.Home)
+	if _, err := projpolicy.Verify([]byte(changed), sig, ns, signers, "", time.Now()); err != nil {
+		t.Errorf("the worktree's new signature is not the repository's: %v", err)
 	}
 }

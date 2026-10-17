@@ -72,13 +72,14 @@ func Root(ws string) (string, error) {
 	return filepath.Clean(r), nil
 }
 
-// verify is whether sig is a signature of b in root's namespace by a key
-// the allowed signers allow there; nil when it is.
+// verify is whether sig is a signature of b in root's project's namespace,
+// a worktree's being its repository's, by a key the allowed signers allow
+// there; nil when it is.
 func (c Config) verify(root string, b, sig []byte) error {
 	if sig == nil {
 		return errors.New("no " + SigName)
 	}
-	ns, err := projpolicy.Namespace(root, c.Home)
+	ns, err := projpolicy.ProjectNamespace(root, c.Home)
 	if err != nil {
 		return err
 	}
@@ -101,7 +102,7 @@ func (c Config) askSigner(ctx context.Context, g *gitsafe.Git, root string, b []
 	}
 	// quoin's own client and wire, which its signer serves: one definition
 	// of the extension, so the two cannot drift.
-	req := policysign.Request{Root: root, Name: FileName, New: b}
+	req := policysign.Request{Root: projpolicy.ProjectRoot(root, c.Home), Name: FileName, New: b}
 	if g != nil {
 		if old, oldSig := headFiles(ctx, g, root); oldSig != nil {
 			req.Old, req.OldSig = old, oldSig

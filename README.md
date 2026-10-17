@@ -324,7 +324,8 @@ A grant applies only in a tier with `grants = true`. An agent can write to its
 own checkout, so nothing in a grant applies until you have signed it:
 `chase.json.sig` beside it, an SSH signature over the file's exact bytes in
 the namespace `quoin-policy:<root>`, by a key `/etc/quoin/allowed_signers`
-allows. A file whose signature verifies launches with nothing asked. One that
+allows; a git worktree's `<root>` is its repository's, so the signature
+committed in a checkout verifies in every worktree of it. A file whose signature verifies launches with nothing asked. One that
 does not is put to quoin's signer, which shows you the diff against the
 file git's `HEAD` signed and the launch waits; signed, the signature is
 written beside the file and the launch goes on; refused, it ends. Where the
