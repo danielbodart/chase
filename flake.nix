@@ -21,7 +21,7 @@
     };
 
     frisket = {
-      url = "github:danielbodart/frisket/v0.182.113";
+      url = "github:danielbodart/frisket/v0.183.114";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flong.follows = "flong";
       inputs.quoin.follows = "quoin";
@@ -88,7 +88,7 @@
         # grant's host keys as frisket does. The frisket-pin and quoin-pin
         # checks hold go.mod's frisket and quoin to the tags flake.lock pins,
         # and scripts/pin.sh works this out again when it moves them.
-        vendorHash = "sha256-C+G7/XJC9YviQV5xljzyjUTcLIMze4M0+JJcWXuqnG4=";
+        vendorHash = "sha256-LsoGt2KDd2c13RAe2U4zsgucVVMOrDreo19uoDh+PpI=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
