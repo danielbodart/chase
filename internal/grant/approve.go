@@ -207,23 +207,20 @@ func approveV2(ctx context.Context, c Config, ws, tier, stage string, stderr io.
 		return Result{}, err
 	}
 	defer g.Close()
+	served := ""
 	if d := apps.Docker; d != nil {
-		slug, err := project(ctx, g, c, ws, tier, stderr)
+		p, err := project(ctx, g, c, ws, tier, stderr)
 		if err != nil {
 			return Result{}, err
 		}
-		who, err := address(slug, stderr)
-		if err != nil {
-			return Result{}, refuse("%s: %s has no address", ws, slug)
-		}
-		if d.Project != slug {
+		if d.Project != p.Slug {
 			said := d.Project
 			if said == "" {
 				said = "none"
 			}
-			return Result{}, refuse("%s: its origin names the project %s, and %s's apps.docker.project says %s: chase sign writes it, and signs it", ws, slug, FileName, said)
+			return Result{}, refuse("%s: its origin names the project %s, and %s's apps.docker.project says %s: chase sign writes it, and signs it", ws, p.Slug, FileName, said)
 		}
-		dockerLine(slug, who, stderr)
+		served = p.Served
 	}
 	if err := c.flongCheck(ctx, ws, tier, doc.Flong, stderr); err != nil {
 		return Result{}, err
@@ -245,10 +242,37 @@ func approveV2(ctx context.Context, c Config, ws, tier, stage string, stderr io.
 			return Result{}, err
 		}
 	}
+	stageServed(generic, served)
 	if err := writeStage(stage, generic, secrets); err != nil {
 		return Result{}, err
 	}
 	return doc.Flong.Lines(), nil
+}
+
+// stageServed puts the project the checkout is served as in the staged
+// file's apps.docker.project, which the file names as the repository's:
+// the same, but in a linked worktree (servedAs). exec gives it the Docker
+// app as it is staged, never derived again.
+func stageServed(doc any, served string) {
+	if served == "" {
+		return
+	}
+	if d, ok := walkMap(doc, "chase", "apps", "docker"); ok {
+		d["project"] = served
+	}
+}
+
+// walkMap is the object at path in v, and whether there is one.
+func walkMap(v any, path ...string) (map[string]any, bool) {
+	for _, k := range path {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		v = m[k]
+	}
+	m, ok := v.(map[string]any)
+	return m, ok
 }
 
 // stagedSecrets is the snapshot's sops file, staged for exec beside the
@@ -404,18 +428,14 @@ func approveLegacy(ctx context.Context, c Config, ws, tier, stage string, stderr
 	// what is approved: a changed origin is asked about again. A grant
 	// without Docker gains nothing, so one approved before there was Docker
 	// still is.
-	slug := ""
+	served := ""
 	if d, err := result.path("apps", "docker"); err == nil && d.kind != 'n' {
-		slug, err = project(ctx, g, c, ws, tier, stderr)
+		p, err := project(ctx, g, c, ws, tier, stderr)
 		if err != nil {
 			return Result{}, err
 		}
-		who, err := address(slug, stderr)
-		if err != nil {
-			return Result{}, refuse("%s: %s has no address", ws, slug)
-		}
-		result.set("dockerProject", jstr(slug))
-		dockerLine(slug, who, stderr)
+		served = p.Served
+		result.set("dockerProject", jstr(p.Slug))
 	}
 	if err := approveGrant(ctx, c, ws, result, dir, stderr); err != nil {
 		return Result{}, err
@@ -432,12 +452,8 @@ func approveLegacy(ctx context.Context, c Config, ws, tier, stage string, stderr
 		if digest != "" {
 			section["secretsSHA256"] = digest
 		}
-		if apps, ok := section["apps"].(map[string]any); ok && slug != "" {
-			if d, ok := apps["docker"].(map[string]any); ok {
-				d["project"] = slug
-			}
-		}
 	}
+	stageServed(doc, served)
 	encoded, err := encodeDoc(doc)
 	if err != nil {
 		return Result{}, err

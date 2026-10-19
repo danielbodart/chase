@@ -12,6 +12,7 @@ import (
 
 	"github.com/danielbodart/chase/internal/apps"
 	"github.com/danielbodart/chase/internal/grant"
+	"github.com/danielbodart/chase/internal/projectaddr"
 	"github.com/danielbodart/chase/internal/session"
 )
 
@@ -132,6 +133,7 @@ func TestTheExecHookBindsPublishedPortsToTheProjectsAddress(t *testing.T) {
 	if got := h.fields(); !slices.Equal(got[len(got)-2:], []string{"forward:127.101.170.171", "label:trusted"}) {
 		t.Errorf("the payload is %q, with no forward to example/shop's address and its label", got)
 	}
+	h.mustSay("chase: serving as shop.example.internal at 127.101.170.171\n")
 
 	none := h.root() + "/w/none"
 	h.repo(none)
@@ -160,6 +162,43 @@ func TestTheExecHookBindsPublishedPortsToTheProjectsAddress(t *testing.T) {
 	if got := h.fields(); slices.ContainsFunc(got, func(f string) bool { return strings.HasPrefix(f, "forward:") }) {
 		t.Errorf("a recording was given a forward: %q", got)
 	}
+	if strings.Contains(errb.String(), "serving as") {
+		t.Errorf("a recording, which publishes nothing, said where it is served: %s", errb.String())
+	}
+}
+
+// A LINKED WORKTREE is served as a project of its own, <worktree>.<repo> of
+// the same owner: its forwards, and its Docker, at an address and a name of
+// its own, so two worktrees' dev servers on one port do not meet. Its grant
+// stays the repository's: `chase grant project` and the approval's diff say
+// example/shop.
+func TestAWorktreeIsServedAsAProjectOfItsOwn(t *testing.T) {
+	h, _, ws := newProjectLaunch(t)
+	h.fx.Run("-C", ws, "-c", "user.name=x", "-c", "user.email=x@example.com", "commit", "-q", "--allow-empty", "-m", "first")
+	wt := ws + "/.claude/worktrees/Fix Login"
+	h.fx.Run("-C", ws, "worktree", "add", "-q", "-b", "fix-login", wt)
+	h.names(wt, "example/shop")
+	feat, err := projectaddr.Of("example/fix-login.shop")
+	if err != nil || feat.Address == "127.101.170.171" {
+		t.Fatalf("example/fix-login.shop: %+v, %v", feat, err)
+	}
+
+	s := sessionConfig(h)
+	s.Tiers["trusted"] = session.Tier{Forward: true}
+	h.approved(wt, "m1", "trusted", `{"apps": {"docker": {"images": ["postgres:18"], "ports": [64320]}}}`)
+	if got := h.stagedProject("m1"); got != "example/fix-login.shop" {
+		t.Errorf("the worktree's Docker was staged as %v", got)
+	}
+	if !strings.Contains(h.approvals()[0].Diff, `"dockerProject": "example/shop"`) {
+		t.Errorf("the approval is not the repository's: %s", h.approvals()[0].Diff)
+	}
+	if rc := h.exec(s, true, "trusted", wt, "m1", "shell"); rc != 0 {
+		t.Fatalf("the shell was refused: %s", h.err)
+	}
+	if got := h.fields(); !slices.Contains(got, "forward:"+feat.Address) {
+		t.Errorf("the payload is %q, with no forward to the worktree's address", got)
+	}
+	h.mustSay("chase: serving as fix-login.shop.example.internal at " + feat.Address + "\n")
 }
 
 // A tier that takes no grant is given its payload with nothing applied:

@@ -75,11 +75,11 @@ func RunProject(ctx context.Context, c Config, args []string, _ io.Reader, stdou
 	if len(args) != 2 {
 		return fail(stderr, refuse("usage: chase grant project WS TIER"))
 	}
-	slug, err := Project(ctx, c, args[0], args[1], stderr)
+	p, err := Project(ctx, c, args[0], args[1], stderr)
 	if err != nil {
 		return fail(stderr, err)
 	}
-	fmt.Fprintf(stdout, "%s\n", slug)
+	fmt.Fprintf(stdout, "%s\n", p.Slug)
 	return 0
 }
 

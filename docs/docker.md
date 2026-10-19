@@ -274,8 +274,15 @@ on; a volume or network named by name is held, across frisket's sessions,
 from its check until the daemon answers. Lists and `/events` are answered
 only with the project's objects: frisket merges its label into their filter.
 
-By project, because shop's volume is meant to outlive a session, and
-every worktree of a repository shares one set of names and ports anyway.
+By project, because shop's volume is meant to outlive a session. A linked
+worktree is served as a project of its own, `<worktree>.<repo>` of the same
+owner (`servedAs` in internal/grant): approve stages that as the Docker
+route's project, so a worktree's containers, volumes and ports are its own,
+at its own address, while `dockerProject`, the signed file's
+`apps.docker.project` and the approval stay the repository's. frisket reads
+the worktree's name back as the repo `<worktree>.<repo>`, and changes for
+none of it; a repository of that very name, of the same owner, would share
+its address, as two projects whose hashes meet do.
 *Rejected:* adopting objects without the label. A volume the host user made
 by hand is his, and a session given it could delete it; `up` fails with a
 refusal naming why until it is removed. *Rejected:* `COMPOSE_PROJECT_NAME`.
@@ -429,7 +436,8 @@ since dropped a port refuses connections to it.
    ports, by an app with no credential; the Docker CLI and Compose in the
    container, and `DOCKER_HOST`, `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH`
    in the session.
-7. **chase: where it is** — the address and name in the approval, and
+7. **chase: where it is** — the name and address said once as the session
+   starts, `serving as NAME at ADDRESS`, for Docker and forwards alike, and
    from `chase docker [DIR]`, which shows them in any tier.
 8. **nix-config:** systemd-resolved sending `~internal` to frisket's host
    DNS, and rootless Docker for the user.
@@ -482,9 +490,9 @@ not.
 
 ## Open
 
-- **Worktrees of one repository share containers, volumes and ports.**
-  Concurrent sessions in two of them see one database, and one's `down -v`
-  removes the other's.
+- **A removed worktree's volumes stay.** They carry its project's label,
+  which no session is of once the worktree is gone, so only the host user
+  removes them.
 - **A session's own listener on a project's Docker port takes it first.**
   `auto` publishes the session's listener on P at the project's address, so
   the project's later `docker compose up` of P fails with `address already

@@ -226,10 +226,11 @@ func (c Config) derive(ctx context.Context, g *gitsafe.Git, ws string, doc map[s
 	}
 	apps, _ := section["apps"].(map[string]any)
 	if d, ok := apps["docker"].(map[string]any); ok {
-		slug, err := project(ctx, g, c, ws, "", stderr)
+		p, err := project(ctx, g, c, ws, "", stderr)
 		if err != nil {
 			return err
 		}
+		slug := p.Slug
 		if d["project"] != slug {
 			d["project"] = slug
 			term.Say(stderr, "chase.apps.docker.project: %s, as the checkout's origin names it", slug)

@@ -5,13 +5,15 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/danielbodart/chase/internal/projectaddr"
 )
 
 // The ported docker-identity check: A CHECKOUT'S DOCKER PROJECT
 // (docs/docker.md, decision 9), named by its origin on real repositories,
-// held both ways to the paths the tiers pin, and approved: with its address
-// and names in front of the person approving, and never at an address
-// another project holds.
+// held both ways to the paths the tiers pin, and approved; its address and
+// names are said once, as the session starts (exec), not beside the
+// approval.
 
 func newIdentity(t *testing.T) *harness {
 	h := newHarness(t)
@@ -146,17 +148,6 @@ func TestAPinIsHeldBothWays(t *testing.T) {
 
 const dockerGrant = `{"apps": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}`
 
-const shopLine = "Docker as example/shop at 127.101.170.171 (shop.example.internal)"
-
-func (h *harness) dockerSaid() string {
-	for _, l := range strings.Split(h.err, "\n") {
-		if strings.HasPrefix(l, "chase: "+shopLine) {
-			return l
-		}
-	}
-	return ""
-}
-
 // stagedProject is the Docker project of the chase.json staged for
 // machine.
 func (h *harness) stagedProject(machine string) any {
@@ -182,9 +173,9 @@ func walkAny(v any, path ...string) (any, bool) {
 	return v, true
 }
 
-// APPROVAL, of a grant that binds Docker: said beside the approval with
-// its address and names; asked about once while it is unchanged, and again
-// when its origin changes.
+// APPROVAL, of a grant that binds Docker: asked about once while it is
+// unchanged, and again when its origin changes. Where it is served is not
+// said beside it: exec says that, once, for Docker and forwards alike.
 func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	h := newIdentity(t)
 	r := h.root()
@@ -192,8 +183,8 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	h.repo(ws, "git@github.com:Example/Shop.git")
 
 	h.approved(ws, "m1", "trusted", dockerGrant)
-	if got := h.dockerSaid(); got != "chase: "+shopLine {
-		t.Errorf("the approval did not say where Docker is: %s", h.err)
+	if strings.Contains(h.err, "serving as") {
+		t.Errorf("the approval said where the project is served: %s", h.err)
 	}
 	if got := h.stagedProject("m1"); got != "example/shop" {
 		t.Errorf("the project was not staged: %v", got)
@@ -218,7 +209,6 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	if n := len(h.approvals()); n != 2 {
 		t.Error("acme/app was not asked about")
 	}
-	h.mustSay("chase: Docker as acme/app at ")
 	h.fx.Run("-C", app, "remote", "set-url", "origin", "git@github.com:acme/app2.git")
 	h.approved(app, "m6", "trusted", dockerGrant)
 	envs := h.approvals()
@@ -232,12 +222,11 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 		t.Errorf("the new project was not staged: %v", got)
 	}
 
-	// The workspace is a path a session can name: the line beside the
-	// approval does not say it, and nothing of it reaches the terminal.
+	// The workspace is a path a session can name: nothing of it reaches
+	// the terminal.
 	esc := ws + "/x\x1b]0;PWNED\x07\x1b[8m"
 	os.MkdirAll(esc, 0o755)
 	h.approved(esc, "m13", "trusted", dockerGrant)
-	h.mustSay("chase: Docker as example/shop at 127.101.170.171")
 	if strings.ContainsAny(h.err, "\x1b\x07") {
 		t.Errorf("a control byte reached the terminal: %q", h.err)
 	}
@@ -270,7 +259,12 @@ func TestTwoProjectsMayShareAnAddress(t *testing.T) {
 		ws := r + "/w/" + strings.ReplaceAll(slug, "/", "-")
 		h.repo(ws, "git@github.com:"+slug+".git")
 		h.approved(ws, fmt.Sprintf("m%d", 20+i), "trusted", dockerGrant)
-		h.mustSay("chase: Docker as " + slug + " at 127.95.137.218 ")
+		if got := h.stagedProject(fmt.Sprintf("m%d", 20+i)); got != slug {
+			t.Errorf("%s was staged as %v", slug, got)
+		}
+		if p, err := projectaddr.Of(slug); err != nil || p.Address != "127.95.137.218" {
+			t.Errorf("%s is not at 127.95.137.218: %+v, %v", slug, p, err)
+		}
 	}
 }
 
@@ -293,7 +287,7 @@ func TestOnlyDockerNeedsAProject(t *testing.T) {
 	if _, has := walkAny(h.stagedDoc("m10"), "file", "chase", "apps", "docker", "project"); has {
 		t.Error("a grant without Docker gained a project")
 	}
-	if strings.Contains(h.err, "Docker as") {
+	if strings.Contains(h.err, "serving as") {
 		t.Errorf("a grant without Docker printed one: %s", h.err)
 	}
 

@@ -69,9 +69,15 @@ func execute(ctx context.Context, s session.Config, e *Config, registry map[stri
 		// tier's -- frisket's "all" set takes every connection -- so no
 		// ports to publish: flong refuses a forward with no network to
 		// forward from.
-		if t, ok := s.Tiers[tier]; ok && t.Forward && rec == nil && given.Project != "" {
-			if p, err := projectaddr.Of(given.Project); err == nil {
+		//
+		// Where the session is served is said once, forwards or Docker.
+		if p, err := projectaddr.Of(given.Project); given.Project != "" && err == nil {
+			forward := s.Tiers[tier].Forward && rec == nil
+			if forward {
 				given.Forward = p.Address
+			}
+			if forward || hasEnv(given, "CHASE_PROJECT") {
+				projectLine(p, stderr)
 			}
 		}
 	}
@@ -156,9 +162,9 @@ func checkoutOf(s session.Config, e *Config, ws string) string {
 
 // sessionProject is the project the session is of: the one approved with
 // its grant when Docker has it -- CHASE_PROJECT, which the Docker app puts
-// in the session's environment -- otherwise the one its origin names,
-// said nothing of, since a checkout with none is still launched; "" for
-// none. Its project address is where the session's forwarded ports are
+// in the session's environment -- otherwise the one its origin names, as
+// the checkout is served (servedAs), said nothing of, since a checkout
+// with none is still launched; "" for none. Its project address is where the session's forwarded ports are
 // bound, as the Docker app's published ones are, so two projects' dev
 // servers on one port do not meet; and its repo names the session in the
 // terminal's header.
@@ -168,9 +174,19 @@ func sessionProject(ctx context.Context, c Config, tier, ws string, given sessio
 			return v.Value
 		}
 	}
-	slug, err := Project(ctx, c, ws, tier, io.Discard)
+	p, err := Project(ctx, c, ws, tier, io.Discard)
 	if err != nil {
 		return ""
 	}
-	return slug
+	return p.Served
+}
+
+// hasEnv is whether the session's environment names name.
+func hasEnv(given session.Given, name string) bool {
+	for _, v := range given.Env {
+		if v.Name == name {
+			return true
+		}
+	}
+	return false
 }

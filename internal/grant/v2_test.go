@@ -192,7 +192,6 @@ func TestWhatTheFileSaysOfTheCheckoutIsHeldToIt(t *testing.T) {
 	if got := h.stagedProject("m1"); got != "example/shop" {
 		t.Errorf("the project staged is %v", got)
 	}
-	h.mustSay("Docker as example/shop at 127.101.170.171")
 
 	h.project(s, ws, file(sha256Hex("old\n"), "example/shop"), true)
 	if h.approve(ws, "m2", "trusted", "") == 0 {

@@ -17,15 +17,17 @@ import (
 	"github.com/danielbodart/chase/internal/term"
 )
 
-// dockerLine says, beside the approval, where the project's Docker is: its
-// project, address and names. Its ports are the grant's, which the approval
-// shows, and its checkout the one launched from, which goes without saying.
-func dockerLine(slug string, who projectaddr.Project, stderr io.Writer) {
-	names := "no names"
+// projectLine says, as a session starts, where it is served: the name
+// frisket answers for its project, or the project when it has none, and
+// the address its dev servers and Docker's ports are published at. One
+// line, whether the session has Docker or only forwards, and none for a
+// session with neither, which publishes nothing.
+func projectLine(who projectaddr.Project, stderr io.Writer) {
+	name := who.Project
 	if len(who.Names) > 0 {
-		names = strings.Join(who.Names, ", ")
+		name = strings.Join(who.Names, ", ")
 	}
-	term.Say(stderr, "Docker as %s at %s (%s)", slug, who.Address, names)
+	term.Say(stderr, "serving as %s at %s", name, who.Address)
 }
 
 func dockerTier(c Config, tier string) bool {
@@ -44,19 +46,24 @@ func Show(ctx context.Context, c Config, ws, tier string, stdout, stderr io.Writ
 		return err
 	}
 	defer g.Close()
-	slug, err := project(ctx, g, c, ws, tier, stderr)
+	p, err := project(ctx, g, c, ws, tier, stderr)
 	if err != nil {
 		return err
 	}
-	who, err := address(slug, stderr)
+	slug := p.Slug
+	who, err := address(p.Served, stderr)
 	if err != nil {
-		return refuse("%s: %s has no address", ws, slug)
+		return refuse("%s: %s has no address", ws, p.Served)
 	}
 	names := "(none)"
 	if len(who.Names) > 0 {
 		names = strings.Join(who.Names, " ")
 	}
-	fmt.Fprintf(stdout, "%s\n  address  %s\n  names    %s\n", slug, who.Address, names)
+	fmt.Fprintf(stdout, "%s\n", p.Served)
+	if p.Served != slug {
+		fmt.Fprintf(stdout, "  of       %s\n", slug)
+	}
+	fmt.Fprintf(stdout, "  address  %s\n  names    %s\n", who.Address, names)
 	if !dockerTier(c, tier) {
 		fmt.Fprintf(stdout, "  (no Docker on %s)\n", tier)
 		return nil

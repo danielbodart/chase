@@ -369,6 +369,15 @@ never meet another's on the same port:
 - **Docker** publishes there too: the [docker](docs/apps/docker.md) app's
   containers bind their ports at the project's address, and a session
   reaches them as `localhost`.
+- **A worktree is a project of its own**, `<worktree>.<repo>` of the same
+  owner, its directory's name made one DNS label: a `claude -w` worktree
+  `.claude/worktrees/fix-login` of `example/shop` is
+  `fix-login.shop.example.internal`, at its own address, with its own dev
+  servers and its own containers and volumes. Its grant, its signature and
+  its approval stay the repository's.
+- **A session says where it is served** as it starts, once, whether it has
+  Docker or only forwards: `chase: serving as shop.example.internal at
+  127.101.170.171`. A session that publishes nothing says nothing.
 - **`chase docker [DIR]`** shows a checkout's project, address and name,
   in any tier.
 

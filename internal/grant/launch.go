@@ -196,7 +196,9 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 	}
 
 	// The Docker project the file says, which approve held to the one the
-	// checkout's origin names: an app is given it, and the session is not.
+	// checkout's origin names and staged as the checkout is served: in a
+	// linked worktree, the worktree's own (servedAs). An app is given it,
+	// and the session is not.
 	project := ""
 	if sectionApps.Docker != nil {
 		project = sectionApps.Docker.Project
