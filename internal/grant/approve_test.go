@@ -192,7 +192,6 @@ func TestWhatAGrantMayNotSayIsRefused(t *testing.T) {
 		{`{"apps": {"gcloud": {"apis": {"add": ["a.b"]}}}}`, `apps.gcloud.apis.add: "a.b" is not a Discovery name`},
 		{`{"apps": {"docker": {"ports": [80]}}}`, `apps.docker.ports: 80 is not a port from 1024 to 65535`},
 		{`{"apps": {"docker": {"ports": [5432, 5432]}}}`, `apps.docker.ports: 5432 is named twice`},
-		{`{"apps": {"docker": {"ports": [15001]}}}`, `apps.docker.ports: 15001 is frisket's own steering listener`},
 		{`{"apps": {"docker": {"ports": [5432.5]}}}`, `json: cannot unmarshal number 5432.5 into Go struct field Docker.apps.docker.ports of type int`},
 		{`{"apps": {"docker": {"images": ["postgres"]}}}`, `apps.docker.images: postgres is not a familiar name with a :tag or @sha256:<64 hex>`},
 	} {

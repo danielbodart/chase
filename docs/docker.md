@@ -87,9 +87,9 @@ requests, kept as the fixture the rules are written against.
   listener. A later bind of `127.12.34.56:P` on the host fails with
   `Address already in use`. That later bind is what a published port is.
   pasta's `auto` has no exclusions (`auto,~P` is `Invalid port specifier`).
-  frisket's own listeners follow the same rule. 53 is not republished,
-  because pasta publishes nothing under 1024. 15001 would be, and it
-  answers nothing that was not steered to it.
+  frisket's own listeners follow the same rule, and are below it: DNS on
+  53 and TCP on 230 are not republished, because pasta publishes nothing
+  under 1024, so two sessions of one project each have their own.
 - **The daemon is in the host's network namespace.** rootlesskit runs with
   `--detach-netns` and `--disable-host-loopback`: containers cannot reach
   the host's loopback, but what the daemon itself dials — a pull, a log
@@ -103,7 +103,7 @@ every connection to the service address is TLS-terminated and routed by SNI;
 upstreams must be `https://`; the egress dialer dials only IP addresses and
 its classifier refuses loopback; bodies are read only for GraphQL; upgrades
 go through `httputil.ReverseProxy`, which carries a `101`. A session has four
-listeners, made by `frisket steer` inside its namespace: TCP on `15001` and
+listeners, made by `frisket steer` inside its namespace: TCP on `230` and
 DNS on `53`, for each family. Everything else reaches them by TPROXY, which
 keeps the address the client dialled. frisket routes each connection by that
 address, and refuses one that dialled the listener itself. Its DNS answers
@@ -306,8 +306,8 @@ name (decision 14). A `HostIp` that is empty, absent, `0.0.0.0` or
 `127.0.0.1` is rewritten to it. The address itself is accepted. Anything
 else refuses, IPv6 included: the daemon would bind `::` beside `0.0.0.0`,
 and a v6 address is not the project's. The `HostPort` must be one the
-grant names in `apps.docker.ports` (1024 to 65535, at most 64,
-never frisket's own 15001), never a range or a random one. Two projects that
+grant names in `apps.docker.ports` (1024 to 65535, at most 64), never a
+range or a random one. Two projects that
 both use 64320 now publish it at two addresses, and neither reaches the
 other's.
 
@@ -500,10 +500,6 @@ not.
   sessions still reach only their own containers (the relay's check), but on
   the host the shared address is both projects': a host tool that dials it
   reaches whichever published the port.
-- **frisket's `15001` is republished too.** A trusted session's pasta may
-  publish `15001` at the project's address for it. It answers nothing, since
-  a connection that dials the listener is refused, but that port of the
-  project's address is held while the session runs.
 - **What frisket cannot see.** Containers run outside flong: their DNS is
   not frisket's, they have no pids or memory limit unless the project sets
   one, and their egress is the user's.
@@ -520,8 +516,7 @@ not.
   and the session dials itself. So project A's containers, with the image
   and command from A's grant and Compose file, reach the host's wildcard
   services that the LAN is firewalled from, other auto-tier sessions'
-  forwarded `*:P` listeners (another project's dev server) and frisket's
-  `*:15001`. rootlesskit's pasta driver does not close it: it gives the
+  forwarded `*:P` listeners (another project's dev server). rootlesskit's pasta driver does not close it: it gives the
   namespace `10.0.2.100`, not the host's address, so the same probe still
   connected, and its only port driver, `implicit`, publishes
   `127.101.170.171:P` as the host's `0.0.0.0:P`, which would undo each

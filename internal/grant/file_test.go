@@ -50,7 +50,6 @@ func TestWhatAGrantMayNameForDocker(t *testing.T) {
 		images("o/sha256:1"),
 		`{"apps": {"docker": {"ports": [80]}}}`,
 		`{"apps": {"docker": {"ports": [0, 99999]}}}`,
-		`{"apps": {"docker": {"ports": [15001]}}}`,
 		`{"apps": {"docker": {"ports": [5432, 5432]}}}`,
 		`{"apps": {"docker": {"ports": [` + ports(2000, 2064) + `]}}}`,
 	}

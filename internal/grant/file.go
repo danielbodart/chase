@@ -620,10 +620,6 @@ func checkLists(at string, l Lists) error {
 	return nil
 }
 
-// frisket's own steering listener, which a session's loopback sends the
-// project's ports to.
-const steering = 15001
-
 // checkPorts is what frisket refuses of a document's ports, refused here
 // first, when the grant is read.
 func checkPorts(ports []int) error {
@@ -635,8 +631,6 @@ func checkPorts(ports []int) error {
 		switch {
 		case p < 1024 || p > 65535:
 			return fmt.Errorf("apps.docker.ports: %d is not a port from 1024 to 65535", p)
-		case p == steering:
-			return fmt.Errorf("apps.docker.ports: %d is frisket's own steering listener", p)
 		case seen[p]:
 			return fmt.Errorf("apps.docker.ports: %d is named twice", p)
 		}
