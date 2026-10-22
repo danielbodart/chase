@@ -16,8 +16,10 @@ import (
 
 	"github.com/danielbodart/quoin/projpolicy"
 
+	"github.com/danielbodart/chase/internal/apps/docker"
 	"github.com/danielbodart/chase/internal/grant"
 	"github.com/danielbodart/chase/internal/grant/signertest"
+	"github.com/danielbodart/frisket/policy"
 )
 
 // v2 is a harness whose checkouts are signed by a stand-in signer.
@@ -209,6 +211,43 @@ func TestWhatTheFileSaysOfTheCheckoutIsHeldToIt(t *testing.T) {
 	}
 }
 
+// A project whose chase.json names what it builds reaches BuildKit, and
+// may run any tag of it; one whose file does not, the same project in the
+// same tier, does neither.
+func TestAProjectThatSaysBuildReachesBuildKit(t *testing.T) {
+	h, s := v2(t)
+	r := h.root()
+	h.cfg.Checkouts["example/shop"] = []string{r + "/p/shop"}
+	h.cfg.DockerTiers = []string{"trusted"}
+	h.cfg.Apps["docker"] = grant.App{Credential: no()}
+	h.cfg.Docker = &docker.Config{Routes: map[string]policy.RouteV2{"trusted": dockerTemplate(t)}}
+	ws := r + "/p/shop"
+	h.repo(ws, "git@github.com:example/shop.git")
+	for _, v := range []struct {
+		machine, build, answer string
+	}{
+		{"m1", ``, "refuse"},
+		{"m2", `"build": {"shop/": true}, `, "allow"},
+	} {
+		h.project(s, ws, canonical(t, `{"version": 2, "chase": {"apps": {"docker": {`+v.build+`"project": "example/shop", "images": {"postgres:18": true}}}}}`), true)
+		h.approved(ws, v.machine, "trusted", "")
+		if h.launch("trusted", ws, v.machine) != 0 {
+			t.Fatalf("%s was not launched: %s", v.machine, h.err)
+		}
+		rt := h.policyV2(v.machine).Routes["docker"]
+		if builds := rt.Docker.Builds; v.answer == "allow" && !slices.Equal(builds, []string{"shop/", "docker.io/shop/"}) || v.answer == "refuse" && len(builds) != 0 {
+			t.Errorf("%s: builds %q", v.machine, builds)
+		}
+		ops := rt.Operations
+		for _, op := range docker.BuildOperations {
+			if ops[op] != v.answer {
+				t.Errorf("%s: %s is %q, want %q", v.machine, op, ops[op], v.answer)
+			}
+		}
+		frisketCheck(t, h.dir+"/run/chase/"+v.machine+"/policy.json")
+	}
+}
+
 // `chase sign` writes what is derived of the checkout, puts the file in
 // its canonical form, and has it signed; signed already, it asks nothing.
 func TestSignWritesWhatIsDerivedAndSigns(t *testing.T) {
@@ -359,6 +398,9 @@ func TestWhatAChaseJSONMayNotSayIsRefused(t *testing.T) {
 		{`{"version": 2, "chase": {"secrets": "s.yaml"}}`, "give both or neither"},
 		{`{"version": 2, "chase": {"secrets": "/etc/shadow", "secretsSHA256": "` + strings.Repeat("a", 64) + `"}}`, "not relative to the checkout"},
 		{`{"version": 2, "chase": {"apps": {"docker": {"images": {"docker.io/library/postgres:18": true}}}}}`, "spells out Docker Hub"},
+		{`{"version": 2, "chase": {"apps": {"docker": {"build": true}}}}`, "cannot unmarshal"},
+		{`{"version": 2, "chase": {"apps": {"docker": {"build": {"shop/": false}}}}}`, "chase.apps.docker.build: shop/ is false"},
+		{`{"version": 2, "chase": {"apps": {"docker": {"build": {"shop/tool:1": true}}}}}`, "chase.apps.docker.build: shop/tool:1: a build with a tag or digest"},
 		{`{"version": 2, "chase": {"apps": {"docker": {"images": {"postgres:18": false}}}}}`, "listed with true"},
 		{`{"version": 2, "chase": {"apps": {"docker": {"ports": {"80": true}}}}}`, "1024 to 65535"},
 		{`{"version": 2, "chase": {"apps": {"docker": {"ports": {"http": true}}}}}`, "not a port's number"},
@@ -437,7 +479,7 @@ func TestTheSchemaIsTheComponents(t *testing.T) {
 		t.Errorf("the apps are %q", got)
 	}
 	docker := apps["docker"].(map[string]any)["properties"].(map[string]any)
-	if got := slices.Sorted(maps.Keys(docker)); !slices.Equal(got, []string{"images", "ports", "project"}) {
+	if got := slices.Sorted(maps.Keys(docker)); !slices.Equal(got, []string{"build", "images", "ports", "project"}) {
 		t.Errorf("docker's keys are %q", got)
 	}
 	calls := props["flong"].(map[string]any)["properties"].(map[string]any)["seccomp"].(map[string]any)["properties"].(map[string]any)["syscalls"].(map[string]any)

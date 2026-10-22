@@ -5,7 +5,8 @@
 # route frisket judges request by request, and published only on the
 # project's own loopback address. What the project is was approved with its
 # grant, from its checkout's origin; the route is made at launch, from
-# that and the images and ports its grant names.
+# that and the images and ports its grant names, and builds where its grant
+# says build.
 
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
@@ -35,8 +36,21 @@ let
   key = r: lib.concatStringsSep "," r.methods + " " + r.path;
   paths = lib.listToAttrs (map (rule: lib.nameValuePair (key rule)
     ({ operation = removeAttrs rule.operation [ "description" ]; } // lib.optionalAttrs (rule ? docker) { inherit (rule) docker; }))
-    operations);
-  answers = lib.listToAttrs (map (rule: lib.nameValuePair rule.operation.id (if rule.refuse or false then "refuse" else "allow")) operations);
+    operations) // {
+    # BuildKit's control API, which the CLI's builds reach by hijacking
+    # /grpc to h2c. It is no operation of the Engine's spec, so admit.json
+    # cannot name it; it is written here instead, beside the spec's /session.
+    "POST /grpc" = {
+      operation = { id = "Grpc"; summary = "BuildKit's control API"; class = "write"; category = "Session"; };
+      docker = { owned = "none"; upgrade = "h2c"; };
+    };
+  };
+  # What a build needs, answered "refuse" here whatever admit.json says, and
+  # "allow" at launch for a project whose grant says build
+  # (internal/apps/docker's BuildOperations).
+  builds = [ "Session" "Grpc" ];
+  answers = lib.listToAttrs (map (rule: lib.nameValuePair rule.operation.id (if rule.refuse or false then "refuse" else "allow")) operations)
+    // lib.genAttrs builds (_: "refuse");
 
   # Only on direct egress: a container on the rootless daemon reaches
   # whatever the host does, which a tier with no network but frisket could
@@ -57,7 +71,8 @@ let
     refusal = { contentType = "application/json"; body = builtins.toJSON { message = "{{message}}"; }; };
     inherit paths;
     docker = {
-      inherit (source) apiVersions;
+      # Docker's client hijacks /grpc and /session with no version.
+      apiVersions = source.apiVersions // { unversioned = source.apiVersions.unversioned ++ [ "/grpc" "/session" ]; };
       # The largest body Compose sends is a ContainerCreate, a few KiB.
       maxBody = 262144;
       bodies = lib.genAttrs (lib.unique (lib.concatMap (a: lib.optional (a.docker ? body) a.docker.body) (lib.attrValues admit)))

@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"regexp"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"github.com/danielbodart/chase/internal/apps"
 	"github.com/danielbodart/chase/internal/projectaddr"
 	"github.com/danielbodart/chase/internal/term"
+	"github.com/danielbodart/frisket/docker"
 	"github.com/danielbodart/frisket/policy"
 )
 
@@ -53,6 +55,15 @@ type Config struct {
 	// replaced.
 	Routes map[string]policy.RouteV2 `json:"routes"`
 }
+
+// BuildOperations are what a build needs: BuildKit's control API on /grpc,
+// and the session it calls the client back on. apps/docker.nix answers
+// them "refuse" in every template, and Prepare answers them "allow" for a
+// binding that names what it builds. Nothing of a build is judged: what it
+// runs, what it reaches, and what it names its images are the project's,
+// which is what naming a build means; what it may run afterwards is what
+// it names.
+var BuildOperations = []string{"Session", "Grpc"}
 
 // LoadConfig reads a Config as the module writes it, refusing any field it
 // does not know, as frisket refuses one in a policy: a misspelt key in a
@@ -152,6 +163,29 @@ func (a *App) Prepare(_ context.Context, r apps.Request) (apps.Patch, error) {
 	d.Address = who.Address
 	d.Names = who.Names
 	route.Docker = &d
+	if len(b.builds) > 0 {
+		// Each with its other spellings, as an image's: frisket matches a
+		// repository as the string the client sends.
+		seen := map[string]bool{}
+		for _, build := range b.builds {
+			if err := docker.ValidBuild(build); err != nil {
+				return die("build %s: %v", build, err)
+			}
+			for _, s := range Spellings(build) {
+				if !seen[s] {
+					seen[s] = true
+					d.Builds = append(d.Builds, s)
+				}
+			}
+		}
+		route.Operations = maps.Clone(route.Operations)
+		for _, op := range BuildOperations {
+			if _, ok := route.Operations[op]; !ok {
+				return die("%s builds, and %s has no %s to allow", r.Project, r.Tier, op)
+			}
+			route.Operations[op] = "allow"
+		}
+	}
 
 	said := make([]string, len(ports))
 	for i, p := range ports {
@@ -183,7 +217,8 @@ func (a *App) stderr() io.Writer {
 }
 
 // Spellings are every spelling the CLI could send of an image as the
-// grant names it, the image itself first: a Docker Hub image with no
+// grant names it, or of a build's repository or namespace, the image itself
+// first: a Docker Hub image with no
 // namespace is also library/, docker.io/ and docker.io/library/ it, one with
 // a namespace also docker.io/ it, and one whose first component is a
 // registry -- a '.' or ':' in it, or localhost -- is only itself.
@@ -244,12 +279,13 @@ func asciiLower(s string) string {
 	}, s)
 }
 
-// binding is what Prepare reads of a Docker binding: its images, and its
-// ports as the binding gave them, decoded only once the images and the
-// project have been judged.
+// binding is what Prepare reads of a Docker binding: its images, its ports
+// as the binding gave them, decoded only once the images and the project
+// have been judged, and the repositories and namespaces it builds.
 type binding struct {
 	images []string
 	ports  json.RawMessage
+	builds []string
 }
 
 // errNoImages is a binding with nothing a container could run. It is also
@@ -279,6 +315,11 @@ func readBinding(raw json.RawMessage) (binding, error) {
 		}
 	}
 	b.ports = obj["ports"]
+	if v := obj["build"]; !none(v) {
+		if err := json.Unmarshal(v, &b.builds); err != nil {
+			return binding{}, errors.New("build is not a list of repositories and namespaces")
+		}
+	}
 	return b, nil
 }
 

@@ -2,6 +2,7 @@
 "SystemPingHead": {"methods": ["HEAD"], "docker": {"owned": "none"}},
 "SystemPing": {"methods": ["GET"], "docker": {"owned": "none"}},
 "SystemVersion": {"methods": ["GET"], "docker": {"owned": "none"}},
+"Session": {"methods": ["POST"], "docker": {"owned": "none", "upgrade": "h2c"}},
 "SystemEvents": {"methods": ["GET"], "docker": {"owned": "list", "query": {"since": "any", "until": "any", "filters": {"filters": ["label", "type", "event", "container"]}}}},
 "ContainerList": {"methods": ["GET"], "docker": {"owned": "list", "query": {"all": "bool", "limit": "int", "size": "bool", "filters": {"filters": ["label", "name", "id", "status", "health", "exited"]}}}},
 "ContainerCreate": {"methods": ["POST"], "docker": {"owned": "createContainer", "body": "ContainerCreate", "query": {"name": "containerName", "platform": "any"}}},

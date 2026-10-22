@@ -267,6 +267,13 @@ func dockerTemplate(t *testing.T) policy.RouteV2 {
 			answers[op["id"].(string)] = "refuse"
 		}
 	}
+	paths["POST /grpc"] = map[string]any{
+		"operation": map[string]any{"id": "Grpc", "summary": "BuildKit's control API", "class": "write", "category": "Session"},
+		"docker":    map[string]any{"owned": "none", "upgrade": "h2c"},
+	}
+	for _, op := range docker.BuildOperations {
+		answers[op] = "refuse"
+	}
 	var fields map[string]json.RawMessage
 	readJSON("fields.json", &fields)
 	var admit map[string]struct {
@@ -276,9 +283,10 @@ func dockerTemplate(t *testing.T) policy.RouteV2 {
 	}
 	readJSON("admit.json", &admit)
 	var source struct {
-		APIVersions json.RawMessage `json:"apiVersions"`
+		APIVersions map[string]any `json:"apiVersions"`
 	}
 	readJSON("source.json", &source)
+	source.APIVersions["unversioned"] = append(source.APIVersions["unversioned"].([]any), "/grpc", "/session")
 	bodies := map[string]json.RawMessage{}
 	for _, a := range admit {
 		if a.Docker.Body != "" {
@@ -335,7 +343,7 @@ func dockerRouteIsTheTemplates(t *testing.T, path string) {
 		t.Errorf("the docker route has a credentialFile: %v", route["credentialFile"])
 	}
 	d, _ := route["docker"].(map[string]any)
-	want := map[string]any{"min": "1.55", "max": "1.56", "unversioned": []any{"/_ping"}}
+	want := map[string]any{"min": "1.52", "max": "1.56", "unversioned": []any{"/_ping", "/grpc", "/session"}}
 	if !reflect.DeepEqual(d["apiVersions"], want) {
 		t.Errorf("the route's apiVersions are %v, not %v", d["apiVersions"], want)
 	}
@@ -367,7 +375,11 @@ func dockerRouteIsTheTemplates(t *testing.T, path string) {
 		}
 		switch answers[op["id"].(string)] {
 		case "refuse":
-			continue
+			// A build's operation in admit.json is refused until a project
+			// says build, and is admit.json's all the same.
+			if _, ok := admit[op["id"].(string)]; !ok || !slices.Contains(docker.BuildOperations, op["id"].(string)) {
+				continue
+			}
 		case "allow":
 		default:
 			t.Errorf("%v is answered %v", op["id"], answers[op["id"].(string)])

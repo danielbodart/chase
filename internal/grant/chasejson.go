@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/danielbodart/frisket/docker"
 	"github.com/danielbodart/frisket/policy"
 	"github.com/danielbodart/quoin/hostpattern"
 	"github.com/danielbodart/quoin/projpolicy"
@@ -123,9 +124,12 @@ type CloudflareBinding struct {
 }
 
 // DockerBinding is Docker: the project its containers are, which the
-// launch holds to the one the checkout's origin names; and its images and
-// ports, each a key to true.
+// launch holds to the one the checkout's origin names; its images and
+// ports, each a key to true; and the repositories, and namespaces ending in
+// '/', of the images it builds, each a key to true, which turn BuildKit on
+// for its sessions and whose every tag its containers may run.
 type DockerBinding struct {
+	Build   map[string]bool `json:"build,omitempty"`
 	Images  map[string]bool `json:"images,omitempty"`
 	Ports   map[string]bool `json:"ports,omitempty"`
 	Project string          `json:"project,omitempty"`
@@ -495,6 +499,14 @@ func (s Section) check() error {
 				return fmt.Errorf("chase.apps.docker.images: %s %s", image, why)
 			}
 		}
+		for _, build := range slices.Sorted(maps.Keys(d.Build)) {
+			if !d.Build[build] {
+				return fmt.Errorf("chase.apps.docker.build: %s is false: a build is listed with true, or not at all", build)
+			}
+			if err := docker.ValidBuild(build); err != nil {
+				return fmt.Errorf("chase.apps.docker.build: %s: %v", build, err)
+			}
+		}
 		ports, err := d.ports()
 		if err != nil {
 			return err
@@ -570,7 +582,7 @@ func bindingOf(app string, raw any) (json.RawMessage, error) {
 		if ports == nil {
 			ports = []int{}
 		}
-		return json.Marshal(map[string]any{"images": slices.Sorted(maps.Keys(d.Images)), "ports": ports})
+		return json.Marshal(map[string]any{"build": slices.Sorted(maps.Keys(d.Build)), "images": slices.Sorted(maps.Keys(d.Images)), "ports": ports})
 	case "gcloud":
 		var m map[string]any
 		if err := json.Unmarshal(b, &m); err != nil {

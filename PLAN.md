@@ -474,7 +474,10 @@ refusal, and nothing on its route ever asks
 ([docs/docker.md](docs/docker.md), decision 7). Its tier has only
 `apps.docker.enable`, and a project names only its images and ports: an
 operation cannot be allowed by name or category, since images are global and
-one project's `ImageTag` would change what another's container runs.
+one project's `ImageTag` would change what another's container runs. Its
+one exception is a build: a project whose file names what it builds
+reaches BuildKit, runs any tag of it, and accepts that its images are
+global (docs/docker.md, decision 16).
 
 **SSH is classed by a hand-written catalogue.** No machine publishes a
 description of its commands, so `apps/ssh/operations.json` is written and

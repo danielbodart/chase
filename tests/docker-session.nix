@@ -1,10 +1,11 @@
 # A Docker session end to end: chase's launch, flong's session, frisket's
 # route and relay, and alice's rootless Docker daemon, all on one machine.
 # The checkout is shop as the machine knows it -- its origin, pinned at
-# its path -- with a signed chase.json binding postgres:18 on 64320, and a
-# one-service Compose file shaped like shop's own. The session runs Compose
-# as its scripts do, reaches the database as localhost and by its .internal
-# name, and is refused whatever would reach the host.
+# its path -- with a signed chase.json binding postgres:18 on 64320, and
+# building, and a one-service Compose file shaped like shop's own. The
+# session runs Compose as its scripts do, reaches the database as localhost
+# and by its .internal name, builds an image through BuildKit and runs it,
+# and is refused whatever would reach the host.
 { self, home-manager }:
 { lib, hostPkgs, ... }:
 
@@ -67,8 +68,8 @@ let
   '';
 
   # shop as a developer has it: its GitHub origin, a chase.json giving its
-  # Docker project, image and port, signed, and the Compose file its scripts
-  # run.
+  # Docker project, images and port, and building, signed, and the Compose
+  # file its scripts run.
   mkProject = pkgs.writeShellScript "mk-project" ''
     set -euo pipefail
     export PATH=${lib.makeBinPath (with pkgs; [ coreutils git ])}
@@ -77,7 +78,7 @@ let
     git init -q -b main
     git remote add origin git@github.com:example/shop.git
     cat > chase.json <<'EOF'
-    {"version": 2, "chase": {"apps": {"docker": {"project": "${project}", "images": {"postgres:18": true}, "ports": {"64320": true}}}}}
+    {"version": 2, "chase": {"apps": {"docker": {"build": {"shop/": true}, "project": "${project}", "images": {"postgres:18": true}, "ports": {"64320": true}}}}}
     EOF
     ${signing.sign} ${ws}
     install -m 0644 ${compose} compose.yaml
@@ -431,6 +432,36 @@ in
           assert host_docker("inspect attack-x-1 --format '{{.State.Status}}'").strip() == "created"
           session_ok("docker rm attack-x-1")
           host_docker("network rm attack_default")
+
+      with subtest("shop builds through BuildKit, from what the daemon has, and runs what it built"):
+          before = len(requests())
+          session_ok("printf 'FROM postgres:18\\nRUN echo built > /built\\n' > cmd/Dockerfile && docker build -t shop/tool:1 -f cmd/Dockerfile cmd", timeout=300)
+          new = requests()[before:]
+          ops = {m.get("operation") for m in new if m["decision"] == "allowed"}
+          assert {"Grpc", "Session"} <= ops, new
+          grpc = [m for m in new if m.get("operation") == "Grpc"]
+          assert grpc and any(m["status"] == 101 for m in grpc), grpc
+          assert host_docker("image inspect shop/tool:1 --format '{{.Id}}'").strip()
+          # By any tag of the namespace it says it builds, and by nothing
+          # else it did not list.
+          host_docker("tag shop/tool:1 shop/tool:5f2a")
+          host_docker("tag shop/tool:1 shopper/tool:1")
+
+          # The CLI's own run, on the project's own network, made for it.
+          out = session_ok("docker run --rm shop/tool:5f2a cat /built", timeout=120)
+          assert out.strip().endswith("built"), out
+          own = host_docker("network inspect frisket_example_shop --format '{{index .Labels \"frisket.project\"}}'").strip()
+          assert own == "${project}", own
+          rc, out = session("docker run --rm shopper/tool:1 cat /built")
+          assert rc != 0 and "not a listed image" in out, out
+
+          # And as Compose runs it, inspecting it by its name of two segments.
+          out = session_ok("printf 'services:\\n  x:\\n    image: shop/tool:1\\n    command: cat /built\\n' > cmd/built.yaml && "
+                           "docker compose -p built -f cmd/built.yaml up --abort-on-container-exit && "
+                           "docker compose -p built -f cmd/built.yaml down", timeout=300)
+          assert "| built" in out, out
+          session_ok("docker network rm frisket_example_shop")
+          host_docker("rmi shopper/tool:1")
 
       with subtest("nothing refused was made, and the container of nobody's is still there"):
           names = host_docker("ps -a --format '{{.Names}}'").split()

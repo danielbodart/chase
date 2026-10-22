@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,8 +52,9 @@ func admitted(t *testing.T) map[string]struct {
 
 // template is the route apps/docker.nix builds for a tier, from the same
 // files, as the module will write it into Config: the paths operations.json
-// generates with their descriptions removed, and the table of each body
-// admit.json names. It goes through JSON and LoadConfig, strictly, as the
+// generates with their descriptions removed and BuildKit's /grpc beside
+// them, every build operation refused, and the table of each body admit.json
+// names. It goes through JSON and LoadConfig, strictly, as the
 // module's file will.
 func template(t *testing.T) Config {
 	t.Helper()
@@ -76,12 +78,20 @@ func template(t *testing.T) Config {
 			answers[op["id"].(string)] = "refuse"
 		}
 	}
+	paths["POST /grpc"] = map[string]any{
+		"operation": map[string]any{"id": "Grpc", "summary": "BuildKit's control API", "class": "write", "category": "Session"},
+		"docker":    map[string]any{"owned": "none", "upgrade": "h2c"},
+	}
+	for _, op := range BuildOperations {
+		answers[op] = "refuse"
+	}
 	var fields map[string]json.RawMessage
 	readJSON(t, "fields.json", &fields)
 	var source struct {
-		APIVersions json.RawMessage `json:"apiVersions"`
+		APIVersions map[string]any `json:"apiVersions"`
 	}
 	readJSON(t, "source.json", &source)
+	source.APIVersions["unversioned"] = append(source.APIVersions["unversioned"].([]any), "/grpc", "/session")
 	bodies := map[string]json.RawMessage{}
 	for _, a := range admitted(t) {
 		var d struct {
@@ -222,7 +232,7 @@ func TestTheRouteIsTheProjects(t *testing.T) {
 	if !slices.Equal(d.Ports, []int{64320, 64321}) {
 		t.Errorf("ports %v", d.Ports)
 	}
-	if !reflect.DeepEqual(d.APIVersions, policy.APIVersions{Min: "1.55", Max: "1.56", Unversioned: []string{"/_ping"}}) {
+	if !reflect.DeepEqual(d.APIVersions, policy.APIVersions{Min: "1.52", Max: "1.56", Unversioned: []string{"/_ping", "/grpc", "/session"}}) {
 		t.Errorf("apiVersions %+v", d.APIVersions)
 	}
 	if d.MaxBody != 262144 {
@@ -246,7 +256,9 @@ func TestTheRouteIsTheProjects(t *testing.T) {
 	}
 
 	// Every rule has its operation, without its description; the admitted
-	// ones are admit.json's, exactly; and none asks.
+	// ones are admit.json's, exactly, but for the build's, which are refused
+	// until a project says build (TestOnlyABuildingProjectReachesBuildKit);
+	// and none asks.
 	admit := admitted(t)
 	got := map[string]bool{}
 	for key, rule := range r.Paths {
@@ -278,7 +290,7 @@ func TestTheRouteIsTheProjects(t *testing.T) {
 		}
 	}
 	for id := range admit {
-		if !got[id] {
+		if !got[id] && !slices.Contains(BuildOperations, id) {
 			t.Errorf("%s is in admit.json, and not admitted", id)
 		}
 	}
@@ -566,6 +578,67 @@ func TestFrisketLoadsTheSampleAndNotAnotherProjects(t *testing.T) {
 		if !strings.Contains(out, v.said) {
 			t.Errorf("%s, refused otherwise: %s", v.why, out)
 		}
+	}
+}
+
+// A project builds only where its grant names what it builds: BuildKit's
+// /grpc and /session are refused in every other session, as the template
+// has them, and allowed in its, with each build in every spelling the CLI
+// could send, which frisket loads.
+func TestOnlyABuildingProjectReachesBuildKit(t *testing.T) {
+	for _, v := range []struct {
+		binding string
+		answer  string
+		builds  []string
+	}{
+		{`{"images": ["postgres:18"]}`, "refuse", nil},
+		{`{"images": ["postgres:18"], "build": null}`, "refuse", nil},
+		{`{"images": ["postgres:18"], "build": []}`, "refuse", nil},
+		{`{"images": ["postgres:18"], "build": ["shop/", "tool", "europe-west2-docker.pkg.dev/p/artifacts/"]}`, "allow",
+			[]string{"shop/", "docker.io/shop/", "tool", "library/tool", "docker.io/tool", "docker.io/library/tool", "europe-west2-docker.pkg.dev/p/artifacts/"}},
+	} {
+		c := template(t)
+		p, _, err := prepare(t, c, "trusted", "example/shop", v.binding)
+		if err != nil {
+			t.Fatalf("%s: %v", v.binding, err)
+		}
+		ops := p.Routes["docker"].Operations
+		for _, op := range BuildOperations {
+			if ops[op] != v.answer {
+				t.Errorf("%s: %s is %q, want %q", v.binding, op, ops[op], v.answer)
+			}
+			if c.Routes["trusted"].Operations[op] != "refuse" {
+				t.Errorf("%s: the template's %s became %q", v.binding, op, c.Routes["trusted"].Operations[op])
+			}
+		}
+		if ops["ContainerCreate"] != "allow" || ops["ImageBuild"] != "refuse" {
+			t.Errorf("%s: building changed more than BuildKit's answers: %v", v.binding, ops)
+		}
+		if got := p.Routes["docker"].Docker.Builds; !slices.Equal(got, v.builds) {
+			t.Errorf("%s: builds %q, want %q", v.binding, got, v.builds)
+		}
+		if v.answer == "allow" {
+			if out, err := frisketCheck(t, document(p)); err != nil {
+				t.Errorf("frisket refused a building project's route: %v: %s", err, out)
+			}
+		}
+	}
+	for _, v := range []struct{ binding, said string }{
+		{`{"images": ["postgres:18"], "build": true}`, "build is not a list of repositories and namespaces"},
+		{`{"images": ["postgres:18"], "build": ["shop/tool:1"]}`, "build shop/tool:1: a build with a tag or digest"},
+	} {
+		if _, _, err := prepare(t, template(t), "trusted", "example/shop", v.binding); err == nil || !strings.Contains(err.Error(), v.said) {
+			t.Errorf("%s: %v", v.binding, err)
+		}
+	}
+	c := template(t)
+	r := c.Routes["trusted"]
+	r.Operations = maps.Clone(r.Operations)
+	delete(r.Operations, "Grpc")
+	c.Routes["trusted"] = r
+	if _, _, err := prepare(t, c, "trusted", "example/shop", `{"images": ["postgres:18"], "build": ["shop/"]}`); err == nil ||
+		!strings.Contains(err.Error(), "example/shop builds, and trusted has no Grpc to allow") {
+		t.Errorf("a template with no Grpc to allow: %v", err)
 	}
 }
 

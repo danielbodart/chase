@@ -157,14 +157,24 @@ every body field the spec defines — object properties, through `$ref` and
 `allOf`, not into arrays or maps — so that a bump shows new fields in the
 diff and a check fails until each is classified.
 
-**5. The API version is an optional first segment, within 1.55–1.56.**
+**5. The API version is an optional first segment, within 1.52–1.56.**
 Anything that looks like a version outside that range, or spelled any other
-way (`V1.55`, `v1.055`), is refused; only `/_ping` goes unversioned. The
-range is what the tables were written against. frisket caps the
-`Api-Version` the daemon answers at the top of the range, so when nixpkgs
-moves the daemon and the CLI to 1.57 both keep speaking 1.56 until the pin is
-bumped. *Rejected:* 1.44 and up. Every client in a session comes from the
-same nixpkgs as the daemon; older versions are semantics nobody read.
+way (`V1.55`, `v1.055`), is refused; only `/_ping`, and BuildKit's `/grpc`
+and `/session` (decision 16), go unversioned. The range is what the tables
+were written against: moby's API changelog for 1.53 to 1.56 only adds --
+`HostConfig.Umask`, which 1.52 ignores, a containers list's `annotation`
+filter, `/info`'s `NRI`, `/events` as `jsonl`, endpoints that stay refused
+-- and changes the meaning of nothing admitted, so a request at 1.52 is
+judged as the same request at 1.56. It reaches 1.52 because buildx is
+built against its own copy of the client, whose newest version trails the
+daemon's: buildx 0.31.1's is 1.52, and it asks `/v1.52/version` before it
+opens `/grpc`. frisket caps the `Api-Version` the daemon answers at the top
+of the range, so when nixpkgs moves the daemon and the CLI to 1.57 both keep
+speaking 1.56 until the pin is bumped; a bump of the floor is a read of the
+changelog down to it. *Rejected:* 1.44 and up. Every client in a session
+comes from the same nixpkgs as the daemon; older versions are semantics
+nobody read. *Rejected:* 1.52 only for a project that builds. It kept the
+tables' range for the rest, but the range was never what differed.
 
 **6. Request bodies are matched against a table per operation, strictly.**
 A deferred verdict, as GraphQL's is: frisket reads the body to a bound,
@@ -217,7 +227,8 @@ sends requests in parallel and a second question finds the first still open;
 and "may `3f2a9c1e0b7d` be stopped?" is not a question a person can answer.
 *Rejected:* letting a project's lists admit more. Images are global: a
 project allowed `ImageTag` or `ImageBuild` could change what another's
-`postgres:18` runs, with that project's volumes mounted.
+`postgres:18` runs, with that project's volumes mounted. A build is the one
+exception, and only where the project's own file says so (decision 16).
 
 **8. Queries are matched too, and forwarded as frisket encodes them.** A
 rule names each parameter it takes and a check for it; any other, or one
@@ -299,11 +310,12 @@ failed.
 **11. Exec, attach, logs and the rest of Compose's own flows are allowed on
 owned containers.** `ExecCreate` with `Privileged` false; the command is not
 restricted, since the container itself holds nothing of the host.
-`ExecStart` and `ContainerAttach` may upgrade to `tcp`, and nothing else may
-upgrade. Also admitted behind ownership: `Logs`, `Wait`, `Kill`, `Restart`,
+`ExecStart` and `ContainerAttach` may upgrade to `tcp`, BuildKit's `/grpc`
+and `/session` to `h2c` for a project that builds (decision 16), and nothing
+else may upgrade. Also admitted behind ownership: `Logs`, `Wait`, `Kill`, `Restart`,
 `Rename` (Compose recreates a changed service by renaming the old one), the
 two resizes, and `/events` filtered to the project. Everything else is
-refused: build, commit, export, image save, load, tag and push, archive
+refused: the legacy builder's `/build`, commit, export, image save, load, tag and push, archive
 (`docker cp`), update, prune, plugins, swarm, secrets, configs, `/system/df`
 and `/info`.
 
@@ -397,6 +409,53 @@ route. `frisket steer` adds them to the sets in the same `nft -f` that
 loads the ruleset. The sets live in the session's namespace and die with it.
 A restored session keeps its ruleset. A restored session whose document has
 since dropped a port refuses connections to it.
+
+**16. A project that names what it builds builds, and runs it; its builds
+are not judged.** `chase.apps.docker.build` in a project's chase.json lists
+the repositories, and namespaces ending in `/`, of the images it builds,
+each a key to true, as `images` lists its images:
+
+```json
+"build": {"europe-west2-docker.pkg.dev/p/data-lab-artifacts/": true, "invoicing": true}
+```
+
+Naming any lets its sessions reach BuildKit, the one way the CLI builds:
+`docker build` and `compose build` hijack an unversioned `POST /grpc` to h2c
+for BuildKit's control API, and `POST /session` the same way for the
+client's side of the build, each with an empty `Host`, which frisket takes on
+a Docker route as the name its handshake gave. Both are on every route,
+answered `refuse` (`BuildOperations` in internal/apps/docker), and `allow`
+only in a session whose grant names a build. And a container may run any
+tag of what it names, and an inspect name it: the route's `builds`, each
+with its Docker Hub spellings as an image's (`shop/` and `docker.io/shop/`).
+A pull is still of `images` alone, since a built image is on the daemon
+already. frisket cannot see which build made an image -- the build is inside
+the gRPC stream -- so what the project runs is what it says it builds, and
+two projects naming one namespace can run each other's builds.
+
+Nothing inside the gRPC is read: what a build runs, what it reaches from
+the daemon's network, and what it tags its images are the project's, so
+another project's `postgres:18` can be replaced by one that builds it. That
+is what a project's signed `build` says it accepts: the alternative, without
+it, is to build outside any sandbox. `ImageBuild`, the legacy builder's
+`/build`, stays refused. *Rejected:* judging builds by their Dockerfile,
+which BuildKit sends inside the gRPC stream, out of frisket's sight.
+*Rejected:* any image the daemon has with no registry digest, as what was
+built: anyone's local image is one. *Rejected:* a label the build must
+carry; a Dockerfile or a `--label` would have to say it, in every project.
+*Rejected:* a tier's option; one can come when a second project needs it.
+Recording does not propose `build` yet: it is written by hand, and signed.
+
+**17. The CLI's own `docker run` runs.** It differs from Compose in two
+things the table judged: `MemorySwappiness: -1`, moby's unset, which frisket
+sends as the `null` Compose sends; and no `--network`, which asks for the
+daemon's shared bridge, as `NetworkMode: default` and `default` as the key
+of `EndpointsConfig`. frisket puts that container on the project's own
+network instead, `frisket_<owner>_<repo>`, made the first time one asks for
+it as a labelled bridge with no options, and refuses to join one of that
+name the project does not own, or to let another project make it. Both are
+said in the request's `docker` line. *Rejected:* refusing a run with no
+`--network`, which every `docker run` in a project's README is.
 
 ## How it was built
 
@@ -541,9 +600,9 @@ not.
 - **Compose's labels are not checked.** A session can make a container
   carrying another Compose project's name, which dan's own `docker compose`
   outside a session would then take for its own.
-- **What shop does that is refused.** Every `test_ci` and `docker run`
-  of a locally built image needs `docker build`; `docker cp` needs archive.
-  Neither is planned.
+- **What shop does that is refused.** `docker cp` needs archive, which is
+  not planned. A `docker run` of a locally built image needs the project to
+  name what it builds (decisions 16 and 17).
 - **Only a session's own name is answered by frisket in a session.** A tool
   in a session that names
   another project's containers gets whatever the allowlist and the upstream

@@ -590,8 +590,8 @@ func TestDockerAdmitNamesEachOnce(t *testing.T) {
 	lines := len(regexp.MustCompile(`(?m)^"[A-Za-z]+": `).FindAllString(string(data), -1))
 	values, _, _ := parseJSON(data)
 	keys := values[0].(*Object).Len()
-	if lines != keys || keys != 31 {
-		t.Fatalf("admit.json does not name 31 operations, each once on its own line: %d lines, %d keys", lines, keys)
+	if lines != keys || keys != 32 {
+		t.Fatalf("admit.json does not name 32 operations, each once on its own line: %d lines, %d keys", lines, keys)
 	}
 }
 
