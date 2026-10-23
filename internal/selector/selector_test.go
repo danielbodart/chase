@@ -112,7 +112,7 @@ func (w *world) workspace(dir string) string {
 // guard is the strict tier's guard, as flong runs it: no binds.
 func (w *world) guard(ws string) (string, error) {
 	var errb bytes.Buffer
-	err := w.s.Guard(context.Background(), "strict", ws, "", &errb)
+	err := w.s.Guard(context.Background(), "strict", ws, "", false, &errb)
 	if err != nil {
 		fmt.Fprintln(&errb, err)
 	}

@@ -2,7 +2,9 @@ package selector
 
 import (
 	"context"
+	"maps"
 	"os"
+	"slices"
 )
 
 // Wrapper is one of the commands mkWrapper made: `claude`, `codex` or
@@ -25,6 +27,11 @@ type Wrapper struct {
 func (s *Selector) Bare(tier string) (Tier, bool) {
 	t, ok := s.cfg.Tiers[tier]
 	return t, ok && t.Bare
+}
+
+// Tiers is every tier's name, sorted: what `chase shell --tier` may name.
+func (s *Selector) Tiers() []string {
+	return slices.Sorted(maps.Keys(s.cfg.Tiers))
 }
 
 // For is what the wrapper execs for a session of tier with args, as Launch

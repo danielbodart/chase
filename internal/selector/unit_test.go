@@ -193,17 +193,17 @@ func TestTheGuardChecksTheTierAndReportsGroupMembers(t *testing.T) {
 	})
 	ctx := context.Background()
 	var said bytes.Buffer
-	err := s.Guard(ctx, "trusted", r+"/theirs", "", &said)
+	err := s.Guard(ctx, "trusted", r+"/theirs", "", false, &said)
 	if err == nil || err.Error() != "chase: refusing a 'trusted' session, this checkout is 'strict'" {
 		t.Errorf("the trusted guard of a strict checkout: %v", err)
 	}
 	// The fallback takes any checkout.
-	if err := s.Guard(ctx, "strict", r+"/mine", "", &said); err != nil {
+	if err := s.Guard(ctx, "strict", r+"/mine", "", false, &said); err != nil {
 		t.Errorf("the fallback's guard refused: %v", err)
 	}
 	said.Reset()
 	binds := r + "/theirs:rw\n\n" + r + "/state:rw\n" + r + "/mine"
-	if err := s.Guard(ctx, "trusted", r+"/mine", binds, &said); err != nil {
+	if err := s.Guard(ctx, "trusted", r+"/mine", binds, false, &said); err != nil {
 		t.Fatal(err)
 	}
 	want := "chase: mounting " + r + "/theirs (strict, rw)\nchase: mounting " + r + "/mine (trusted, " + r + "/mine)\n"
@@ -224,6 +224,43 @@ func TestTheGuardChecksTheTierAndReportsGroupMembers(t *testing.T) {
 	errb.Reset()
 	if rc := selector.RunGuard(ctx, s, []string{"trusted"}, env(map[string]string{"workspace": r + "/theirs", "binds": ""}), &errb); rc != 1 || errb.String() != "chase: refusing a 'trusted' session, this checkout is 'strict'\n" {
 		t.Errorf("guard refusing: %d %q", rc, errb.String())
+	}
+}
+
+func TestTheGuardTakesATierTheCallerChose(t *testing.T) {
+	fx := gitsafetest.NewFixture(t)
+	r := gitsafetest.Dir(t)
+	fx.Repo(r+"/mine", "git@github.com:acme/app.git", "a@example.com")
+	fx.Repo(r+"/mine/vendored", "git@github.com:evil/x.git", "a@example.com")
+	s := newSelector(t, selector.Config{
+		Order: []string{"trusted", "ops"}, Fallback: "strict",
+		Tiers: map[string]selector.Tier{
+			"trusted": {Launcher: "/l/trusted", Match: []selector.Rule{{Owners: []string{"acme"}}}},
+			"ops":     {Launcher: "/l/ops", Match: []selector.Rule{{Owners: []string{"infra"}}}},
+			"strict":  {Launcher: "/l/strict"},
+		},
+	})
+	ctx := context.Background()
+	env := func(m map[string]string) func(string) (string, bool) {
+		return func(k string) (string, bool) { v, ok := m[k]; return v, ok }
+	}
+
+	var errb bytes.Buffer
+	if rc := selector.RunGuard(ctx, s, []string{"ops"}, env(map[string]string{"workspace": r + "/mine", "binds": "", selector.ChosenTier: "ops"}), &errb); rc != 0 || errb.String() != "chase: a 'ops' session, as chosen; this checkout is 'trusted'\n" {
+		t.Errorf("a chosen tier: %d %q", rc, errb.String())
+	}
+
+	// A choice of another tier is no choice of this one.
+	errb.Reset()
+	if rc := selector.RunGuard(ctx, s, []string{"ops"}, env(map[string]string{"workspace": r + "/mine", "binds": "", selector.ChosenTier: "strict"}), &errb); rc != 1 || errb.String() != "chase: refusing a 'ops' session, this checkout is 'trusted'\n" {
+		t.Errorf("another tier chosen: %d %q", rc, errb.String())
+	}
+
+	// Choosing guards against the caller's mistakes no more, but against the
+	// session as ever: a checkout nested in another tier's is still refused.
+	errb.Reset()
+	if rc := selector.RunGuard(ctx, s, []string{"ops"}, env(map[string]string{"workspace": r + "/mine/vendored", "binds": "", selector.ChosenTier: "ops"}), &errb); rc != 1 || !strings.Contains(errb.String(), "is nested in a 'trusted' checkout") {
+		t.Errorf("a chosen tier of a nested checkout: %d %q", rc, errb.String())
 	}
 }
 

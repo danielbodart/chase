@@ -94,7 +94,7 @@ for each choice.
 | Command | Does |
 |---|---|
 | `claude`, `codex`, `deepsec` | Run the agent in the current directory's tier. |
-| `chase shell` | A login shell in that tier's sandbox, as an agent gets it. |
+| `chase shell [--tier TIER]` | A login shell in that tier's sandbox, as an agent gets it; with `--tier`, in TIER's whatever the checkout's, since whoever runs it already has more than any sandbox gives. The checkout's own tier is said beside it. |
 | `chase tier --dry-run DIR…` | Show each directory's tier and why. |
 | `chase docker [DIR]` | Show a checkout's project, its address and name, and its approved Docker ports. |
 | `chase record [--default allow\|ask\|refuse] [--base tier\|none] [--by-operation] AGENT` | Run the agent in its tier as a recording: what the tier would refuse or ask about is answered, by you or `--default`, and written down; at the end, a report and a proposal of the grant entries it needed, a route's requests by their exact paths or, with `--by-operation`, by the operations they matched. See [docs/record.md](docs/record.md). |

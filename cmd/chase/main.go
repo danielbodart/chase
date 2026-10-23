@@ -22,6 +22,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 
 	"github.com/danielbodart/chase/internal/apps/claude"
@@ -45,9 +46,9 @@ var version = "dev"
 
 const usage = `chase -- which sandbox a checkout gets, and which credential each app is given
 
-  chase shell [ARG...]
+  chase shell [--tier TIER] [ARG...]
         A shell where an agent would run in this checkout: in its tier's
-        sandbox, or on the host for a bare tier.
+        sandbox, or on the host for a bare tier; --tier, in TIER's instead.
 
   chase tier [DIR] | --if-gone DIR | --dry-run DIR...
         The tier a checkout is sorted into; --if-gone, the tier it would be
@@ -382,12 +383,22 @@ func runCheckout(ctx context.Context, cfgPath, command string, args []string) in
 
 // wrap runs an agent where the checkout it is run in belongs: on the host
 // for a bare tier, in the tier's sandbox otherwise, and in the fallback's
-// for anything unexpected. It never returns but to refuse.
+// for anything unexpected. `chase shell --tier TIER` runs it in TIER
+// instead, whatever the checkout's: the caller has all a sandbox could give
+// and more, so any tier is theirs to choose. It never returns but to refuse.
 func wrap(ctx context.Context, cfgPath, agent string, args []string) int {
 	cfg, s, err := selectorOf(cfgPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", agent, err)
 		return 1
+	}
+	chosen := ""
+	if agent == "shell" {
+		if chosen, args, err = tierFlag(args, s.Tiers()); err != nil {
+			s.Close()
+			fmt.Fprintf(os.Stderr, "chase shell: %v\n", err)
+			return 2
+		}
 	}
 	w := selector.Wrapper{Agent: agent, HostCommand: selector.ShellHostCommand()}
 	if agent != "shell" {
@@ -403,9 +414,19 @@ func wrap(ctx context.Context, cfgPath, agent string, args []string) int {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", agent, err)
 		return 1
 	}
-	tier := s.Tier(ctx, pwd)
+	tier := chosen
+	if tier == "" {
+		tier = s.Tier(ctx, pwd)
+	}
 	argv := s.For(tier, w, args)
-	env := os.Environ()
+	// Only this launch's choice: one inherited, from a shell a chosen bare
+	// tier started, would have the guard pass what it should catch.
+	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		return strings.HasPrefix(kv, selector.ChosenTier+"=")
+	})
+	if chosen != "" {
+		env = append(env, selector.ChosenTier+"="+chosen)
+	}
 	if t, bare := s.Bare(tier); bare && t.Trust != nil {
 		// A bare tier that trusts its checkouts trusts this one -- its root,
 		// as a sandbox's workspace is -- in the apps it says, as the person
@@ -434,6 +455,30 @@ func wrap(ctx context.Context, cfgPath, agent string, args []string) int {
 	err = syscall.Exec(prog, argv, env)
 	fmt.Fprintf(os.Stderr, "%s: %s: %v\n", agent, prog, err)
 	return 126
+}
+
+// tierFlag is `chase shell`'s leading --tier TIER (or --tier=TIER), one of
+// tiers, and the arguments after it, which are the shell's.
+func tierFlag(args, tiers []string) (string, []string, error) {
+	if len(args) == 0 {
+		return "", args, nil
+	}
+	var tier string
+	switch a := args[0]; {
+	case a == "--tier":
+		if len(args) < 2 {
+			return "", nil, fmt.Errorf("--tier needs a tier: %s", strings.Join(tiers, ", "))
+		}
+		tier, args = args[1], args[2:]
+	case strings.HasPrefix(a, "--tier="):
+		tier, args = strings.TrimPrefix(a, "--tier="), args[1:]
+	default:
+		return "", args, nil
+	}
+	if !slices.Contains(tiers, tier) {
+		return "", nil, fmt.Errorf("no tier '%s'; the tiers are %s", term.Clean(tier), strings.Join(tiers, ", "))
+	}
+	return tier, args, nil
 }
 
 // runHook is one of flong's hooks for a sandbox tier. flong runs each as a

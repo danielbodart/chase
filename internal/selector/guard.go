@@ -10,6 +10,11 @@ import (
 	"github.com/danielbodart/chase/internal/term"
 )
 
+// ChosenTier is the variable `chase shell --tier` sets for the launch it
+// starts: the tier the caller named, which the guard then takes as theirs
+// rather than refusing it as a disagreement about the checkout.
+const ChosenTier = "CHASE_TIER"
+
 // Refused is a guard's refusal: the session does not start, and Message says
 // why, as chase: refusing a '<tier>' session, ....
 type Refused struct{ Message string }
@@ -28,13 +33,19 @@ func (r *Refused) Error() string { return r.Message }
 // sorted it -- before a session is built around the wrong tier. What gates
 // a checkout's own changes to its session is chase.approver. Not the
 // fallback's: it is where anything the selector could not place goes, so it
-// takes any checkout. The one refusal after it is everyone's.
-func (s *Selector) Guard(ctx context.Context, tier, workspace, binds string, stderr io.Writer) error {
+// takes any checkout. Nor a tier the caller chose, with `chase shell --tier`:
+// that is no disagreement, and a sandbox is never more than its caller has,
+// so it is only said. The one refusal after it is everyone's.
+func (s *Selector) Guard(ctx context.Context, tier, workspace, binds string, chosen bool, stderr io.Writer) error {
 	if tier != s.cfg.Fallback {
 		// `$(chase tier "$workspace") || tier=unknown`: chase tier has no
 		// failure of its own left to fall back from.
 		now := s.Tier(ctx, workspace)
-		if now != tier {
+		switch {
+		case now == tier:
+		case chosen:
+			fmt.Fprintln(stderr, term.Clean(fmt.Sprintf("chase: a '%s' session, as chosen; this checkout is '%s'", tier, now)))
+		default:
 			return &Refused{fmt.Sprintf("chase: refusing a '%s' session, this checkout is '%s'", tier, now)}
 		}
 	}
@@ -79,7 +90,9 @@ func (s *Selector) Guard(ctx context.Context, tier, workspace, binds string, std
 // RunGuard is the guard flong runs for a sandbox tier, `chase guard TIER`,
 // with workspace and binds in the environment as flong sets them: 0, or a
 // refusal on stderr and 1. An unset workspace or binds stops it, as it
-// stopped the script under set -u. It closes s before it returns.
+// stopped the script under set -u. TIER is the caller's own choice when the
+// ChosenTier variable, which hooks inherit from the launch, names it. It
+// closes s before it returns.
 func RunGuard(ctx context.Context, s *Selector, args []string, env func(string) (string, bool), stderr io.Writer) int {
 	defer s.Close()
 	if len(args) != 1 {
@@ -92,11 +105,13 @@ func RunGuard(ctx context.Context, s *Selector, args []string, env func(string) 
 		return 1
 	}
 	binds, bok := env("binds")
+	chose, _ := env(ChosenTier)
+	chosen := chose == args[0]
 	var err error
 	if bok {
-		err = s.Guard(ctx, args[0], workspace, binds, stderr)
+		err = s.Guard(ctx, args[0], workspace, binds, chosen, stderr)
 	} else {
-		err = s.Guard(ctx, args[0], workspace, "", io.Discard)
+		err = s.Guard(ctx, args[0], workspace, "", chosen, io.Discard)
 		if err == nil {
 			term.Say(stderr, "guard: binds: unbound variable")
 			return 1

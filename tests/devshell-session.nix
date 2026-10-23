@@ -205,6 +205,7 @@ in
       own = lib.getExe nodes.machine.flong.chase-own.launcher;
       theirs = lib.getExe nodes.machine.flong.chase-theirs.launcher;
       others = lib.getExe nodes.machine.flong.chase-others.launcher;
+      chase = lib.getExe nodes.machine.chase.package;
     in
     ''
       import shlex
@@ -217,12 +218,12 @@ in
       def checkout(name, *files):
           machine.succeed(f"runuser -u alice -- ${mkCheckout} ${home}/{name} " + " ".join(files))
 
-      def launch(launcher, name, run="ran"):
+      def launch(launcher, name, run="ran", shell="shell"):
           """The session's report and what the launch said, or None for a refusal."""
           # The program chase shell's own bash is, not the report's, which
           # is whichever bash is first on its PATH; nor $BASH, which bash
           # finds on PATH too.
-          cmd = f"cd ${home}/{name} && {launcher} shell -c {shlex.quote('bash ${report} ' + run + ' \"$(readlink /proc/$$/exe)\"')} > /tmp/out 2> /tmp/err; echo $? > /tmp/rc"
+          cmd = f"cd ${home}/{name} && {launcher} {shell} -c {shlex.quote('bash ${report} ' + run + ' \"$(readlink /proc/$$/exe)\"')} > /tmp/out 2> /tmp/err; echo $? > /tmp/rc"
           machine.succeed(as_user(cmd), timeout=900)
           said = machine.succeed("cat /tmp/err")
           print(said)
@@ -361,5 +362,16 @@ in
           machine.succeed("rm -rf ${home}/gone")
           launch("${own}", "mine", "after")
           machine.fail("grep -l '\"workspace\":\"${home}/gone\"' ${home}/.local/state/chase/checkouts/*/devshell/state.json")
+
+      with subtest("chase shell --tier runs a checkout in the tier chosen, which a launcher of it alone is refused"):
+          s, said = launch("${theirs}", "mine", "unchosen")
+          assert s is None and "refusing a 'theirs' session, this checkout is 'own'" in said, said
+          s, said = launch("${chase}", "mine", "chosen", shell="shell --tier theirs")
+          assert s is not None, said
+          assert "a 'theirs' session, as chosen; this checkout is 'own'" in said, said
+          # theirs', with no mise: its shims are own's alone.
+          assert "${home}/.local/share/mise/shims" not in s["PATH"].split(":"), s
+          s, said = launch("${chase}", "mine", "nope", shell="shell --tier nope")
+          assert s is None and "no tier 'nope'; the tiers are others, own, theirs" in said, said
     '';
 }
