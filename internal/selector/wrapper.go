@@ -29,7 +29,7 @@ func (s *Selector) Bare(tier string) (Tier, bool) {
 	return t, ok && t.Bare
 }
 
-// Tiers is every tier's name, sorted: what `chase shell --tier` may name.
+// Tiers is every tier's name, sorted: what a wrapper's --tier may name.
 func (s *Selector) Tiers() []string {
 	return slices.Sorted(maps.Keys(s.cfg.Tiers))
 }

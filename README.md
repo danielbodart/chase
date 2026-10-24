@@ -93,7 +93,7 @@ for each choice.
 
 | Command | Does |
 |---|---|
-| `claude`, `codex`, `deepsec` | Run the agent in the current directory's tier. |
+| `claude`, `codex`, `deepsec` `[--tier TIER]` | Run the agent in the current directory's tier; with `--tier`, in TIER's, as `chase shell --tier` does -- `claude --tier host` in an ops checkout to work on the machine itself. |
 | `chase shell [--tier TIER]` | A login shell in that tier's sandbox, as an agent gets it; with `--tier`, in TIER's whatever the checkout's, since whoever runs it already has more than any sandbox gives. The checkout's own tier is said beside it. |
 | `chase tier --dry-run DIR…` | Show each directory's tier and why. |
 | `chase docker [DIR]` | Show a checkout's project, its address and name, and its approved Docker ports. |

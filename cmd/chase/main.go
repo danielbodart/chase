@@ -48,7 +48,8 @@ const usage = `chase -- which sandbox a checkout gets, and which credential each
 
   chase shell [--tier TIER] [ARG...]
         A shell where an agent would run in this checkout: in its tier's
-        sandbox, or on the host for a bare tier; --tier, in TIER's instead.
+        sandbox, or on the host for a bare tier; --tier, in TIER's instead,
+        as for claude, codex and deepsec.
 
   chase tier [DIR] | --if-gone DIR | --dry-run DIR...
         The tier a checkout is sorted into; --if-gone, the tier it would be
@@ -383,22 +384,25 @@ func runCheckout(ctx context.Context, cfgPath, command string, args []string) in
 
 // wrap runs an agent where the checkout it is run in belongs: on the host
 // for a bare tier, in the tier's sandbox otherwise, and in the fallback's
-// for anything unexpected. `chase shell --tier TIER` runs it in TIER
-// instead, whatever the checkout's: the caller has all a sandbox could give
-// and more, so any tier is theirs to choose. It never returns but to refuse.
+// for anything unexpected. --tier TIER runs it in TIER instead, whatever
+// the checkout's -- `claude --tier host` as much as `chase shell --tier
+// ops`: the caller has all a sandbox could give and more, so any tier is
+// theirs to choose. It never returns but to refuse.
 func wrap(ctx context.Context, cfgPath, agent string, args []string) int {
 	cfg, s, err := selectorOf(cfgPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", agent, err)
 		return 1
 	}
-	chosen := ""
-	if agent == "shell" {
-		if chosen, args, err = tierFlag(args, s.Tiers()); err != nil {
-			s.Close()
-			fmt.Fprintf(os.Stderr, "chase shell: %v\n", err)
-			return 2
+	chosen, args, err := tierFlag(args, s.Tiers(), agent == "shell")
+	if err != nil {
+		s.Close()
+		name := agent
+		if agent == "shell" {
+			name = "chase shell"
 		}
+		fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
+		return 2
 	}
 	w := selector.Wrapper{Agent: agent, HostCommand: selector.ShellHostCommand()}
 	if agent != "shell" {
@@ -457,28 +461,37 @@ func wrap(ctx context.Context, cfgPath, agent string, args []string) int {
 	return 126
 }
 
-// tierFlag is `chase shell`'s leading --tier TIER (or --tier=TIER), one of
-// tiers, and the arguments after it, which are the shell's.
-func tierFlag(args, tiers []string) (string, []string, error) {
-	if len(args) == 0 {
-		return "", args, nil
-	}
-	var tier string
-	switch a := args[0]; {
-	case a == "--tier":
-		if len(args) < 2 {
-			return "", nil, fmt.Errorf("--tier needs a tier: %s", strings.Join(tiers, ", "))
+// tierFlag is a wrapper's --tier TIER (or --tier=TIER), one of tiers, and
+// the arguments without it, which are the agent's or the shell's. For
+// `chase shell` it is only the first argument, since the rest are the
+// shell's own words. For an agent it is any argument before a `--`: what
+// starts the wrapper may put arguments of its own first -- home-manager's
+// `claude` is `claude --plugin-dir DIR "$@"` -- and no agent takes a
+// --tier of its own.
+func tierFlag(args, tiers []string, leading bool) (string, []string, error) {
+	for i, a := range args {
+		if a == "--" || (leading && i > 0) {
+			break
 		}
-		tier, args = args[1], args[2:]
-	case strings.HasPrefix(a, "--tier="):
-		tier, args = strings.TrimPrefix(a, "--tier="), args[1:]
-	default:
-		return "", args, nil
+		var tier string
+		rest := args[i+1:]
+		switch {
+		case a == "--tier":
+			if len(rest) == 0 {
+				return "", nil, fmt.Errorf("--tier needs a tier: %s", strings.Join(tiers, ", "))
+			}
+			tier, rest = rest[0], rest[1:]
+		case strings.HasPrefix(a, "--tier="):
+			tier = strings.TrimPrefix(a, "--tier=")
+		default:
+			continue
+		}
+		if !slices.Contains(tiers, tier) {
+			return "", nil, fmt.Errorf("no tier '%s'; the tiers are %s", term.Clean(tier), strings.Join(tiers, ", "))
+		}
+		return tier, append(slices.Clone(args[:i]), rest...), nil
 	}
-	if !slices.Contains(tiers, tier) {
-		return "", nil, fmt.Errorf("no tier '%s'; the tiers are %s", term.Clean(tier), strings.Join(tiers, ", "))
-	}
-	return tier, args, nil
+	return "", args, nil
 }
 
 // runHook is one of flong's hooks for a sandbox tier. flong runs each as a

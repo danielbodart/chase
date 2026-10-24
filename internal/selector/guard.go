@@ -10,9 +10,10 @@ import (
 	"github.com/danielbodart/chase/internal/term"
 )
 
-// ChosenTier is the variable `chase shell --tier` sets for the launch it
-// starts: the tier the caller named, which the guard then takes as theirs
-// rather than refusing it as a disagreement about the checkout.
+// ChosenTier is the variable a wrapper's --tier -- `chase shell --tier`,
+// `claude --tier` -- sets for the launch it starts: the tier the caller
+// named, which the guard then takes as theirs rather than refusing it as a
+// disagreement about the checkout.
 const ChosenTier = "CHASE_TIER"
 
 // Refused is a guard's refusal: the session does not start, and Message says
@@ -33,7 +34,7 @@ func (r *Refused) Error() string { return r.Message }
 // sorted it -- before a session is built around the wrong tier. What gates
 // a checkout's own changes to its session is chase.approver. Not the
 // fallback's: it is where anything the selector could not place goes, so it
-// takes any checkout. Nor a tier the caller chose, with `chase shell --tier`:
+// takes any checkout. Nor a tier the caller chose, with a wrapper's --tier:
 // that is no disagreement, and a sandbox is never more than its caller has,
 // so it is only said. The one refusal after it is everyone's.
 func (s *Selector) Guard(ctx context.Context, tier, workspace, binds string, chosen bool, stderr io.Writer) error {
