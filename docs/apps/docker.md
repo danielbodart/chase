@@ -4,7 +4,9 @@ The Docker CLI and Compose, against your rootless daemon at
 `/run/user/<uid>/docker.sock` (NixOS's `virtualisation.docker.rootless`).
 frisket admits only operations on the project's own containers, volumes and
 networks, and the images its grant names; no bind mounts, privileges or host
-namespaces. Nothing asks. See [../docker.md](../docker.md).
+namespaces. Nothing asks. A container's network is the daemon's, not the
+session's: it reaches the local network as the host does, whatever the
+tier's `lan` says. See [../docker.md](../docker.md).
 
 | `chase.apps.docker.…` | Default | |
 |---|---|---|

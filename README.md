@@ -144,6 +144,7 @@ the file's JSON Schema.
 | `match` | `[]` | Rules that put a checkout in this tier. |
 | `bare` | `false` | Run on the host, with no sandbox. Takes no other setting but app `trust`. |
 | `egress` | — | `direct`: its own network. `frisket`: frisket only. Required for a sandbox. |
+| `lan` | `frisket` | Where egress is `direct`, the host's local network: `frisket` refuses TCP to a private address but what the document's `lan` names, and rejects UDP to one; `direct` reaches it as the host does. Only a direct tier says `direct`. |
 | `allow` | `[]` | Names frisket resolves for it, beyond its apps' own. `"*"` for any. |
 | `forwardPorts` | `[]` | Ports published on the host, at the [project's address](#project-addresses). `"auto"`: whatever a session listens on. |
 | `seccomp` | `{}` | flong's syscall filter, `flong.seccomp`: a call by name in `syscalls`, systemd `@groups` in `allow` and `deny`. `{}` is `strict`. |

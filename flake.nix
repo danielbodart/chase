@@ -21,7 +21,7 @@
     };
 
     frisket = {
-      url = "github:danielbodart/frisket/v0.185.116";
+      url = "github:danielbodart/frisket/v0.186.117";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flong.follows = "flong";
       inputs.quoin.follows = "quoin";
@@ -88,7 +88,7 @@
         # grant's host keys as frisket does. The frisket-pin and quoin-pin
         # checks hold go.mod's frisket and quoin to the tags flake.lock pins,
         # and scripts/pin.sh works this out again when it moves them.
-        vendorHash = "sha256-7+mG6erCFUDV0pQioB+EX9tcuVENyJQ8YppU+7QHme4=";
+        vendorHash = "sha256-13JPnt2FsS6jiPcLKwwcijWTztiQqDE5a9Rjet2lsbg=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -485,6 +485,23 @@
               && lib.elem "/etc/chase/policies" config.services.frisket.policyRoots
               && config.chase.internal.config.grant.policies == "/etc/chase/policies")
               || throw "assertions: a bare tier was given a sandbox, or a sandbox was not";
+            # THE LOCAL NETWORK is closed to a direct tier unless it says
+            # otherwise: its private ranges steered to frisket, in the
+            # service set, and in its record launcher's `all`, which steers
+            # them anyway; `direct` only where egress is, never a frisket
+            # tier's nor a bare one's.
+            assert refused "lan direct in a frisket tier" { chase.tiers.strict.lan = "direct"; } "chase.tiers.strict.lan is `direct`, but the tier's egress is not direct";
+            assert refused "lan direct in a bare tier" { chase.tiers.host.lan = "direct"; } "chase.tiers.host.lan is `direct`, but the tier is bare";
+            assert
+              (let
+                f = (configWith { chase.tiers.trusted.record.enable = true; }).services.frisket.flong;
+                open = (configWith { chase.tiers.trusted.lan = "direct"; }).services.frisket.flong;
+              in
+              f.chase-trusted.steering == { lan = "frisket"; }
+              && f.chase-trusted-record.steering == f.chase-trusted.steering
+              && open.chase-trusted.steering == { lan = "direct"; }
+              && ! f.chase-strict.steering ? lan)
+              || throw "assertions: a direct tier's steering does not say its lan";
             # GIT SIGNING follows authenticated: trusted's sessions sign
             # through frisket's agent for the tier, strict's have none.
             assert refused "signing with no agent"

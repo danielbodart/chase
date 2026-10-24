@@ -30,7 +30,9 @@ let
 
   enabled = lib.filterAttrs (_: t: !t.bare && t.apps.nix.enable) cfg.tiers;
 
-  # A tier of one's own code, whose devShell fetches as the host does.
+  # A tier of one's own code, whose devShell fetches as the host does:
+  # whatever its `lan`, which steers a session, and the devShell is realised
+  # on the host before one starts.
   unfiltered = tier: tier.egress == "direct" && tier.allow == [ "*" ];
 in
 {

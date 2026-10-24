@@ -69,8 +69,10 @@ dialled by itself; and flong's fixed filters.
 Every connection goes through frisket while recording, whatever the tier's
 `egress`: the record launcher has no network of flong's, so a name off the
 allowlist, a port and a host on the local network are all seen, and each is
-answered as anything else is, by `--default` too. A tier with its own
-network loses, for the recording, what pasta gives it: ports forwarded to
+answered as anything else is, by `--default` too. A host on the local
+network is seen whatever the tier's `lan`, even where a session of its own
+would reach it directly, so a recording proposes the `frisket.lan` a tier
+that keeps it closed needs. A tier with its own network loses, for the recording, what pasta gives it: ports forwarded to
 the project's address, and UDP.
 
 Entries are exactly what was seen, never generalised. Edit the proposal to

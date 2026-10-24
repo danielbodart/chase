@@ -206,6 +206,23 @@ let
           `bare`.
         '';
       };
+      lan = mkOption {
+        type = types.enum [ "frisket" "direct" ];
+        default = "frisket";
+        description = ''
+          For a tier whose egress is `direct`, whether its sessions reach the
+          host's local network. `frisket`: TCP to a private address --
+          RFC 1918's, a ULA, link-local, CGNAT -- is steered to frisket,
+          which refuses it and logs it unless the policy document's `lan`
+          names it, by name and port, as a grant's `frisket.lan` can; UDP to
+          one is rejected. The internet is as `direct` gives it, and the SSH
+          and Docker routes still work. `direct`: the local network as the
+          host has it, for a tier that is trusted with it. Closed unless a
+          tier says so. A tier whose egress is `frisket` has its private
+          ranges refused already, and a bare tier sets none of a sandbox's
+          settings, so only a direct tier may say `direct`.
+        '';
+      };
       allow = mkOption {
         type = types.listOf types.str;
         default = [ ];
@@ -610,6 +627,12 @@ in
           message = "chase.tiers.${name} is a sandbox and sets no `egress`: say `direct` or `frisket`.";
         }
         {
+          assertion = tier.lan == "frisket" || (!tier.bare && tier.egress == "direct");
+          message = "chase.tiers.${name}.lan is `direct`, but " + (if tier.bare
+            then "the tier is bare, and sets none of a sandbox's settings: it runs on the host's network."
+            else "the tier's egress is not direct: frisket is its only way out, and the local network is reached only where its document's `lan` names it.");
+        }
+        {
           assertion = !tier.bare || !(tier.grants
             || tier.frisket != { } || tier.flong != { }
             || config.containers ? "chase-${name}"
@@ -727,11 +750,16 @@ in
       user = cfg.user;
       policies = lib.mapAttrs (_: tier: { }) sandboxes;
       policyRoots = [ "/etc/chase/policies" ];
-      flong = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" {
+      flong = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" ({
         policyFile = lib.mkDefault "/etc/chase/policies/${name}.json";
         policy = name;
         set = if tier.egress == "direct" then "service" else "all";
-      }) sandboxes;
+      } // lib.optionalAttrs (tier.egress == "direct") {
+        # What of the local network a session with its own reaches: by
+        # default nothing frisket's document does not name, its private
+        # ranges steered to frisket as the `all` set steers everything.
+        steering.lan = tier.lan;
+      })) sandboxes;
     };
 
     containers = lib.mapAttrs' (name: tier: lib.nameValuePair "chase-${name}" {

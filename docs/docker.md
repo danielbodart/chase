@@ -141,7 +141,8 @@ could still `docker run -v $HOME:/h` and walk out with everything flong and
 frisket keep from it. The filter is the control; rootless is what bounds its
 failure: a hole in it gives away the user, not root. Containers have the
 user's unfiltered egress, so Docker is only for tiers whose egress is
-already direct, by assertion.
+already direct, by assertion -- the local network included, which a
+direct tier's own sessions reach only where its `lan` is `direct`.
 
 **3. The spec is `api/swagger.yaml` from moby/moby, pinned by commit and
 hash.** Swagger 2.0, the Engine API's own definition, with an `operationId`

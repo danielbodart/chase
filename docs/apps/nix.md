@@ -27,9 +27,10 @@ In a tier for your own code -- `egress` `direct` and `allow` `[ "*" ]` --
 what is evaluated is the checkout itself, on the host, and the checkout is
 what a session writes; nix runs in a bubblewrap that shows it nothing of the
 host's but the store, the nix daemon and the checkout, and its fetches are
-the host's own, neither filtered nor logged. For the same reason a `chase
-record` launch's report never names what a devShell fetched: that was the
-host, not the session.
+the host's own, neither filtered nor logged -- the local network too,
+whatever the tier's `lan` keeps its sessions from. For the same reason a
+`chase record` launch's report never names what a devShell fetched: that
+was the host, not the session.
 
 In any other tier -- someone else's code -- it is realised with no network
 at all: what it needs substituted from the machine's binary caches, nothing

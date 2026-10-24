@@ -61,6 +61,9 @@
       ];
       egress = "direct";
       allow = [ "*" ];
+      # The internet, but not the machines on your own network, which only
+      # a grant's `frisket.lan` opens; `lan = "direct"` for a tier trusted
+      # with them.
       # strace and gdb, on your own code.
       seccomp.debug = true;
       # A checkout's own grant, once approved.

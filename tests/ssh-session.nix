@@ -9,12 +9,20 @@
 # The tier names a machine of its own too, the same sshd on another port
 # taking only a password, which frisket reads from a file of alice's and
 # the session never sees.
+#
+# The machine is on the local network, as a NAS or a printer is: beside its
+# routes it serves HTTP on a port no route names, which trusted's sessions,
+# whose `lan` is the default, cannot reach, though their egress is direct;
+# and which a tier that says `lan = "direct"` reaches as the host does.
 { self, home-manager }:
 { lib, hostPkgs, ... }:
 
 let
   pkgs = hostPkgs;
   ws = "/home/alice/proj";
+  opsWs = "/home/alice/ops";
+  # Nothing of the routes', so only the local network decides who reaches it.
+  lanPort = 8080;
   password = "open sesame 2222";
   passwordFile = "/home/alice/.ssh/box-password";
 
@@ -90,6 +98,13 @@ in
     # NixOS gives sshd's PAM a password check only when PasswordAuthentication
     # is on everywhere; here it is on for 2222 alone.
     security.pam.services.sshd.unixAuth = lib.mkForce true;
+    # A service on the local network, as a NAS's page is, and what it
+    # answers, which only a client that reached it can say.
+    systemd.services.lan-http = {
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig.ExecStart = "${pkgs.python3}/bin/python3 -m http.server ${toString lanPort} --directory ${pkgs.writeTextDir "index.html" "on-the-lan"}";
+    };
+    networking.firewall.allowedTCPPorts = [ lanPort ];
   };
 
   nodes.machine = { config, nodes, pkgs, ... }: {
@@ -131,6 +146,7 @@ in
       uid = 1000;
       gid = 100;
       fallback = "trusted";
+      order = [ "ops" ];
       approver = "${pkgs.writeShellScript "approver" ''
         ${pkgs.coreutils}/bin/cat | ${pkgs.util-linux}/bin/logger -t chase-test-approver
       ''}";
@@ -155,6 +171,13 @@ in
           interactive = "allow";
         };
       };
+      # Trusted with the local network, as a host's operations are.
+      tiers.ops = {
+        match = [{ paths = [ opsWs ]; }];
+        egress = "direct";
+        allow = [ "*" ];
+        lan = "direct";
+      };
     };
 
     # Ahead of chase's steps: where the test finds the session.
@@ -167,6 +190,7 @@ in
   testScript = { nodes, ... }:
     let
       launcher = lib.getExe nodes.machine.flong.chase-trusted.launcher;
+      ops = lib.getExe nodes.machine.flong.chase-ops.launcher;
       address = nodes.server.networking.primaryIPAddress;
     in
     ''
@@ -209,6 +233,7 @@ in
 
       start_all()
       server.wait_for_unit("sshd.service")
+      server.wait_for_open_port(${toString lanPort})
       machine.wait_for_unit("multi-user.target")
       machine.wait_for_unit("frisket.service")
       machine.wait_for_unit("user@1000.service")
@@ -299,6 +324,24 @@ in
           assert rc == 126 and "interactive" in out, (rc, out)
           journal = machine.succeed("journalctl -u frisket -o cat --no-pager")
           assert "phase" in journal and "hi-42" not in journal, journal
+
+      with subtest("the local network is closed to a direct tier by default: refused by frisket, and logged"):
+          # The routes above are at this same address, and still work: what
+          # no route names is what is steered and refused.
+          machine.succeed("nc -z -w 2 ${address} ${toString lanPort}")
+          rc, out = session("curl -sS -m 10 http://${address}:${toString lanPort}/")
+          assert rc != 0 and "on-the-lan" not in out, (rc, out)
+          journal = machine.succeed("journalctl -u frisket -o cat --no-pager")
+          lines = [json.loads(l) for l in journal.splitlines() if l.startswith("{")]
+          refused = [l for l in lines if l.get("msg") == "egress" and l.get("dst") == "${address}:${toString lanPort}"]
+          assert refused and all(l["decision"] == "refused" and l["reason"].startswith("structural") for l in refused), journal
+          rc, out = ssh("id -un")
+          assert rc == 0 and out.splitlines()[-1] == "ops", (rc, out)
+
+      with subtest("a tier whose lan is direct reaches it as the host does"):
+          machine.succeed("runuser -u alice -- sh -c 'mkdir -p ${opsWs} && cd ${opsWs} && git init -q -b main'")
+          out = machine.succeed(as_user("cd ${opsWs} && ${ops} shell -c 'curl -sS -m 10 http://${address}:${toString lanPort}/'"))
+          assert "on-the-lan" in out, out
 
       with subtest("the session's end ends its route"):
           machine.succeed("runuser -u alice -- touch ${ws}/release")
