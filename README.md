@@ -390,6 +390,26 @@ no list to keep, and a session with Docker has its own project's answered
 by the session's DNS. See frisket's
 [Project addresses](https://github.com/danielbodart/frisket#project-addresses).
 
+## Channels
+
+chase ships through one channel, the distro one: the Nix package and the
+NixOS module of this flake, built by nixpkgs (nixos-26.05, Go 1.27) and
+pushed to the `danielbodart` Cachix cache. There is no Docker image or
+tarball: chase is only of use wired into a host by its module, with flong's
+and frisket's. Every push to trunk that passes CI and changes what a
+consumer builds is released as a tag, `vMAJOR.COUNT.RUN`. Every dependency,
+flake inputs, flong's, frisket's and quoin's releases, mise's tools and the
+Go modules, moves once a week, Sunday 21:23 UTC, gated on everything CI runs
+and committed straight to trunk (`.github/workflows/update.yml`).
+
+```nix
+inputs.chase = {
+  url = "github:danielbodart/chase/vX.Y.Z"; # a release tag
+  inputs.nixpkgs.follows = "nixpkgs";
+};
+# imports = [ inputs.chase.nixosModules.default ];
+```
+
 ## Development
 
 mise pins the toolchain (`mise.toml`); `mise run check` is the dev loop and
