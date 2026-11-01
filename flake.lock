@@ -4,19 +4,20 @@
       "inputs": {
         "nixpkgs": [
           "nixpkgs"
-        ]
+        ],
+        "nixpkgs-unstable": "nixpkgs-unstable"
       },
       "locked": {
-        "lastModified": 1793568708,
-        "narHash": "sha256-MVgXJ3N0LeozJ3TR54dcGYqpH7vfOQ0VLJhCUtwlmSY=",
+        "lastModified": 1793571481,
+        "narHash": "sha256-7ln4B68daB4Tv0CumeH8cwj2WDIzU7fmyoeNN/D75Gs=",
         "owner": "danielbodart",
         "repo": "flong",
-        "rev": "3216022ce4bf1db194fdd036792f82b6e6f01491",
+        "rev": "fb026bc068910bb8d41dbebd06778bcda27be60a",
         "type": "github"
       },
       "original": {
         "owner": "danielbodart",
-        "ref": "v0.157.126",
+        "ref": "v0.160.127",
         "repo": "flong",
         "type": "github"
       }
@@ -34,16 +35,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1793571264,
-        "narHash": "sha256-NmilVndn758GZG4nlqz4QxBjPq9YcwvS/1B9T4u1Rpk=",
+        "lastModified": 1793572965,
+        "narHash": "sha256-dHTbQ0q6Y79f5YGORLVZv0ztx9bUP8w2y7DLK/YDIpQ=",
         "owner": "danielbodart",
         "repo": "frisket",
-        "rev": "c6ee00156737ff1ac847b7b3e8be38a8b912880c",
+        "rev": "052abdd03d00d804d911f6e3d70e61483fddaeea",
         "type": "github"
       },
       "original": {
         "owner": "danielbodart",
-        "ref": "v0.192.121",
+        "ref": "v0.195.123",
         "repo": "frisket",
         "type": "github"
       }
@@ -85,6 +86,22 @@
         "type": "github"
       }
     },
+    "nixpkgs-unstable": {
+      "locked": {
+        "lastModified": 1793341285,
+        "narHash": "sha256-Y1CiZ4SoBUjLQyQM/pY+rS2dXD3CHLPstF0lmOc73D4=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "1c89083e451e891152365b799595cf7790a43325",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "quoin": {
       "inputs": {
         "nixpkgs": [
@@ -92,16 +109,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1793570900,
-        "narHash": "sha256-a39vsP+WBz4/dCg1g56Vxk4lo4hEzQGpa8u+fAvSeAc=",
+        "lastModified": 1793571852,
+        "narHash": "sha256-uvHhH5wgt4/KalJX0czft6VHAiYi5lVym8m/aGY8UHE=",
         "owner": "danielbodart",
         "repo": "quoin",
-        "rev": "27be750a6066930ddb0b8e51aace552a8972053f",
+        "rev": "0167b1d1791c9af06558f703ea3152b96b6de2f3",
         "type": "github"
       },
       "original": {
         "owner": "danielbodart",
-        "ref": "v0.91.21",
+        "ref": "v0.93.23",
         "repo": "quoin",
         "type": "github"
       }

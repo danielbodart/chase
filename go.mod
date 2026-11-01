@@ -6,14 +6,14 @@ module github.com/danielbodart/chase
 go 1.26.0
 
 require (
-	github.com/danielbodart/frisket v0.192.121
-	github.com/danielbodart/quoin v0.91.21
+	github.com/danielbodart/frisket v0.195.123
+	github.com/danielbodart/quoin v0.93.23
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
-	github.com/vektah/gqlparser/v2 v2.5.58
-	go.yaml.in/yaml/v3 v3.0.5
-	golang.org/x/crypto v0.57.0
-	golang.org/x/net v0.59.0
-	golang.org/x/sys v0.48.0
-	google.golang.org/protobuf v1.36.11
+	github.com/vektah/gqlparser/v2 v2.5.64
+	go.yaml.in/yaml/v3 v3.0.6
+	golang.org/x/crypto v0.58.0
+	golang.org/x/net v0.62.0
+	golang.org/x/sys v0.49.0
+	google.golang.org/protobuf v1.36.12
 	pgregory.net/rapid v1.3.0
 )

@@ -20,12 +20,12 @@
     # one flong, in the lock. Each is pinned to a release tag, a commit its
     # CI passed, which scripts/pin.sh moves.
     flong = {
-      url = "github:danielbodart/flong/v0.157.126";
+      url = "github:danielbodart/flong/v0.160.127";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
     frisket = {
-      url = "github:danielbodart/frisket/v0.192.121";
+      url = "github:danielbodart/frisket/v0.195.123";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flong.follows = "flong";
       inputs.quoin.follows = "quoin";
@@ -40,7 +40,7 @@
     # the host's, see ./module.nix); the checks and the VM tests do. frisket
     # follows this one, so the lock holds one quoin.
     quoin = {
-      url = "github:danielbodart/quoin/v0.91.21";
+      url = "github:danielbodart/quoin/v0.93.23";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -101,7 +101,7 @@
         # grant's host keys as frisket does. The frisket-pin and quoin-pin
         # checks hold go.mod's frisket and quoin to the tags flake.lock pins,
         # and scripts/pin.sh works this out again when it moves them.
-        vendorHash = "sha256-VnyS0KMApmoQoRuQEW8k5tIQyxfHSDu0K7P6+9VJevg=";
+        vendorHash = "sha256-3qhvMJrwSiCxNtHUYRHKLypBENVclGswnu+VnIIl8Ao=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
