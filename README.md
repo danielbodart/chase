@@ -392,7 +392,12 @@ by the session's DNS. See frisket's
 
 ## Development
 
+mise pins the toolchain (`mise.toml`); `mise run check` is the dev loop and
+CI's fast job, the flake's checks the rest.
+
 ```sh
+mise run check       # gofmt, go vet, go test ./...
+mise run build       # chase and chase-generate, into bin/
 nix flake check
 ```
 
