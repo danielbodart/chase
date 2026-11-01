@@ -392,15 +392,20 @@ by the session's DNS. See frisket's
 
 ## Channels
 
-chase ships through one channel, the distro one: the Nix package and the
-NixOS module of this flake, built by nixpkgs (nixos-26.05, Go 1.27) and
-pushed to the `danielbodart` Cachix cache. There is no Docker image or
-tarball: chase is only of use wired into a host by its module, with flong's
-and frisket's. Every push to trunk that passes CI and changes what a
-consumer builds is released as a tag, `vMAJOR.COUNT.RUN`. Every dependency,
-flake inputs, flong's, frisket's and quoin's releases, mise's tools and the
-Go modules, moves once a week, Sunday 21:23 UTC, gated on everything CI runs
-and committed straight to trunk (`.github/workflows/update.yml`).
+- **Nix**: a flake input (with `inputs.nixpkgs.follows = "nixpkgs"`) at a
+  release tag, `vMAJOR.COUNT.RUN`: package `chase` (default), built by
+  nixpkgs (nixos-26.05, Go 1.27) and in the `danielbodart` Cachix cache, and
+  `nixosModules.default`, which brings flong's and frisket's modules with it.
+- Not shipped: Docker — chase is only of use wired into a host by its
+  module, with flong's and frisket's.
+- Not shipped: Tarball + systemd — likewise; the units are the module's.
+
+Updated weekly (Sunday 21:23 UTC): the flake's inputs, flong's, frisket's
+and quoin's releases, mise's tools (by patch) and the Go modules
+(`.github/workflows/update.yml`), committed to trunk only once everything CI
+runs passes. A release is cut when the Go code, the flake and its module's
+Nix files or `VERSION` changed (`RELEASE_PATHS` in `mise.toml`): the tag is
+what consumers pin.
 
 ```nix
 inputs.chase = {
@@ -416,8 +421,8 @@ mise pins the toolchain (`mise.toml`); `mise run check` is the dev loop and
 CI's fast job, the flake's checks the rest.
 
 ```sh
-mise run check       # gofmt, go vet, go test ./...
-mise run build       # chase and chase-generate, into bin/
+mise run check       # gofmt, go vet, go test ./..., shellcheck
+mise run build       # nix build of chase's package, as a host installs it
 nix flake check
 ```
 
