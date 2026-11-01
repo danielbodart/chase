@@ -2,7 +2,10 @@
   description = "Agent policy: which sandbox a checkout gets, and which credential each app is given";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # nixos-26.05, the release nix-config builds every host from, so what
+    # this flake builds and pushes to the cache is the derivation a host
+    # builds.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
     # flong runs the sessions, frisket is their network and holds their
     # credentials. Both are REAL inputs, not test-only: chase's module imports
@@ -14,14 +17,15 @@
     # evaluated against whichever nixpkgs the consumer brings. frisket's is a
     # static Go binary built from source, so there is no glibc to relink
     # against. Following costs nothing either way and keeps one nixpkgs, and
-    # one flong, in the lock.
+    # one flong, in the lock. Each is pinned to a release tag, a commit its
+    # CI passed, which scripts/pin.sh moves.
     flong = {
-      url = "github:danielbodart/flong";
+      url = "github:danielbodart/flong/v0.157.126";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
     frisket = {
-      url = "github:danielbodart/frisket/v0.186.117";
+      url = "github:danielbodart/frisket/v0.192.121";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flong.follows = "flong";
       inputs.quoin.follows = "quoin";
@@ -36,7 +40,7 @@
     # the host's, see ./module.nix); the checks and the VM tests do. frisket
     # follows this one, so the lock holds one quoin.
     quoin = {
-      url = "github:danielbodart/quoin/v0.85.17";
+      url = "github:danielbodart/quoin/v0.91.21";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -45,9 +49,10 @@
     # PATH, and Claude Code's settings are the user's -- so those options have
     # to exist, but they are the CONSUMER's to provide: a consumer already
     # running home-manager as a NixOS module has them, and chase importing a
-    # second copy would fight the one they have.
+    # second copy would fight the one they have. Its release branch for
+    # nixos-26.05, as home-manager pairs them.
     home-manager = {
-      url = "github:nix-community/home-manager";
+      url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -57,14 +62,22 @@
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
 
-      # ./VERSION is the major version alone. The package is named by it;
-      # `chase-generate version` derives what CI publishes.
-      version = nixpkgs.lib.fileContents ./VERSION;
+      # nixpkgs' name for a build from a commit rather than a release:
+      # 0-unstable-YYYY-MM-DD, the date of the commit. A release is a tag
+      # named by `chase-generate version`, which needs the repository to
+      # count, and a build from a store path has none.
+      version =
+        let d = self.lastModifiedDate or "19700101"; in
+        "0-unstable-${builtins.substring 0 4 d}-${builtins.substring 4 2 d}-${builtins.substring 6 2 d}";
+
+      # Go's major.minor, the one mise.toml pins: both channels compile with
+      # the same language version.
+      go = pkgs: pkgs.go_1_27;
 
       # THE BINARY. Everything the module runs rather than evaluates: every
       # hook flong is given and every unit systemd is. Only the Go sources
       # are its source, so a change to a doc or a check does not rebuild it.
-      mkChase = pkgs: pkgs.buildGoModule {
+      mkChase = pkgs: (pkgs.buildGoModule.override { go = go pkgs; }) {
         pname = "chase";
         inherit version;
         src = nixpkgs.lib.fileset.toSource {
@@ -88,7 +101,7 @@
         # grant's host keys as frisket does. The frisket-pin and quoin-pin
         # checks hold go.mod's frisket and quoin to the tags flake.lock pins,
         # and scripts/pin.sh works this out again when it moves them.
-        vendorHash = "sha256-13JPnt2FsS6jiPcLKwwcijWTztiQqDE5a9Rjet2lsbg=";
+        vendorHash = "sha256-VnyS0KMApmoQoRuQEW8k5tIQyxfHSDu0K7P6+9VJevg=";
 
         # A static binary, as frisket's is: cgo would bring glibc's NSS, which
         # resolves names by whatever the host's nsswitch.conf says.
@@ -310,7 +323,7 @@
 
           # Formatting as a gate rather than a habit, as frisket has it.
           gofmt = pkgs.runCommand "gofmt"
-            { nativeBuildInputs = [ pkgs.go ]; }
+            { nativeBuildInputs = [ (go pkgs) ]; }
             ''
               cd ${self.packages.${system}.chase.src}
               unformatted=$(gofmt -l .)
@@ -319,6 +332,15 @@
                 echo "$unformatted" >&2
                 exit 1
               fi
+              touch $out
+            '';
+
+          # pin.sh and vendor-hash.sh decide what the weekly update commits,
+          # so they are gated as the code is.
+          shellcheck = pkgs.runCommand "shellcheck"
+            { nativeBuildInputs = [ pkgs.shellcheck ]; }
+            ''
+              shellcheck ${./scripts/pin.sh} ${./scripts/vendor-hash.sh}
               touch $out
             '';
 
@@ -1348,7 +1370,7 @@
         let pkgs = nixpkgs.legacyPackages.${system}; in
         {
           default = pkgs.mkShell {
-            packages = [ pkgs.go pkgs.gopls pkgs.git pkgs.protobuf (nixpkgs.lib.getBin pkgs.sqlite) frisket.packages.${system}.default self.packages.${system}.chase-generate ];
+            packages = [ (go pkgs) pkgs.gopls pkgs.git pkgs.protobuf (nixpkgs.lib.getBin pkgs.sqlite) frisket.packages.${system}.default self.packages.${system}.chase-generate ];
             CHASE_REQUIRE_FRISKET = "1";
             # The setting the package builds with, so a `go build` here gives
             # the binary the flake does.

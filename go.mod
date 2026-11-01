@@ -1,12 +1,13 @@
 module github.com/danielbodart/chase
 
-// frisket's floor, for the same reason: both nixpkgs branches in play ship
-// 1.26, and a patch release of it satisfies 1.26.0.
+// frisket's floor, for the same reason: chase builds with 1.27 (mise.toml,
+// and go_1_27 in flake.nix), but nothing here needs more than 1.26, and a
+// patch release of it satisfies 1.26.0.
 go 1.26.0
 
 require (
-	github.com/danielbodart/frisket v0.186.117
-	github.com/danielbodart/quoin v0.85.17
+	github.com/danielbodart/frisket v0.192.121
+	github.com/danielbodart/quoin v0.91.21
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
 	github.com/vektah/gqlparser/v2 v2.5.58
 	go.yaml.in/yaml/v3 v3.0.5
