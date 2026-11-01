@@ -409,7 +409,6 @@ in
       import json
       import secrets
       import shlex
-      from datetime import timedelta
 
       ${builtins.readFile ./vm-read.py}
       def as_user(script):
@@ -469,7 +468,7 @@ in
 
       with subtest("the signed chase.json launches unasked, and the launch decrypts, mints and starts the renewer"):
           machine.succeed(as_user(f"cd /home/alice/proj && ${launcher} shell -c {shlex.quote('bash ${session}')}") + " >/tmp/session.out 2>&1 &")
-          machine.wait_until_succeeds("test -e /home/alice/proj/out/done", timeout=timedelta(minutes=5))
+          machine.wait_until_succeeds("test -e /home/alice/proj/out/done", timeout=300)
           name = machine.succeed("cat /tmp/last-session").strip()
           leader = machine.succeed("cat /tmp/last-leader").strip()
           run = f"/run/user/1000/chase/{name}"
@@ -572,7 +571,7 @@ in
 
       with subtest("the session's end stops the renewer and removes the secret"):
           machine.succeed("touch /home/alice/proj/release")
-          machine.wait_until_succeeds(f"test ! -e /run/user/1000/flong/sessions/{name}", timeout=timedelta(minutes=1))
+          machine.wait_until_succeeds(f"test ! -e /run/user/1000/flong/sessions/{name}", timeout=60)
           machine.wait_until_succeeds(f"test ! -e {run}")
           assert user_unit("is-active", f"chase-gcloud-renew@{name}.service") != "active"
           machine.succeed(f"test ! -e /run/user/1000/chase/.grant/{name}.json")

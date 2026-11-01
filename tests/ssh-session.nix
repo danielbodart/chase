@@ -196,7 +196,6 @@ in
     ''
       import json
       import shlex
-      from datetime import timedelta
 
       ${builtins.readFile ./vm-read.py}
       def as_user(script):
@@ -246,7 +245,7 @@ in
           host_key = machine.succeed("cat ${sshKeys}/host.pub").strip()
           machine.succeed(f"runuser -l alice -c {shlex.quote(f'${mkProject} ${address} {shlex.quote(host_key)}')}")
           machine.succeed(as_user("cd ${ws} && ${launcher} shell -c 'bash ${runner}'") + " >/tmp/session.out 2>&1 &")
-          machine.wait_until_succeeds("test -e ${ws}/cmd/ready", timeout=timedelta(minutes=5))
+          machine.wait_until_succeeds("test -e ${ws}/cmd/ready", timeout=300)
           print(machine.succeed("cat /tmp/session.out"))
           name = machine.succeed("cat /tmp/last-session").strip()
           approvals = machine.succeed("journalctl -t chase-test-approver -o cat --no-pager")
@@ -345,6 +344,6 @@ in
 
       with subtest("the session's end ends its route"):
           machine.succeed("runuser -u alice -- touch ${ws}/release")
-          machine.wait_until_succeeds(f"test ! -e /run/user/1000/flong/sessions/{name}", timeout=timedelta(minutes=1))
+          machine.wait_until_succeeds(f"test ! -e /run/user/1000/flong/sessions/{name}", timeout=60)
     '';
 }

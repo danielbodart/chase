@@ -8,6 +8,9 @@ go = "1.27.3"
 # sqlite3, for the codex tests that repoint a thread index, as the flake's
 # checks have it.
 sqlite = "3.54.1"
+# GNU's, which the tests hold sha256sum's and realpath -e's answers to, as
+# the flake's checks have them: a runner's may be uutils', which differs.
+"conda:coreutils" = "9.12"
 
 [env]
 # Static, as the flake builds it.

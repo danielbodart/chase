@@ -178,7 +178,6 @@ in
     ''
       import json
       import shlex
-      from datetime import timedelta
 
       ${builtins.readFile ./vm-read.py}
       def as_user(script):
@@ -257,7 +256,7 @@ in
       with subtest("shop's signed chase.json launches unasked, as its origin names it, and routes its Docker"):
           machine.succeed("runuser -l alice -c ${mkProject}")
           machine.succeed(as_user("cd ${ws} && ${launcher} shell -c 'bash ${runner}'") + " >/tmp/session.out 2>&1 &")
-          machine.wait_until_succeeds("test -e ${ws}/cmd/ready", timeout=timedelta(minutes=5))
+          machine.wait_until_succeeds("test -e ${ws}/cmd/ready", timeout=300)
           print(machine.succeed("cat /tmp/session.out"))
           name = machine.succeed("cat /tmp/last-session").strip()
           run = f"/run/user/1000/chase/{name}"
@@ -407,7 +406,7 @@ in
               # case's.
               def logged(_):
                   return any(m.get("operation") in ops for m in requests()[before:] if not flow_line(m))
-              retry(logged, timeout=timedelta(seconds=30))
+              retry(logged, timeout_seconds=30)
               new = requests()[before:]
               refused = [m for m in new if not flow_line(m)]
               assert refused, (what, new)
@@ -485,6 +484,6 @@ in
 
       with subtest("the session ends"):
           machine.succeed("touch ${ws}/release")
-          machine.wait_until_succeeds(f"test ! -e /run/user/1000/flong/sessions/{name}", timeout=timedelta(minutes=1))
+          machine.wait_until_succeeds(f"test ! -e /run/user/1000/flong/sessions/{name}", timeout=60)
     '';
 }
