@@ -8,16 +8,16 @@
         "nixpkgs-unstable": "nixpkgs-unstable"
       },
       "locked": {
-        "lastModified": 1793571481,
-        "narHash": "sha256-7ln4B68daB4Tv0CumeH8cwj2WDIzU7fmyoeNN/D75Gs=",
+        "lastModified": 1793576437,
+        "narHash": "sha256-hMmF1lC2BqnNq/x5G/pJaXLmFhx58M54P/q6n6AodHQ=",
         "owner": "danielbodart",
         "repo": "flong",
-        "rev": "fb026bc068910bb8d41dbebd06778bcda27be60a",
+        "rev": "57854975c1172a9e1b95dda8495e9b90005d094e",
         "type": "github"
       },
       "original": {
         "owner": "danielbodart",
-        "ref": "v0.160.127",
+        "ref": "v0.162.128",
         "repo": "flong",
         "type": "github"
       }
@@ -35,16 +35,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1793572965,
-        "narHash": "sha256-dHTbQ0q6Y79f5YGORLVZv0ztx9bUP8w2y7DLK/YDIpQ=",
+        "lastModified": 1793580233,
+        "narHash": "sha256-r+DUl+UY5fzeoZzWeN6RG92iU6fL4F4TF8NKGDkv9Ow=",
         "owner": "danielbodart",
         "repo": "frisket",
-        "rev": "052abdd03d00d804d911f6e3d70e61483fddaeea",
+        "rev": "2d553efecf372d2102b6d275b9702c83d4f13982",
         "type": "github"
       },
       "original": {
         "owner": "danielbodart",
-        "ref": "v0.195.123",
+        "ref": "v0.199.126",
         "repo": "frisket",
         "type": "github"
       }
@@ -109,16 +109,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1793571852,
-        "narHash": "sha256-uvHhH5wgt4/KalJX0czft6VHAiYi5lVym8m/aGY8UHE=",
+        "lastModified": 1793579231,
+        "narHash": "sha256-cDMypk2/u7KoJVemFqLJGNBybkccNxPjGZYAL+A0se0=",
         "owner": "danielbodart",
         "repo": "quoin",
-        "rev": "0167b1d1791c9af06558f703ea3152b96b6de2f3",
+        "rev": "6af125ccbff8852d301b8cb30c2d10d47421858a",
         "type": "github"
       },
       "original": {
         "owner": "danielbodart",
-        "ref": "v0.93.23",
+        "ref": "v0.100.28",
         "repo": "quoin",
         "type": "github"
       }
