@@ -247,9 +247,11 @@ func realpath(t *testing.T, p string) (string, bool) {
 	return strings.TrimSuffix(string(out), "\n"), true
 }
 
+// GNU's: a runner's may be uutils', which answers a file's /.. otherwise.
+// The flake's checks have GNU's, so this is held there.
 func TestRealpathIsRealpathE(t *testing.T) {
-	if _, err := exec.LookPath("realpath"); err != nil {
-		t.Fatal("no realpath on PATH")
+	if out, err := exec.Command("realpath", "--version").Output(); err != nil || !strings.Contains(string(out), "GNU coreutils") {
+		t.Skip("no GNU realpath on PATH")
 	}
 	d := gitsafetest.Dir(t)
 	for _, p := range []string{"real/sub", "real/sub/deep"} {

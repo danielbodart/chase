@@ -28,10 +28,12 @@ func TestBumpAtEmptyCommitsIsAtHead(t *testing.T) {
 
 // check is `sha256sum --quiet --strict -c -` of source.json's pins: what
 // it prints on stdout and stderr, and whether it passes, are sha256sum's,
-// malformed pins included. Held to the sha256sum on PATH where there is
-// one (coreutils 9.11 in nix develop and in the build), and to what that
-// printed where there is not.
+// malformed pins included. Held to the sha256sum on PATH where it is GNU's
+// (as in nix develop and in the build), and to what that printed where it
+// is not: a runner's may be uutils', which words a malformed list otherwise.
 func TestCheckIsSha256sum(t *testing.T) {
+	out, err := exec.Command("sha256sum", "--version").Output()
+	gnu := err == nil && strings.Contains(string(out), "GNU coreutils")
 	dir := t.TempDir()
 	put(t, filepath.Join(dir, "a"), []byte("hi\n"))
 	put(t, filepath.Join(dir, "b"), []byte("x\n"))
@@ -70,7 +72,7 @@ func TestCheckIsSha256sum(t *testing.T) {
 		if ok != (c.stdout == "" && c.stderr == "") || stdout.String() != c.stdout || stderr.String() != c.stderr {
 			t.Errorf("%s: %v %q %q, not %q %q", c.name, ok, stdout.String(), stderr.String(), c.stdout, c.stderr)
 		}
-		if _, err := exec.LookPath("sha256sum"); err != nil {
+		if !gnu {
 			continue
 		}
 		cmd := exec.Command("sha256sum", "--quiet", "--strict", "-c", "-")

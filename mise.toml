@@ -9,12 +9,6 @@ shellcheck = "0.11.0"
 # sqlite3, for the codex tests that repoint a thread index, as the flake's
 # checks have it.
 sqlite = "3.54.1"
-# GNU's, which the tests hold sha256sum's and realpath -e's answers to, as
-# the flake's checks have them: a runner's may be uutils', which differs.
-# Its version is only MAJOR.MINOR, so the weekly update, which moves a tool
-# by patch within its pinned major.minor, keeps it at 9.12 (or a 9.12.x);
-# 9.13 moves by hand, with the coreutils nixpkgs has.
-"conda:coreutils" = "9.12"
 
 [env]
 # Static, as the flake builds it.

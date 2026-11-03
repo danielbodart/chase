@@ -92,7 +92,7 @@ jobs:
           done
 
           # 2. mise's tools, each to the latest patch of its pinned
-          # major.minor (go 1.27.3 asks for 1.27, coreutils 9.12 for 9.12).
+          # major.minor (go 1.27.3 asks for 1.27).
           while read -r tool was; do
             now=$(mise latest "$tool@$(cut -d. -f1-2 <<<"$was")")
             if [ -n "$now" ] && [ "$now" != "$was" ]; then
