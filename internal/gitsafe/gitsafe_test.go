@@ -238,20 +238,12 @@ func TestGitIsNeverLookedUpOnPath(t *testing.T) {
 	}
 }
 
-// realpath is coreutils' own, to hold Realpath to.
-func realpath(t *testing.T, p string) (string, bool) {
-	out, err := exec.Command("realpath", "-e", "--", p).Output()
-	if err != nil {
-		return "", false
-	}
-	return strings.TrimSuffix(string(out), "\n"), true
-}
-
-// GNU's: a runner's may be uutils', which answers a file's /.. otherwise.
-// The flake's checks have GNU's, so this is held there.
+// Held to what GNU coreutils' `realpath -e` answers for each, recorded:
+// "" where it fails.
 func TestRealpathIsRealpathE(t *testing.T) {
-	if out, err := exec.Command("realpath", "--version").Output(); err != nil || !strings.Contains(string(out), "GNU coreutils") {
-		t.Skip("no GNU realpath on PATH")
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
 	}
 	d := gitsafetest.Dir(t)
 	for _, p := range []string{"real/sub", "real/sub/deep"} {
@@ -263,27 +255,33 @@ func TestRealpathIsRealpathE(t *testing.T) {
 	os.Symlink("nowhere", filepath.Join(d, "dangling"))
 	os.Symlink("loop", filepath.Join(d, "loop"))
 	os.Symlink("../file", filepath.Join(d, "real/sub/up"))
-	for _, p := range []string{
-		"", ".", "/", "//", d, d + "/", d + "/real/sub/..", d + "/abs/..", d + "/rel/..", d + "/abs/../file",
-		d + "/abs/deep/../..", d + "/real/file", d + "/real/file/", d + "/real/file/..", d + "/real/file/.",
-		d + "/dangling", d + "/loop", d + "/missing", d + "/missing/..", d + "/real/sub/up", d + "/real/sub/up/",
-		d + "//real///sub/./deep", "/..", "/../" + d[1:],
+	for _, c := range []struct{ p, want string }{
+		{"", ""}, {".", cwd}, {"/", "/"}, {"//", "/"}, {d, d}, {d + "/", d},
+		{d + "/real/sub/..", d + "/real"}, {d + "/abs/..", d + "/real"}, {d + "/rel/..", d + "/real"},
+		{d + "/abs/../file", d + "/real/file"}, {d + "/abs/deep/../..", d + "/real"},
+		{d + "/real/file", d + "/real/file"}, {d + "/real/file/", ""}, {d + "/real/file/..", ""},
+		{d + "/real/file/.", ""}, {d + "/dangling", ""}, {d + "/loop", ""}, {d + "/missing", ""},
+		{d + "/missing/..", ""}, {d + "/real/sub/up", d + "/real/file"}, {d + "/real/sub/up/", ""},
+		{d + "//real///sub/./deep", d + "/real/sub/deep"}, {"/..", "/"}, {"/../" + d[1:], d},
 	} {
-		got, gotOK := gitsafe.Realpath(p)
-		want, wantOK := realpath(t, p)
-		if gotOK != nil {
+		got, err := gitsafe.Realpath(c.p)
+		if err != nil {
 			got = ""
 		}
-		if (gotOK == nil) != wantOK || got != want {
-			t.Errorf("Realpath(%q) = %q, %v; realpath -e gives %q, %v", p, got, gotOK, want, wantOK)
+		if got != c.want {
+			t.Errorf("Realpath(%q) = %q, %v; realpath -e gives %q", c.p, got, err, c.want)
 		}
 	}
 	t.Chdir(filepath.Join(d, "abs"))
-	for _, p := range []string{"..", "deep/..", "../file", "."} {
-		got, err := gitsafe.Realpath(p)
-		want, wantOK := realpath(t, p)
-		if (err == nil) != wantOK || got != want {
-			t.Errorf("in abs, Realpath(%q) = %q, %v; realpath -e gives %q", p, got, err, want)
+	for _, c := range []struct{ p, want string }{
+		{"..", d + "/real"}, {"deep/..", d + "/real/sub"}, {"../file", d + "/real/file"}, {".", d + "/real/sub"},
+	} {
+		got, err := gitsafe.Realpath(c.p)
+		if err != nil {
+			got = ""
+		}
+		if got != c.want {
+			t.Errorf("in abs, Realpath(%q) = %q, %v; realpath -e gives %q", c.p, got, err, c.want)
 		}
 	}
 }

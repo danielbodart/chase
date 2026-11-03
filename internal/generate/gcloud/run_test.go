@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -28,12 +27,9 @@ func TestBumpAtEmptyCommitsIsAtHead(t *testing.T) {
 
 // check is `sha256sum --quiet --strict -c -` of source.json's pins: what
 // it prints on stdout and stderr, and whether it passes, are sha256sum's,
-// malformed pins included. Held to the sha256sum on PATH where it is GNU's
-// (as in nix develop and in the build), and to what that printed where it
-// is not: a runner's may be uutils', which words a malformed list otherwise.
+// malformed pins included. Held to what GNU coreutils' sha256sum printed
+// for each, recorded.
 func TestCheckIsSha256sum(t *testing.T) {
-	out, err := exec.Command("sha256sum", "--version").Output()
-	gnu := err == nil && strings.Contains(string(out), "GNU coreutils")
 	dir := t.TempDir()
 	put(t, filepath.Join(dir, "a"), []byte("hi\n"))
 	put(t, filepath.Join(dir, "b"), []byte("x\n"))
@@ -62,30 +58,13 @@ func TestCheckIsSha256sum(t *testing.T) {
 				"sha256sum: WARNING: 2 lines are improperly formatted\nsha256sum: WARNING: 2 listed files could not be read\n"},
 	} {
 		pins := newObject()
-		var in strings.Builder
 		for _, p := range c.pins {
 			pins.set(p.name, p.hash)
-			in.WriteString(p.hash + "  " + p.name + "\n")
 		}
 		var stdout, stderr bytes.Buffer
 		ok := (&runner{stdout: &stdout, stderr: &stderr}).check(dir, pins)
 		if ok != (c.stdout == "" && c.stderr == "") || stdout.String() != c.stdout || stderr.String() != c.stderr {
 			t.Errorf("%s: %v %q %q, not %q %q", c.name, ok, stdout.String(), stderr.String(), c.stdout, c.stderr)
-		}
-		if !gnu {
-			continue
-		}
-		cmd := exec.Command("sha256sum", "--quiet", "--strict", "-c", "-")
-		cmd.Dir = dir
-		cmd.Stdin = strings.NewReader(in.String())
-		var sout, serr bytes.Buffer
-		cmd.Stdout, cmd.Stderr = &sout, &serr
-		passed := cmd.Run() == nil
-		if strings.Contains(serr.String(), "'standard input'") || !strings.Contains(c.stderr, "'standard input'") {
-			// A sha256sum older than 9 names stdin "-"; the rest is the same.
-			if passed != ok || sout.String() != stdout.String() || serr.String() != stderr.String() {
-				t.Errorf("%s: sha256sum %v %q %q, check %v %q %q", c.name, passed, sout.String(), serr.String(), ok, stdout.String(), stderr.String())
-			}
 		}
 	}
 }
