@@ -20,7 +20,7 @@
     # one flong, in the lock. Each is pinned to a release tag, a commit its
     # CI passed, which scripts/pin.sh moves.
     flong = {
-      url = "github:danielbodart/flong/v0.162.128";
+      url = "github:danielbodart/flong/v0.164.130";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
