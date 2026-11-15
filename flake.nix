@@ -2,9 +2,9 @@
   description = "Agent policy: which sandbox a checkout gets, and which credential each app is given";
 
   inputs = {
-    # nixos-26.05, the release nix-config builds every host from, so what
-    # this flake builds and pushes to the cache is the derivation a host
-    # builds.
+    # nixos-26.05, the release nix-config builds every host from. The
+    # package needs little from it (a derivation that installs one file);
+    # the module, the dev shell and the checks need the rest.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
     # flong runs the sessions, frisket is their network and holds their
@@ -14,9 +14,9 @@
     #
     # `follows` on both, for the reason nix-config gives: the output taken from
     # flong is a NixOS module, which is a path and not a derivation, so it is
-    # evaluated against whichever nixpkgs the consumer brings. frisket's is a
-    # static Go binary built from source, so there is no glibc to relink
-    # against. Following costs nothing either way and keeps one nixpkgs, and
+    # evaluated against whichever nixpkgs the consumer brings. frisket's
+    # package is its release's static binary, so there is no glibc to
+    # relink against. Following costs nothing either way and keeps one nixpkgs, and
     # one flong, in the lock. Each is pinned to a release tag, a commit its
     # CI passed, which scripts/pin.sh moves.
     flong = {
@@ -25,7 +25,7 @@
     };
 
     frisket = {
-      url = "github:danielbodart/frisket/v0.199.126";
+      url = "github:danielbodart/frisket/v0.201.128";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flong.follows = "flong";
       inputs.quoin.follows = "quoin";
@@ -40,7 +40,7 @@
     # the host's, see ./module.nix); the checks and the VM tests do. frisket
     # follows this one, so the lock holds one quoin.
     quoin = {
-      url = "github:danielbodart/quoin/v0.100.28";
+      url = "github:danielbodart/quoin/v0.102.29";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -62,96 +62,79 @@
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
 
-      # nixpkgs' name for a build from a commit rather than a release:
-      # 0-unstable-YYYY-MM-DD, the date of the commit. A release is a tag
-      # named by `chase-generate version`, which needs the repository to
-      # count, and a build from a store path has none.
-      version =
-        let d = self.lastModifiedDate or "19700101"; in
-        "0-unstable-${builtins.substring 0 4 d}-${builtins.substring 4 2 d}-${builtins.substring 6 2 d}";
-
-      # Go's major.minor, the one mise.toml pins: both channels compile with
-      # the same language version.
-      go = pkgs: pkgs.go_1_27;
+      # THE PACKAGE IS THE RELEASE BINARY, not a build from source (Dan,
+      # 2026-11-15: "if we've got a normal mise build for it then that's
+      # good enough"): CI's build job builds it once, with the Go mise.toml
+      # pins (scripts/build.sh), tests it and publishes it, and building it
+      # again here only made a second binary that was not the one released.
+      # So a release's tag is a commit of its own, a child of the released
+      # trunk commit, that adds nix/release.json: the version, and for each
+      # system the asset's URL and hash (scripts/release-json.sh writes it;
+      # ci.yml's release job commits and tags it). A flake fetched as
+      # github:danielbodart/chase/v<V> cannot see its tag, only its commit,
+      # which is why the version is in the file.
+      #
+      # On trunk there is no such file and no package: pin a release tag.
+      # Absent rather than an error, so `nix flake check` and the dev shell
+      # still work on trunk; the module's package option defaults to this
+      # flake's package lazily, so only a configuration that runs chase asks
+      # for it.
+      releaseFile = ./nix/release.json;
+      release =
+        if builtins.pathExists releaseFile
+        then nixpkgs.lib.importJSON releaseFile
+        else null;
 
       # THE BINARY. Everything the module runs rather than evaluates: every
-      # hook flong is given and every unit systemd is. Only the Go sources
-      # are its source, so a change to a doc or a check does not rebuild it.
-      mkChase = pkgs: (pkgs.buildGoModule.override { go = go pkgs; }) {
+      # hook flong is given and every unit systemd is. A STATIC BINARY
+      # (scripts/build.sh: CGO_ENABLED=0), as frisket's is: cgo would bring
+      # glibc's NSS, which resolves names by whatever the host's
+      # nsswitch.conf says. Installed as bin/chase byte for byte the file
+      # `binary` names: no stripping or patching, which a static Go binary
+      # does not need on NixOS, and which would make it differ from the
+      # release's SHA256SUMS.
+      mkChase = pkgs: { version, binary }: pkgs.stdenvNoCC.mkDerivation {
         pname = "chase";
         inherit version;
-        src = nixpkgs.lib.fileset.toSource {
-          root = ./.;
-          # apps/ too: the generated tables the tests regenerate and the
-          # apps' tests read.
-          fileset = nixpkgs.lib.fileset.unions [ ./go.mod ./go.sum ./cmd ./internal ./apps ];
-        };
-
-        # The binary is chase alone: chase-generate is its own package below.
-        # Excluded, not subPackages, so every package's tests still run here.
-        excludedPackages = [ "cmd/chase-generate" ];
-
-        # Pinned rather than null, because there are dependencies: frisket's
-        # public packages, the address and names a project is known by and the
-        # policy document's types, so chase builds what frisket reads with
-        # frisket's own code; quoin's, a project's signed file, the signer's
-        # policy-sign wire, command patterns, host patterns and the sudo
-        # gate's rules, so chase reads and signs a chase.json as the
-        # gatekeepers do; and golang.org/x/crypto's ssh, which reads an SSH
-        # grant's host keys as frisket does. The frisket-pin and quoin-pin
-        # checks hold go.mod's frisket and quoin to the tags flake.lock pins,
-        # and scripts/pin.sh works this out again when it moves them.
-        vendorHash = "sha256-FLVkSqBKy1Lr0RtXCj9X6TcthN3I7rlEXxnEqr/aYW8=";
-
-        # A static binary, as frisket's is: cgo would bring glibc's NSS, which
-        # resolves names by whatever the host's nsswitch.conf says.
-        env.CGO_ENABLED = 0;
-
-        ldflags = [ "-s" "-w" "-X" "main.version=${version}" ];
-
-        # The unit tests are checks.test rather than this build's checkPhase:
-        # every VM test and every check that runs the binary waits on this
-        # derivation, and buildGoModule's checkPhase tests one package after
-        # another. What they need stays here for the checks that turn them
-        # on: real git for the checkouts they build, sqlite3 for the codex
-        # thread indexes a move repoints, protoc for the gcloud
-        # generator's fixtures, and frisket's `check` for the documents chase
-        # writes, required rather than skipped. With doCheck off, none of it
-        # is an input of the binary.
-        doCheck = false;
-        nativeCheckInputs = [ pkgs.git pkgs.protobuf (nixpkgs.lib.getBin pkgs.sqlite) pkgs.openssh frisket.packages.${pkgs.stdenv.hostPlatform.system}.default ];
-        env.CHASE_REQUIRE_FRISKET = "1";
-
+        src = binary;
+        dontUnpack = true;
+        dontConfigure = true;
+        dontBuild = true;
+        installPhase = ''
+          runHook preInstall
+          install -Dm0755 $src $out/bin/chase
+          runHook postInstall
+        '';
+        dontFixup = true;
         meta = {
           description = "Which sandbox a checkout gets, and which credential each app is given";
           homepage = "https://github.com/danielbodart/chase";
           license = nixpkgs.lib.licenses.mit;
           mainProgram = "chase";
-          platforms = nixpkgs.lib.platforms.linux;
+          platforms = if release == null then [ ] else builtins.attrNames release.assets;
+          sourceProvenance = [ nixpkgs.lib.sourceTypes.binaryNativeCode ];
         };
       };
+
+      # The release's package for each system it has an asset for.
+      # chase-generate is no package: it regenerates the apps' tables and
+      # derives CI's version, run as `go run ./cmd/chase-generate`, and is
+      # never on a host.
+      releasePackages =
+        nixpkgs.lib.mapAttrs
+          (system: asset:
+            let
+              pkgs = nixpkgs.legacyPackages.${system};
+              chase = mkChase pkgs {
+                inherit (release) version;
+                binary = pkgs.fetchurl { inherit (asset) url hash; };
+              };
+            in
+            { inherit chase; default = chase; })
+          release.assets;
     in
     {
-      packages = forAllSystems (system:
-        let pkgs = nixpkgs.legacyPackages.${system}; in
-        rec {
-          chase = mkChase pkgs;
-          default = chase;
-          # For a person regenerating, and for CI's version: never the
-          # module's, and never on a host.
-          chase-generate = chase.overrideAttrs (old: {
-            pname = "chase-generate";
-            # The binary's modules, not a download of its own under its name.
-            inherit (chase) goModules;
-            subPackages = [ "cmd/chase-generate" ];
-            excludedPackages = [ ];
-            doCheck = false;
-            meta = old.meta // {
-              description = "Regenerates what chase reads from what its providers publish";
-              mainProgram = "chase-generate";
-            };
-          });
-        });
+      packages = if release == null then { } else releasePackages;
 
       # Curried on `self` so the module can reach the flake's own inputs --
       # flong's and frisket's modules -- without a consumer having to pass
@@ -212,145 +195,17 @@
               ];
             }).config;
 
-          # A Go command run as a check, inside the package's build where the
-          # module's dependencies already are. It builds no binary -- the
-          # command compiles what it needs, and a test's compile, without
-          # -trimpath, would not reuse the binary's anyway -- and it takes the
-          # package's goModules rather than downloading its own under its own
-          # name.
-          goCheck = pname: env: command:
-            let chase = self.packages.${system}.chase; in
-            chase.overrideAttrs (old: {
-              inherit pname;
-              inherit (chase) goModules;
-              env = (old.env or { }) // env;
-              dontBuild = true;
-              doCheck = true;
-              checkPhase = ''
-                runHook preCheck
-                export GOFLAGS=''${GOFLAGS//-trimpath/}
-                ${command}
-                runHook postCheck
-              '';
-              installPhase = "touch $out";
-              dontFixup = true;
-            });
         in
         {
-          # The binary's build.
-          inherit (self.packages.${system}) chase;
-
-          # The unit tests, every package at once as `go test ./...` runs
-          # them.
-          test = goCheck "chase-test" { } "go test ./...";
-
-          # THE MODULE AND THE BINARY AGREE: the configuration the module
-          # writes for the example tiers is one the binary loads, strictly,
-          # and answers from -- every section, the grant's included. The
-          # binary's own tests cover what it does with one; this covers the
-          # module writing it.
-          module-config =
-            let
-              config = exampleConfig { };
-              file = config.environment.etc."chase/config.json".source;
-            in
-            pkgs.runCommand "module-config" { nativeBuildInputs = [ self.packages.${system}.chase pkgs.jq pkgs.check-jsonschema ]; } ''
-              fail() { echo "module-config: $*" >&2; exit 1; }
-              # What the module writes is what `chase schema -config` describes, and
-              # what `chase check -config` refuses -- a key misspelt, a scope no
-              # option has -- the schema refuses too.
-              chase schema -config > schema.json
-              check-jsonschema --schemafile schema.json ${file} > out 2>&1 || fail "the schema refuses the module's: $(cat out)"
-              chase check -config ${file} || fail "chase check refuses the module's"
-              jq '.session.tiers.strict.claude.scope = "everything"' ${file} > bad.json
-              ! chase check -config bad.json 2> out || fail "chase check took a scope no option has"
-              grep -q 'session: tiers.strict.claude.scope is "everything"' out || fail "chase check said $(cat out)"
-              ! check-jsonschema --schemafile schema.json bad.json > /dev/null 2>&1 || fail "the schema took a scope no option has"
-              jq '.selector.tierz = {}' ${file} > bad.json
-              ! chase check -config bad.json 2> /dev/null || fail "chase check took an unknown key"
-              ! check-jsonschema --schemafile schema.json bad.json > /dev/null 2>&1 || fail "the schema took an unknown key"
-              # A project's chase.json is what `chase schema` describes, made
-              # of frisket's own schema and chase's types, and `chase check`
-              # reads it as a launch does, refusing what only the host says.
-              chase schema > project-schema.json
-              cat > chase.json <<'EOF'
-              {"version": 2,
-               "frisket": {"allow": {"pypi.org": true}, "routes": {"github": {"operations": {"pulls/create": "allow", "category:issues": "ask"}}}},
-               "flong": {"seccomp": {"syscalls": {"io_uring_setup": "allow", "ptrace": "deny"}, "allow": ["@keyring"]}},
-               "signer": {"ssh": {"hosts": {"gateway": "allow"}}},
-               "chase": {"apps": {"docker": {"project": "owner/repo", "images": {"postgres:18": true}, "ports": {"5432": true}}, "nix": {"devShell": true}}}}
-              EOF
-              chase fmt chase.json > /dev/null || fail "chase fmt refused a chase.json"
-              check-jsonschema --schemafile project-schema.json chase.json > out 2>&1 || fail "the schema refuses a chase.json: $(cat out)"
-              chase check chase.json || fail "chase check refuses a chase.json"
-              jq -S '.frisket.routes.github.host = "evil.example"' chase.json > bad.json
-              ! chase check bad.json 2> out || fail "chase check took a route's host"
-              grep -q "frisket.routes.github.host: the host's alone" out || fail "chase check said $(cat out)"
-              jq -S '.chase.apps.docker.imagez = {}' chase.json > bad.json
-              ! check-jsonschema --schemafile project-schema.json bad.json > /dev/null 2>&1 || fail "the schema took an unknown key"
-              chase -config ${file} tier --dry-run / > out || fail "the tier could not be decided: $(cat out)"
-              grep -q ' strict ' out || fail "/ is not the fallback's: $(cat out)"
-              # The payload strict's exec prints, from the session section the
-              # apps wrote: Claude Code with the tier's settings and the one
-              # writable bind, an isolated codex's home, and the placeholder
-              # login and trust seeded into the home.
-              workspace=/w binds=$'/p:rw\n/q:ro' chase -config ${file} hook exec strict claude -p hi > payload \
-                || fail "strict's exec printed no payload"
-              tr '\0' '\n' < payload > fields
-              settings=$(jq -r .session.tiers.strict.claude.settings ${file})
-              [[ $settings == /nix/store/*-claude-strict-settings.json ]] || fail "strict's settings are $settings"
-              want=$(printf 'arg:%s\n' claude --add-dir /p --settings "$settings" --allow-dangerously-skip-permissions -p hi)
-              [ "$(grep '^arg:' fields)" = "$want" ] || fail "strict runs $(grep '^arg:' fields)"
-              grep -qx 'env:CODEX_HOME=/home/alice/.local/state/chase/codex/strict/-w' fields || fail "strict's codex has no home: $(cat fields)"
-              ! grep -q '^env:XDG_CACHE_HOME=' fields || fail "strict keeps caches: $(cat fields)"
-              # trusted keeps them, for the tier, its tools pointed there.
-              jq -e '.session.tiers.trusted.stores.caches | .scope == "tier" and .root == "/home/alice/.cache/chase/caches" and .env.XDG_CACHE_HOME == "cache"' ${file} > /dev/null \
-                || fail "trusted keeps no caches: $(jq -c .session.tiers.trusted.stores ${file})"
-              grep -qx 'file:0600:/home/alice/.claude/.credentials.json' fields || fail "strict's Claude Code has no login"
-              grep -qx 'file:0600:/home/alice/.claude.json' fields || fail "strict's Claude Code does not trust its workspace"
-              # The container's environment is flong's computation of it, a
-              # profile's variables and the launch's own references among
-              # it, not environment.variables alone.
-              jq -e '.session.tiers.strict.environment.XDG_DATA_DIRS | contains("''${HOME}/.nix-profile/share")' ${file} > /dev/null \
-                || fail "strict's environment is not flong's: $(jq -c .session.tiers.strict.environment ${file})"
-              # A closed list: nothing else on the container's PATH runs.
-              ! workspace=/w chase -config ${file} hook exec strict sh -c id > /dev/null 2>&1 || fail "strict ran sh"
-              for section in selector session grant wrappers claude codex; do
-                jq -e --arg s "$section" 'has($s)' ${file} >/dev/null || fail "no $section section"
-              done
-              touch $out
-            '';
-
-          # Formatting as a gate rather than a habit, as frisket has it.
-          gofmt = pkgs.runCommand "gofmt"
-            { nativeBuildInputs = [ (go pkgs) ]; }
-            ''
-              cd ${self.packages.${system}.chase.src}
-              unformatted=$(gofmt -l .)
-              if [ -n "$unformatted" ]; then
-                echo "not gofmt'd:" >&2
-                echo "$unformatted" >&2
-                exit 1
-              fi
-              touch $out
-            '';
-
-          # pin.sh and vendor-hash.sh decide what the weekly update commits,
-          # so they are gated as the code is.
-          shellcheck = pkgs.runCommand "shellcheck"
-            { nativeBuildInputs = [ pkgs.shellcheck ]; }
-            ''
-              shellcheck ${./scripts/pin.sh} ${./scripts/vendor-hash.sh}
-              touch $out
-            '';
-
-          # go vet from inside the package's own build, where the module's
-          # dependencies already are.
-          govet = goCheck "chase-vet" { } "go vet ./...";
-
-          # The tests again, under the race detector, which needs cgo; the
-          # package is still built static and never ships this.
-          race = goCheck "chase-race" { CGO_ENABLED = 1; } "go test -race ./...";
+          # Without a package, on trunk, only what needs none: the pins. With
+          # one, on a release tag and in CI's nix job
+          # (scripts/nix-local-release.sh), the rest, every one of which
+          # evaluates the module, whose hooks and units name the package, or
+          # runs the binary: the assertions, the configuration it loads, the
+          # docker tables through frisket, and the VM tests, so they run the
+          # binary the release carries. gofmt, go vet, the tests and the
+          # race detector are mise's (mise run check, mise run race), which
+          # CI runs on the runner with the Go the release is built with.
 
           # ONE FRISKET. The module and the checks take frisket from
           # flake.lock, and the binary compiles frisket's public packages from
@@ -365,6 +220,9 @@
           # unless the two agree. The lock's quoin is frisket's too, by
           # follows; frisket's own binary is built from its go.mod's.
           quoin-pin = pin "quoin";
+        } // nixpkgs.lib.optionalAttrs (self.packages ? ${system}) ({
+          # The release's package: on a tag, fetched; in CI, this run's.
+          inherit (self.packages.${system}) chase;
 
           # A refusal happens at evaluation, so it is checked by evaluating.
           # This is also the only thing that proves the module stands alone:
@@ -1184,6 +1042,83 @@
               touch $out
             '';
 
+          # THE MODULE AND THE BINARY AGREE: the configuration the module
+          # writes for the example tiers is one the binary loads, strictly,
+          # and answers from -- every section, the grant's included. The
+          # binary's own tests cover what it does with one; this covers the
+          # module writing it.
+          module-config =
+            let
+              config = exampleConfig { };
+              file = config.environment.etc."chase/config.json".source;
+            in
+            pkgs.runCommand "module-config" { nativeBuildInputs = [ self.packages.${system}.chase pkgs.jq pkgs.check-jsonschema ]; } ''
+              fail() { echo "module-config: $*" >&2; exit 1; }
+              # What the module writes is what `chase schema -config` describes, and
+              # what `chase check -config` refuses -- a key misspelt, a scope no
+              # option has -- the schema refuses too.
+              chase schema -config > schema.json
+              check-jsonschema --schemafile schema.json ${file} > out 2>&1 || fail "the schema refuses the module's: $(cat out)"
+              chase check -config ${file} || fail "chase check refuses the module's"
+              jq '.session.tiers.strict.claude.scope = "everything"' ${file} > bad.json
+              ! chase check -config bad.json 2> out || fail "chase check took a scope no option has"
+              grep -q 'session: tiers.strict.claude.scope is "everything"' out || fail "chase check said $(cat out)"
+              ! check-jsonschema --schemafile schema.json bad.json > /dev/null 2>&1 || fail "the schema took a scope no option has"
+              jq '.selector.tierz = {}' ${file} > bad.json
+              ! chase check -config bad.json 2> /dev/null || fail "chase check took an unknown key"
+              ! check-jsonschema --schemafile schema.json bad.json > /dev/null 2>&1 || fail "the schema took an unknown key"
+              # A project's chase.json is what `chase schema` describes, made
+              # of frisket's own schema and chase's types, and `chase check`
+              # reads it as a launch does, refusing what only the host says.
+              chase schema > project-schema.json
+              cat > chase.json <<'EOF'
+              {"version": 2,
+               "frisket": {"allow": {"pypi.org": true}, "routes": {"github": {"operations": {"pulls/create": "allow", "category:issues": "ask"}}}},
+               "flong": {"seccomp": {"syscalls": {"io_uring_setup": "allow", "ptrace": "deny"}, "allow": ["@keyring"]}},
+               "signer": {"ssh": {"hosts": {"gateway": "allow"}}},
+               "chase": {"apps": {"docker": {"project": "owner/repo", "images": {"postgres:18": true}, "ports": {"5432": true}}, "nix": {"devShell": true}}}}
+              EOF
+              chase fmt chase.json > /dev/null || fail "chase fmt refused a chase.json"
+              check-jsonschema --schemafile project-schema.json chase.json > out 2>&1 || fail "the schema refuses a chase.json: $(cat out)"
+              chase check chase.json || fail "chase check refuses a chase.json"
+              jq -S '.frisket.routes.github.host = "evil.example"' chase.json > bad.json
+              ! chase check bad.json 2> out || fail "chase check took a route's host"
+              grep -q "frisket.routes.github.host: the host's alone" out || fail "chase check said $(cat out)"
+              jq -S '.chase.apps.docker.imagez = {}' chase.json > bad.json
+              ! check-jsonschema --schemafile project-schema.json bad.json > /dev/null 2>&1 || fail "the schema took an unknown key"
+              chase -config ${file} tier --dry-run / > out || fail "the tier could not be decided: $(cat out)"
+              grep -q ' strict ' out || fail "/ is not the fallback's: $(cat out)"
+              # The payload strict's exec prints, from the session section the
+              # apps wrote: Claude Code with the tier's settings and the one
+              # writable bind, an isolated codex's home, and the placeholder
+              # login and trust seeded into the home.
+              workspace=/w binds=$'/p:rw\n/q:ro' chase -config ${file} hook exec strict claude -p hi > payload \
+                || fail "strict's exec printed no payload"
+              tr '\0' '\n' < payload > fields
+              settings=$(jq -r .session.tiers.strict.claude.settings ${file})
+              [[ $settings == /nix/store/*-claude-strict-settings.json ]] || fail "strict's settings are $settings"
+              want=$(printf 'arg:%s\n' claude --add-dir /p --settings "$settings" --allow-dangerously-skip-permissions -p hi)
+              [ "$(grep '^arg:' fields)" = "$want" ] || fail "strict runs $(grep '^arg:' fields)"
+              grep -qx 'env:CODEX_HOME=/home/alice/.local/state/chase/codex/strict/-w' fields || fail "strict's codex has no home: $(cat fields)"
+              ! grep -q '^env:XDG_CACHE_HOME=' fields || fail "strict keeps caches: $(cat fields)"
+              # trusted keeps them, for the tier, its tools pointed there.
+              jq -e '.session.tiers.trusted.stores.caches | .scope == "tier" and .root == "/home/alice/.cache/chase/caches" and .env.XDG_CACHE_HOME == "cache"' ${file} > /dev/null \
+                || fail "trusted keeps no caches: $(jq -c .session.tiers.trusted.stores ${file})"
+              grep -qx 'file:0600:/home/alice/.claude/.credentials.json' fields || fail "strict's Claude Code has no login"
+              grep -qx 'file:0600:/home/alice/.claude.json' fields || fail "strict's Claude Code does not trust its workspace"
+              # The container's environment is flong's computation of it, a
+              # profile's variables and the launch's own references among
+              # it, not environment.variables alone.
+              jq -e '.session.tiers.strict.environment.XDG_DATA_DIRS | contains("''${HOME}/.nix-profile/share")' ${file} > /dev/null \
+                || fail "strict's environment is not flong's: $(jq -c .session.tiers.strict.environment ${file})"
+              # A closed list: nothing else on the container's PATH runs.
+              ! workspace=/w chase -config ${file} hook exec strict sh -c id > /dev/null 2>&1 || fail "strict ran sh"
+              for section in selector session grant wrappers claude codex; do
+                jq -e --arg s "$section" 'has($s)' ${file} >/dev/null || fail "no $section section"
+              done
+              touch $out
+            '';
+
           # WHAT A DOCKER BODY MAY HOLD (docs/docker.md): the hand-written
           # tables in apps/docker/fields.json, one per body admit.json names,
           # each judging every field the pinned spec knows. A field the spec
@@ -1360,20 +1295,21 @@
         } // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
           # Only where the pinned postgres:18 runs: the image is amd64's.
           docker-session = pkgs.testers.runNixOSTest (import ./tests/docker-session.nix { inherit self home-manager; });
-        });
+        }));
 
-      # Go for the binary, built as the flake builds it; chase-generate, and
-      # the git and protoc `chase-generate gcloud` runs; sqlite3, which the
-      # codex tests hold a thread index in; frisket, whose
-      # `check` some tests hold what chase writes to.
+      # Go, as mise.toml pins its major.minor, for a shell without mise; the
+      # git and protoc the gcloud generator and its tests run
+      # (`go run ./cmd/chase-generate gcloud`); sqlite3, which the codex
+      # tests hold a thread index in; frisket, the package of the release
+      # flake.lock pins, whose `check` some tests hold what chase writes to.
       devShells = forAllSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system}; in
         {
           default = pkgs.mkShell {
-            packages = [ (go pkgs) pkgs.gopls pkgs.git pkgs.protobuf (nixpkgs.lib.getBin pkgs.sqlite) frisket.packages.${system}.default self.packages.${system}.chase-generate ];
+            packages = [ pkgs.go_1_27 pkgs.gopls pkgs.git pkgs.protobuf (nixpkgs.lib.getBin pkgs.sqlite) pkgs.shellcheck frisket.packages.${system}.default ];
             CHASE_REQUIRE_FRISKET = "1";
-            # The setting the package builds with, so a `go build` here gives
-            # the binary the flake does.
+            # Static, as the releases are (scripts/build.sh), rather than a
+            # dynamically linked binary that works here and nowhere else.
             CGO_ENABLED = "0";
           };
         });

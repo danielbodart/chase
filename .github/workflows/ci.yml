@@ -5,9 +5,10 @@ on:
     branches: [trunk]
   pull_request:
   # A dispatch is checked as a push is, and released as a push is, if
-  # RELEASE_PATHS (mise.toml) changed since the last release; `release`
-  # releases regardless. The weekly update dispatches it with `release` when
-  # mise run release-due says so, its push having started nothing.
+  # anything a release is built from changed since the last release (mise
+  # run release-due); `release` releases regardless. The weekly update
+  # dispatches it with `release` when release-due says so, its push having
+  # started nothing.
   workflow_dispatch:
     inputs:
       release:
@@ -20,27 +21,89 @@ defaults:
     shell: bash
 
 jobs:
-  # Lint and unit tests through mise, the dev loop's toolchain: minutes
-  # before the Nix legs below, which build the same tests again and more.
+  # gofmt, go vet, the tests, shellcheck and the release scripts' tests,
+  # through mise, the dev loop's toolchain and the Go a release is built
+  # with; mise brings sqlite3 and protoc too. The tests that hold what chase
+  # writes to `frisket check` are required, not skipped
+  # (CHASE_REQUIRE_FRISKET), with the frisket of the release go.mod requires
+  # on PATH (scripts/frisket.sh).
   check:
     runs-on: ubuntu-latest
+    env:
+      CHASE_REQUIRE_FRISKET: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
+      - name: frisket, as go.mod requires it
+        run: scripts/frisket.sh "$RUNNER_TEMP/frisket" >> "$GITHUB_PATH"
       - run: mise run check
 
-  # What `nix flake check` checks, split across runners. On one runner the two
-  # VM tests, the tests under the race detector and the plain tests shared its
-  # four CPUs and took the check to nine minutes; each is minutes on its own,
-  # so each is a job of its own, and `rest` is everything else. `rest` builds
-  # every check the others do not name, so a check added to the flake is built
-  # without being added here.
+  # The tests again under the race detector. Its runtime is C, so this job
+  # alone builds with cgo (mise run race sets CGO_ENABLED=1 for itself; the
+  # runner has gcc); nothing it builds ships, and every release is static.
+  race:
+    runs-on: ubuntu-latest
+    env:
+      CHASE_REQUIRE_FRISKET: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+      - name: frisket, as go.mod requires it
+        run: scripts/frisket.sh "$RUNNER_TEMP/frisket" >> "$GITHUB_PATH"
+      - run: mise run race
+
+  # The static binaries a release carries, for linux on amd64 and arm64
+  # (scripts/build.sh, with the Go mise.toml pins), kept as the run's
+  # artifact whether or not the commit is released: dist/<os>-<arch>/chase,
+  # which the nix and release jobs and scripts/release-assets.sh look for.
+  # The version they are stamped with is this job's output, for those jobs,
+  # which have no Go.
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      # The whole history, because the version's minor is the commit count;
+      # `chase-generate version` refuses a shallow clone rather than stamp a
+      # wrong version.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: jdx/mise-action@v5
+      - run: mise run build
+      # The same commit count and run number scripts/build.sh stamped.
+      - id: version
+        run: echo "version=$(go run ./cmd/chase-generate version)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: chase-binaries
+          path: dist/
+          if-no-files-found: error
+
+  # What needs Nix to check. The flake's package is a release's binary, not
+  # a build from source (flake.nix says why): it exists only where
+  # nix/release.json does, which on GitHub is a release tag's own commit.
+  # So each leg makes this checkout a release of the binaries this run's
+  # build job made, scripts/nix-local-release.sh: it writes and stages
+  # nix/release.json for them, as the release job will, and adds each binary
+  # to the store at the path fetchurl would download it to, which is
+  # content-addressed, so only the file whose hash release.json names can
+  # stand there and nothing is fetched. The checks and the VM tests thus run
+  # the very binary this run releases, through the same release.json,
+  # fetchurl and install a pinned tag uses.
+  #
+  # Split across runners: the two longest VM tests are a leg each, and
+  # `rest` is everything else, so a check added to the flake is built
+  # without being added here. `rest` also checks the flake as trunk has it,
+  # with no package, before it makes the release, and evaluates aarch64's
+  # package and dev shell, which no runner here builds.
   nix:
+    needs: build
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        check: [docker-session, gcloud-session, race, test, rest]
+        check: [docker-session, gcloud-session, rest]
     steps:
       - uses: actions/checkout@v7
 
@@ -52,50 +115,89 @@ jobs:
             experimental-features = nix-command flakes
             system-features = nixos-test benchmark big-parallel kvm
 
-      # The danielbodart cache, read-only here: the free tier is 5 GB, so
-      # only chase's own package is pushed, by the rest leg's last step,
-      # never a VM test's closure.
+      # The danielbodart cache, read-only, for what the inputs build from
+      # source (flong's). Nothing is pushed: chase's package is the
+      # release's binary, so there is no build of it to cache.
       - uses: cachix/cachix-action@v17
         with:
           name: danielbodart
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           skipPush: true
 
+      - name: The flake as trunk has it
+        if: matrix.check == 'rest'
+        run: nix flake check --print-build-logs
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: chase-binaries
+          path: artifacts
+
+      - name: This run's binaries as the flake's release
+        env:
+          V: ${{ needs.build.outputs.version }}
+        run: |
+          scripts/release-assets.sh "$V" release artifacts
+          scripts/nix-local-release.sh "$V" release
+
       - name: nix build .#checks.x86_64-linux.${{ matrix.check }}
         if: matrix.check != 'rest'
         run: nix build --print-build-logs --no-link '.#checks.x86_64-linux.${{ matrix.check }}'
 
-      # Every check the other jobs do not build, and the other outputs `nix
+      # Every check the other legs do not build, and the other outputs `nix
       # flake check` would evaluate, built rather than only evaluated: one
-      # evaluation, where `nix flake check --no-build` first would be two, and
-      # the assertions check alone is a minute of it.
+      # evaluation, where `nix flake check --no-build` first would be two.
       - name: the other checks and outputs
         if: matrix.check == 'rest'
         run: |
-          nix eval --json '.#checks.x86_64-linux' --apply 'cs: builtins.attrNames (removeAttrs cs [ "docker-session" "gcloud-session" "race" "test" ])' \
+          nix eval --json '.#checks.x86_64-linux' --apply 'cs: builtins.attrNames (removeAttrs cs [ "docker-session" "gcloud-session" ])' \
             | jq -r '.[] | ".#checks.x86_64-linux." + .' \
             | xargs nix build --print-build-logs --no-link \
-                .#packages.x86_64-linux.chase-generate .#devShells.x86_64-linux.default .#formatter.x86_64-linux
+                .#packages.x86_64-linux.chase .#devShells.x86_64-linux.default .#formatter.x86_64-linux
+          nix eval --raw .#packages.aarch64-linux.chase.drvPath > /dev/null
+          nix eval --raw .#devShells.aarch64-linux.default.drvPath > /dev/null
 
-      # The package a host installs, from the rest leg, which builds it.
-      - name: Push chase's package to Cachix
-        if: matrix.check == 'rest' && github.event_name != 'pull_request' && github.ref == 'refs/heads/trunk'
-        env:
-          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-        run: nix build --no-link --print-out-paths .#chase | cachix push danielbodart
-
-  # CONTINUOUS RELEASE. Trunk-based: every push to trunk that passes the
-  # checks above and changed RELEASE_PATHS since the last release is
-  # published, with no manual step and no tag to cut by hand. Gated on a push
-  # or a dispatch on trunk (never a pull request), and on every check having
-  # succeeded, so a red commit never ships. A release is a tag and its notes:
-  # consumers take the flake and the Go module from it.
+  # CONTINUOUS RELEASE. Trunk-based: every push to trunk that passes every
+  # job above and changed what a release is built from since the last one
+  # (mise run release-due: RELEASE_PATHS and Go's pin) is published, with
+  # no manual step and no tag to cut by hand. Gated on a push or a dispatch
+  # on trunk (never a pull request), and on every job having succeeded, so
+  # a red commit never ships.
   #
-  # The derived version (major.commit-count.run-number, `chase-generate version`)
-  # makes every build a unique, monotonic release, so two pushes cannot collide
-  # on a tag and a re-run of the same commit does not either.
+  # A release carries its binaries, and the flake's package is them:
+  #
+  #   tag      v<V>, V = `chase-generate version`
+  #            (major.commit-count.run-number), on a commit of its own (below)
+  #   binary   chase-<V>-linux-<arch>, arch in amd64/arm64 (Go's names),
+  #            the bare static executable the build job made
+  #   sums     SHA256SUMS, sha256sum(1) format, one line per binary
+  #
+  # scripts/release-assets.sh lays them out and refuses to go on unless the
+  # amd64 binary says it is V and the arm64 one contains V.
+  #
+  # THE TAG'S OWN COMMIT. flake.nix's package is the release's binary,
+  # fetched, and a flake fetched as github:danielbodart/chase/v<V> sees its
+  # commit but not its tag, so the version and each asset's URL and hash
+  # must be in the tagged tree: nix/release.json (scripts/release-json.sh).
+  # It is committed, by github-actions[bot], as a one-commit child of the
+  # released trunk commit, and only the tag v<V> is pushed, pointing at that
+  # child; trunk never gets the commit. Agents and the weekly update commit
+  # to trunk, and a bot commit on origin/trunk would make every local trunk
+  # diverge on every release; a tag on no branch does not, and a tag push
+  # starts no run here. (Never write the skip-CI marker, the words skip and
+  # ci in square brackets, in a commit message, even to say it is not
+  # needed: GitHub starts no workflow at all for a push whose head commit's
+  # message contains it anywhere.) So the last release is the tag's parent,
+  # not an ancestor tag (scripts/last-release.sh, which release-due and the
+  # notes ask). The Go module at the tag is the same as at its parent, plus
+  # that one file.
+  #
+  # The derived version makes every build a unique, monotonic release, so
+  # two pushes cannot collide on a tag. A re-run of a run keeps its run
+  # number: re-running one whose release was already made fails at the
+  # tag's push, which never moves a tag.
   release:
-    needs: [check, nix]
+    needs: [check, race, build, nix]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/trunk'
     runs-on: ubuntu-latest
     permissions:
@@ -103,39 +205,40 @@ jobs:
       # To start CI on trunk's head, where this commit cannot be tagged.
       actions: write
     steps:
-      # fetch-depth: 0 because the minor is the commit count, which
-      # `chase-generate version` REFUSES to count in a shallow clone;
-      # fetch-tags so the previous tag resolves, for release-due and the
-      # notes below.
+      # fetch-depth: 0 and fetch-tags so the previous tags, and the commits
+      # they name off trunk, are here, for release-due and the notes below.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
 
-      # For release-due, which reads RELEASE_PATHS from mise.toml, and Go,
-      # for chase-generate, which derives the version.
+      # For release-due, which reads RELEASE_PATHS from mise.toml.
       - uses: jdx/mise-action@v5
 
-      # Notes from the COMMITS since the last release. Trunk-based means direct
-      # pushes and no pull requests, so GitHub's PR-based --generate-notes
-      # would come out empty. On the first release there is no prior tag, so
-      # fall back to the head commit rather than dumping the whole history.
+      - uses: actions/download-artifact@v8
+        with:
+          name: chase-binaries
+          path: artifacts
+
+      # Whether to release, and if so the assets, laid out and checked.
       #
       # GitHub refuses GITHUB_TOKEN, which can never hold the workflows
       # permission, a new ref whose .github/workflows differ from trunk's
       # head ("HTTP 403: Resource not accessible by integration"): a tag of
-      # this commit, once trunk has moved on to a commit that changed a
-      # workflow, would be one. Then the release is trunk head's to make, its
-      # commits including this one's: its own run makes it, or, where it has
-      # none (a [skip ci] push, a push made with GITHUB_TOKEN), one started
-      # here.
-      - name: Create GitHub Release
+      # this commit (or of its child, whose workflows are its), once trunk
+      # has moved on to a commit that changed a workflow, would be one. Then
+      # the release is trunk head's to make, its commits including this
+      # one's: its own run makes it, or, where it has none (a push made with
+      # GITHUB_TOKEN), one started here.
+      - name: Decide, and lay out the assets
+        id: due
         env:
           GH_TOKEN: ${{ github.token }}
           FORCE: ${{ inputs.release || false }}
+          V: ${{ needs.build.outputs.version }}
         run: |
           if [ "$FORCE" != true ] && ! mise run release-due; then
-            echo "Nothing in RELEASE_PATHS changed since the last release: no release."
+            echo "Nothing a release is built from changed since the last release: no release."
             exit 0
           fi
           git fetch -q origin trunk
@@ -147,11 +250,55 @@ jobs:
             fi
             exit 0
           fi
-          V="$(go run ./cmd/chase-generate version)"
-          PREV="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
-          if [ -n "$PREV" ]; then
-            git log "$PREV..HEAD" --pretty='- %s (%h)' > notes.md
+          scripts/release-assets.sh "$V" release artifacts
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      # Notes from the COMMITS since the last release, written before this
+      # release's tag exists. Trunk-based means direct pushes and no pull
+      # requests, so GitHub's PR-based --generate-notes would come out empty.
+      # On the first release there is no prior tag, so fall back to the head
+      # commit rather than dumping the whole history.
+      - name: Release notes
+        if: steps.due.outputs.version != ''
+        env:
+          V: ${{ steps.due.outputs.version }}
+        run: |
+          if read -r _ prev < <(scripts/last-release.sh); then
+            git log "$prev..$GITHUB_SHA" --pretty='- %s (%h)' > notes.md
           else
-            { echo 'First automated release.'; echo; git log -1 --pretty='- %s (%h)'; } > notes.md
+            { echo 'First automated release.'; echo; git log -1 --pretty='- %s (%h)' "$GITHUB_SHA"; } > notes.md
           fi
-          gh release create "v$V" --title "v$V" --notes-file notes.md --target "$GITHUB_SHA"
+          {
+            echo
+            echo "Static binaries for linux on amd64 and arm64. To check what you downloaded: sha256sum --ignore-missing -c SHA256SUMS"
+            echo "With Nix: inputs.chase.url = \"github:danielbodart/chase/v$V\"; its package is the binary here, and nixosModules.default runs it."
+          } >> notes.md
+
+      # The tag, on its own commit (see the top of this job): nix/release.json
+      # for the binaries laid out above, committed on a detached HEAD whose
+      # parent is the commit this run tested, and only the tag pushed.
+      - name: Tag v<V> on a child commit holding nix/release.json
+        if: steps.due.outputs.version != ''
+        env:
+          V: ${{ steps.due.outputs.version }}
+        run: |
+          git checkout -q --detach "$GITHUB_SHA"
+          mkdir -p nix
+          scripts/release-json.sh "$V" release/SHA256SUMS > nix/release.json
+          cat nix/release.json
+          git add nix/release.json
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "Release v$V" \
+              -m "nix/release.json, for flake.nix: the release's version and each binary's URL and hash. This commit is on no branch; only the tag v$V names it."
+          git tag "v$V"
+          git push -q origin "refs/tags/v$V"
+
+      # The release, on the tag just pushed (--verify-tag: never one GitHub
+      # would make itself, on trunk).
+      - name: Create GitHub Release
+        if: steps.due.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.due.outputs.version }}
+        run: gh release create "v$V" --verify-tag --title "v$V" --notes-file notes.md release/*

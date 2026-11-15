@@ -273,8 +273,8 @@ regenerating is a reviewed change, and the diff of `operations.json` is what
 is newly allowed:
 
 ```sh
-nix develop -c chase-generate operations cloudflare   # or huggingface, github
-nix develop -c chase-generate gcloud
+nix develop -c go run ./cmd/chase-generate operations cloudflare   # or huggingface, github
+nix develop -c go run ./cmd/chase-generate gcloud
 ```
 
 ## Grants
@@ -393,9 +393,14 @@ by the session's DNS. See frisket's
 ## Channels
 
 - **Nix**: a flake input (with `inputs.nixpkgs.follows = "nixpkgs"`) at a
-  release tag, `vMAJOR.COUNT.RUN`: package `chase` (default), built by
-  nixpkgs (nixos-26.05, Go 1.27) and in the `danielbodart` Cachix cache, and
-  `nixosModules.default`, which brings flong's and frisket's modules with it.
+  release tag, `vMAJOR.COUNT.RUN`: package `chase` (default), which is the
+  release's own static binary, fetched by hash, not a build from source,
+  and `nixosModules.default`, which runs it and brings flong's and
+  frisket's modules with it. On trunk the flake has no package (the tag's
+  own commit adds `nix/release.json`, which names the binaries): pin a tag.
+- **Binaries**: each release carries `chase-<V>-linux-{amd64,arm64}`,
+  static, built by CI with the Go `mise.toml` pins, and `SHA256SUMS`. They
+  are of use only as the module's: the hooks and units it runs.
 - Not shipped: Docker — chase is only of use wired into a host by its
   module, with flong's and frisket's.
 - Not shipped: Tarball + systemd — likewise; the units are the module's.
@@ -404,8 +409,9 @@ Updated weekly (Sunday 21:23 UTC): the flake's inputs, flong's, frisket's
 and quoin's releases, mise's tools (by patch) and the Go modules
 (`.github/workflows/update.yml`), committed to trunk only once everything CI
 runs passes. A release is cut when the Go code, the flake and its module's
-Nix files or `VERSION` changed (`RELEASE_PATHS` in `mise.toml`): the tag is
-what consumers pin.
+Nix files, how the binary is built, `VERSION` or the Go pin changed
+(`RELEASE_PATHS` in `mise.toml`, `scripts/release-due.sh`): the tag is what
+consumers pin.
 
 ```nix
 inputs.chase = {
@@ -421,9 +427,23 @@ mise pins the toolchain (`mise.toml`); `mise run check` is the dev loop and
 CI's fast job, the flake's checks the rest.
 
 ```sh
-mise run check       # gofmt, go vet, go test ./..., shellcheck
-mise run build       # nix build of chase's package, as a host installs it
+mise run check       # gofmt, go vet, go test ./..., shellcheck, the release scripts' tests
+mise run race        # go test -race ./... (cgo, so a C compiler)
+mise run build       # the static release binaries, in dist/
+nix flake check      # on trunk only the pins: the rest need a release's package
+```
+
+The flake's other checks and VM tests run the release's binary, so they
+exist only where `nix/release.json` does. To run them on what you built,
+make it the flake's release, staged and never committed:
+
+```sh
+mise run build
+V=$(go run ./cmd/chase-generate version)
+scripts/release-assets.sh "$V" /tmp/chase-release dist
+scripts/nix-local-release.sh "$V" /tmp/chase-release
 nix flake check
+git rm --cached nix/release.json && rm nix/release.json
 ```
 
 `checks.assertions` evaluates the module with nothing of a consumer's around

@@ -1,15 +1,13 @@
 # The weekly update: every dependency of every kind moves, in one window
 # every danielbodart repo shares, Sunday 21:23 UTC. nix-config takes its own
-# at 23:23 on the same nixos-26.05, so every tool's Nix build here is the
-# derivation nix-config then builds, already in the danielbodart cache.
+# at 23:23 on the same nixos-26.05.
 #
 # What moves, in order: every flake input (nix flake update); my own repos
 # chase takes, flong (a flake input) and frisket and quoin (flake inputs
 # and Go modules, on the same tag), to their latest release tags
 # (scripts/pin.sh), a tag only existing for a commit its CI passed; each
 # mise.toml tool to the latest patch of its pinned minor (a new minor moves
-# by hand, with the nixpkgs attribute flake.nix builds with); and every Go
-# dependency (go get -u), with flake.nix's vendorHash worked out again.
+# by hand); and every Go dependency (go get -u).
 #
 # The gate is everything CI runs, on this one runner rather than CI's legs:
 # slower, but nobody is waiting on it. Only if it passes is anything
@@ -17,10 +15,11 @@
 #
 # A push made with GITHUB_TOKEN starts no workflow, so the last step
 # dispatches CI on trunk with `release`, which checks the commit and releases
-# it -- but only if mise run release-due says something in RELEASE_PATHS
-# (mise.toml) changed since the last tag. A week in which only flake.lock
-# moved releases nothing: a consumer follows its own nixpkgs, and the release
-# would be the same code under a new version.
+# it -- but only if mise run release-due says something a release is built
+# from (RELEASE_PATHS in mise.toml, or the Go pin) changed since the last
+# release. A week in which only flake.lock moved releases nothing: a
+# consumer follows its own nixpkgs, and the release would be the same code
+# under a new version.
 name: Weekly update
 
 on:
@@ -59,7 +58,9 @@ jobs:
             experimental-features = nix-command flakes
             system-features = nixos-test benchmark big-parallel kvm
 
-      # Read-only: only chase's own package is pushed, by the last step.
+      # Read-only, for what the inputs build from source (flong's), as CI's
+      # nix job has it. Nothing is pushed: chase's package is the release's
+      # binary, so there is no build of it to cache.
       - uses: cachix/cachix-action@v17
         with:
           name: danielbodart
@@ -102,10 +103,9 @@ jobs:
           done < <(sed -n -E '/^\[tools\]/,/^\[/s/^"?([a-z0-9_:-]+)"? = "([0-9.]+)"$/\1 \2/p' mise.toml)
           mise install
 
-          # 3. Every Go dependency, and the vendorHash they make.
+          # 3. Every Go dependency.
           go get -u ./...
           go mod tidy
-          if ! git diff --quiet go.sum; then scripts/vendor-hash.sh; fi
           mapfile -t mods < <(comm -13 <(echo "$before") <(gomods) | cut -d' ' -f1 | grep -v '^github.com/danielbodart/' || true)
           moved+=("${mods[@]}")
 
@@ -117,17 +117,35 @@ jobs:
           list=$(printf '%s\n' "${moved[@]}" | { grep . || true; } | paste -sd, - | sed 's/,/, /g')
           echo "moved=${list:-dependencies}" >> "$GITHUB_OUTPUT"
 
-      # 5. The gate: what CI runs, mise's check and every Nix check.
-      - name: mise run check
+      # 5. The gate: what CI runs. As CI's check and race jobs, with the
+      # tests that run frisket required, and the frisket of the release
+      # go.mod now requires on PATH.
+      - name: mise run check and race
         if: steps.update.outputs.moved
-        run: mise run check
+        env:
+          CHASE_REQUIRE_FRISKET: "1"
+        run: |
+          PATH="$(scripts/frisket.sh "$RUNNER_TEMP/frisket"):$PATH"
+          mise run check
+          mise run race
 
-      - name: Build what CI builds
+      # As CI's nix job: the flake as trunk has it, then the binaries, built
+      # as the build job builds them, made the flake's release
+      # (scripts/nix-local-release.sh, which stages a nix/release.json that
+      # the commit below must not take), and every check built.
+      - name: Build what CI builds, as trunk and as a release
         if: steps.update.outputs.moved
         run: |
+          nix flake check --print-build-logs
+          mise run build
+          V="$(go run ./cmd/chase-generate version)"
+          scripts/release-assets.sh "$V" "$RUNNER_TEMP/release" dist
+          scripts/nix-local-release.sh "$V" "$RUNNER_TEMP/release"
           mapfile -t checks < <(nix eval --json .#checks.x86_64-linux --apply builtins.attrNames | jq -r '.[]')
           nix build --no-link --print-build-logs "${checks[@]/#/.#checks.x86_64-linux.}" \
-            .#packages.x86_64-linux.chase-generate .#devShells.x86_64-linux.default .#formatter.x86_64-linux
+            .#packages.x86_64-linux.chase .#devShells.x86_64-linux.default .#formatter.x86_64-linux
+          git rm -q --cached nix/release.json
+          rm -rf nix/release.json dist
 
       # 6.
       - name: Commit and push
@@ -141,14 +159,7 @@ jobs:
           git pull -q --rebase origin trunk
           git push -q origin HEAD:trunk
 
-      # 7.
-      - name: Push chase's package to Cachix
-        if: steps.update.outputs.moved
-        env:
-          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-        run: nix build --no-link --print-out-paths .#chase | cachix push danielbodart
-
-      # 8. A release, if a release path moved: CI checks the pushed commit
+      # 7. A release, if a release path moved: CI checks the pushed commit
       # and releases it. A week that moved only flake.lock releases nothing.
       - name: Release, if a release path moved
         if: steps.update.outputs.moved
