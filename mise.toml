@@ -6,7 +6,7 @@
 # The weekly update moves each tool's patch; a new minor moves by hand.
 
 [tools]
-go = "1.27.3"
+go = "1.27.4"
 shellcheck = "0.11.0"
 # sqlite3, for the codex tests that repoint a thread index.
 sqlite = "3.54.1"
