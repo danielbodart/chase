@@ -2,10 +2,10 @@ github.com/agnivade/levenshtein v1.2.2 h1:fI8RgiztYX1Nn5pBHHqQ9EMCCklhrmXqPRIedF
 github.com/agnivade/levenshtein v1.2.2/go.mod h1:QVVI16kDrtSuwcpd0p1+xMC6Z/VfhtCyDIjcwga4/DU=
 github.com/danielbodart/frisket v0.201.128 h1:uiVjtoH/J3Z41V3e0HneQUGAH8QvvBjBwIsKTr0WLIY=
 github.com/danielbodart/frisket v0.201.128/go.mod h1:wMs2b9liGiWx8EM8hqlPJ8PwtvTbiMKphR8AtbztlQg=
-github.com/danielbodart/galley v0.39.29 h1:lGSedRVgD0d9mJj4uf6Ak8olOp5JGUv8Yic3kdwGRvU=
-github.com/danielbodart/galley v0.39.29/go.mod h1:LG67o+3WXE7Kj9BQ0WclOtCq0Fbx46NP3pe6PqrLzs8=
-github.com/danielbodart/quoin v0.102.29 h1:nEzp/C+20ni7Gs9ISQ1DQrwW9XdPifYyeWWqJ0FHb+4=
-github.com/danielbodart/quoin v0.102.29/go.mod h1:4+USIYA/mqNNXUZe0MAYkdZQjKZnSMbr4/tDv3ceaQU=
+github.com/danielbodart/galley v0.41.30 h1:cKKz0jEKhYXb8aIy45IlUHFJXRXpMt6uCRaO8m+MdBg=
+github.com/danielbodart/galley v0.41.30/go.mod h1:LG67o+3WXE7Kj9BQ0WclOtCq0Fbx46NP3pe6PqrLzs8=
+github.com/danielbodart/quoin v0.117.31 h1:eg2Uocb+tm2RjUSuBRwUNPYRy5CWrDlLyJxzATExRs0=
+github.com/danielbodart/quoin v0.117.31/go.mod h1:35q7mmDhqsMVuw+QKyAHo/6nvqJgbslSnGra2jxmky8=
 github.com/go-jose/go-jose/v4 v4.1.9 h1:pKfeQkig1NmgK4hJrZYXLEYURXfoJB61Larw0uIW4gY=
 github.com/go-jose/go-jose/v4 v4.1.9/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=

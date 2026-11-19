@@ -109,16 +109,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1794783115,
-        "narHash": "sha256-59M+dND8oo6nS7AZ3pmyJUr2qfT6gGIvP/tJx/l4sb0=",
+        "lastModified": 1795081009,
+        "narHash": "sha256-pbkO/EvXqZF2SJBZTBgURelGQgUn4t1G26goz5m3FnA=",
         "owner": "danielbodart",
         "repo": "quoin",
-        "rev": "83ce1d0b0f3443565c872b6a50379c2fe6dd285d",
+        "rev": "b7ff7eeef9923fccfff8283df8ba600857c51c84",
         "type": "github"
       },
       "original": {
         "owner": "danielbodart",
-        "ref": "v0.102.29",
+        "ref": "v0.117.31",
         "repo": "quoin",
         "type": "github"
       }

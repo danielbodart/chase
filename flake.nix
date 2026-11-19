@@ -40,7 +40,7 @@
     # the host's, see ./module.nix); the checks and the VM tests do. frisket
     # follows this one, so the lock holds one quoin.
     quoin = {
-      url = "github:danielbodart/quoin/v0.102.29";
+      url = "github:danielbodart/quoin/v0.117.31";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
