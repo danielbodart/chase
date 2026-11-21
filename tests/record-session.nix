@@ -277,7 +277,7 @@ in
       machine.wait_for_unit("quoin-signer.socket")
       machine.succeed("systemctl start quoin-signer.service")
       machine.succeed("SSH_ASKPASS_REQUIRE=never ssh-tpm-keygen -f /root/id_ecdsa -C alice@machine </dev/null")
-      machine.succeed("install -o ssh-signer -g ssh-signer -m 0600 /root/id_ecdsa.tpm /var/lib/quoin-signer/")
+      machine.succeed("install -o quoin-signer -g quoin-signer -m 0600 /root/id_ecdsa.tpm /var/lib/quoin-signer/")
       machine.succeed("systemctl restart quoin-signer.service")
       key = " ".join(machine.succeed("cat /root/id_ecdsa.pub").split()[:2])
       machine.succeed(f"echo 'alice namespaces=\"quoin-policy:*\" {key}' > /run/allowed_signers")

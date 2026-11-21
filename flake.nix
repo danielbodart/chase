@@ -40,7 +40,7 @@
     # the host's, see ./module.nix); the checks and the VM tests do. frisket
     # follows this one, so the lock holds one quoin.
     quoin = {
-      url = "github:danielbodart/quoin/v0.117.31";
+      url = "github:danielbodart/quoin/v0.118.32";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -632,7 +632,7 @@
                 fileName = "chase.json";
               }
               && on.services.quoin.signer.policySigners == [ "frisket.service" ]
-              && on.services.quoin.policy.courier.peers == { "frisket.service" = "alice"; "quoin-signer.service" = "ssh-signer"; }
+              && on.services.quoin.policy.courier.peers == { "frisket.service" = "alice"; "quoin-signer.service" = "quoin-signer"; }
               && on.services.quoin.policy.fileName == "chase.json"
               && on.chase.signer.allowedSigners == "/etc/quoin/allowed_signers"
               && lib.all (a: a.assertion) off.assertions
