@@ -1,0 +1,13 @@
+{
+  "version": "0.246.152",
+  "assets": {
+    "x86_64-linux": {
+      "url": "https://github.com/danielbodart/chase/releases/download/v0.246.152/chase-0.246.152-linux-amd64",
+      "hash": "sha256-unLyW88kIZA6rIahgM6Ncva3Y4swv+gCoD6AkTYFLH0="
+    },
+    "aarch64-linux": {
+      "url": "https://github.com/danielbodart/chase/releases/download/v0.246.152/chase-0.246.152-linux-arm64",
+      "hash": "sha256-HUxeUxd2W3mp4THpBvFdQccwSOTbanonm0Z8P3va3x4="
+    }
+  }
+}
