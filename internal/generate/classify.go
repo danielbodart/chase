@@ -31,13 +31,138 @@ func natural(method string) string {
 	return "write"
 }
 
+// naming is how a GraphQL schema's field names say what each does, as its
+// endpoint's `names` in exceptions.json gives it: which camelCase word of a
+// name is its verb -- the first (GitHub's deleteIssue) or the last (Linear's
+// issueDelete) -- which verbs make a field guarded, and whether a field the
+// schema gives no category takes the first word of its name that is not the
+// verb (issue, of issueLabelCreate and of createIssueComment alike). Without
+// `names`, the verb is the first word, only delete is guarded, and the
+// schema's categories are all there are.
+type naming struct {
+	verbLast   bool
+	guarded    []string
+	categories bool
+}
+
+var defaultNaming = naming{guarded: []string{"delete"}}
+
+var oneWord = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*$`)
+
 // fieldNatural is the class a GraphQL field has unless an exception says
-// otherwise: as a DELETE is guarded, so is a mutation that says it deletes.
-func fieldNatural(name string) string {
-	if strings.HasPrefix(name, "delete") {
-		return "guarded"
+// otherwise: as a DELETE is guarded, so is a mutation whose verb is one the
+// naming guards.
+func (n naming) fieldNatural(name string) string {
+	ws := words(name)
+	if len(ws) > 0 {
+		verb := ws[0]
+		if n.verbLast {
+			verb = ws[len(ws)-1]
+		}
+		for _, g := range n.guarded {
+			if strings.EqualFold(verb, g) {
+				return "guarded"
+			}
+		}
 	}
 	return "write"
+}
+
+// category is the category a field's name gives it, where the naming says
+// names give one: the first of its words that is not the verb, in lower
+// case; nil where there is none.
+func (n naming) category(name string) any {
+	if !n.categories {
+		return nil
+	}
+	ws := words(name)
+	if n.verbLast && len(ws) > 1 {
+		return strings.ToLower(ws[0])
+	}
+	if !n.verbLast && len(ws) > 1 {
+		return strings.ToLower(ws[1])
+	}
+	return nil
+}
+
+// words is a camelCase name's words: a new one at each capital after a
+// small letter or a digit, and at the last capital of a run followed by a
+// small letter (CSVJira is CSV and Jira).
+func words(name string) []string {
+	rs := []rune(name)
+	var out []string
+	start := 0
+	for i := 1; i < len(rs); i++ {
+		if !unicode.IsUpper(rs[i]) {
+			continue
+		}
+		prev := rs[i-1]
+		next := i+1 < len(rs) && unicode.IsLower(rs[i+1])
+		if unicode.IsLower(prev) || unicode.IsDigit(prev) || (unicode.IsUpper(prev) && next) {
+			out = append(out, string(rs[start:i]))
+			start = i
+		}
+	}
+	if len(rs) > 0 {
+		out = append(out, string(rs[start:]))
+	}
+	return out
+}
+
+// namingOf is the naming the endpoint at path declares, or the default; or
+// why what it declares is not one.
+func namingOf(q *eval, endpoints []any, path string) (naming, string) {
+	n := defaultNaming
+	for _, e := range endpoints {
+		if !equal(q.get(e, "path"), path) {
+			continue
+		}
+		names := q.get(e, "names")
+		if names == nil {
+			return n, ""
+		}
+		o, ok := names.(*Object)
+		if !ok {
+			return n, "names is not an object"
+		}
+		for _, k := range o.SortedKeys() {
+			switch k {
+			case "verb", "guarded", "categories":
+			default:
+				return n, "names has " + k + ", which is not verb, guarded or categories"
+			}
+		}
+		switch v, _ := o.Get("verb"); v {
+		case nil, "first":
+		case "last":
+			n.verbLast = true
+		default:
+			return n, "names.verb is " + toJSON(v) + ", not \"first\" or \"last\""
+		}
+		if v, ok := o.Get("guarded"); ok {
+			vs, isArr := v.([]any)
+			if !isArr {
+				return n, "names.guarded is not an array of verbs"
+			}
+			n.guarded = nil
+			for _, g := range vs {
+				s, ok := g.(string)
+				if !ok || !oneWord.MatchString(s) || len(words(s)) != 1 {
+					return n, "names.guarded holds " + toJSON(g) + ", which is not one word"
+				}
+				n.guarded = append(n.guarded, s)
+			}
+		}
+		switch v, _ := o.Get("categories"); v {
+		case nil, false:
+		case true:
+			n.categories = true
+		default:
+			return n, "names.categories is " + toJSON(v) + ", not true or false"
+		}
+		return n, ""
+	}
+	return n, ""
 }
 
 // sentence is an operation's summary: the first sentence of its
@@ -284,7 +409,7 @@ func classify(in classifyInput) (string, error) {
 		if v := q.get(q.get(root, "info"), "version"); q.err == nil && !equal(v, in.version) {
 			return "", fail("info.version is %s, not %s, the top of apiVersions: bump the range with the pin", interp(v), in.version)
 		}
-	} else {
+	} else if in.flavor != "graphql" {
 		urls := []any{}
 		for _, s := range q.iter(q.get(root, "servers")) {
 			urls = append(urls, q.get(s, "url"))
@@ -443,6 +568,18 @@ func classify(in classifyInput) (string, error) {
 	if in.graphqlPath != "" && !contains(endpointPaths, in.graphqlPath) {
 		return "", fail("source.json pins a GraphQL schema for %s, which exceptions.json does not declare", in.graphqlPath)
 	}
+	for _, e := range endpoints {
+		if q.get(e, "names") != nil && !equal(q.get(e, "path"), in.graphqlPath) {
+			return "", fail("%s says how its schema's fields are named, and source.json pins no schema for it", interp(q.get(e, "path")))
+		}
+	}
+	names, bad := namingOf(q, endpoints, in.graphqlPath)
+	if q.err != nil {
+		return "", jqErr()
+	}
+	if bad != "" {
+		return "", fail("the GraphQL endpoint %s: %s", in.graphqlPath, bad)
+	}
 	odd = []any{}
 	for _, f := range in.fields {
 		if f.description == nil {
@@ -494,7 +631,7 @@ func classify(in classifyInput) (string, error) {
 		naturals[s] = natural(o.method)
 	}
 	for _, f := range in.fields {
-		naturals[f.name] = fieldNatural(f.name)
+		naturals[f.name] = names.fieldNatural(f.name)
 	}
 	// A class written as an array is taken as jq's keys and to_entries
 	// take one: an empty array names nothing, and another names its
@@ -902,13 +1039,17 @@ func classify(in classifyInput) (string, error) {
 		if !equal(description, summary) {
 			op.Set("description", description)
 		}
-		class := fieldNatural(f.name)
+		class := names.fieldNatural(f.name)
 		if c, ok := exception[f.name]; ok {
 			class = c
 		}
 		op.Set("class", class)
-		if f.category != nil {
-			op.Set("category", f.category)
+		category := f.category
+		if category == nil {
+			category = names.category(f.name)
+		}
+		if category != nil {
+			op.Set("category", category)
 		}
 		rule.Set("operation", op)
 		kept = append(kept, rule)

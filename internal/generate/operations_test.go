@@ -596,16 +596,16 @@ func TestDockerAdmitNamesEachOnce(t *testing.T) {
 }
 
 // Every other app, from its pinned spec -- vendored, or fetched -- and, for
-// GitHub, its pinned GraphQL schema: what is committed is what it
+// GitHub and Linear, its pinned GraphQL schema (Linear's alone): what is committed is what it
 // generates, byte for byte.
 func TestOperationsCommitted(t *testing.T) {
-	for _, app := range []string{"huggingface", "cloudflare", "github"} {
+	for _, app := range []string{"huggingface", "cloudflare", "github", "linear"} {
 		t.Run(app, func(t *testing.T) {
 			committed := checkout(t, "apps", app)
 			apps := filepath.Join(t.TempDir(), "apps")
 			copyDir(t, committed, filepath.Join(apps, app))
 			var spec string
-			if !isFile(filepath.Join(apps, app, "openapi.json")) {
+			if url, _ := rawField([]any{readJSON(t, filepath.Join(apps, app, "source.json"))}, true, "url"); url != "" && !isFile(filepath.Join(apps, app, "openapi.json")) {
 				url, sum := pinOf(t, app)
 				spec = pinned(t, url, sum, "openapi.json")
 			}
@@ -639,5 +639,128 @@ func TestOperationsCommitted(t *testing.T) {
 				t.Fatalf("no summary: %q", stderr.String())
 			}
 		})
+	}
+}
+
+func readJSON(t *testing.T, path string) any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, _, err := parseJSON(data)
+	if err != nil || len(values) != 1 {
+		t.Fatalf("%s is not one JSON value: %v", path, err)
+	}
+	return values[0]
+}
+
+// An API that is GraphQL alone pins only its schema, and its endpoint's
+// `names` say how its fields' names give their class and category.
+func TestOperationsGraphQLOnly(t *testing.T) {
+	apps := filepath.Join(t.TempDir(), "apps")
+	app := filepath.Join(apps, "gql")
+	if err := os.MkdirAll(app, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	schema := `schema { query: Query mutation: Mutation }
+type Query { "Reads" viewer: Int }
+type Mutation {
+  "Creates an issue." issueCreate: Int
+  "Deletes an issue." issueDelete: Int
+  "Archives an issue label." issueLabelArchive: Int
+  "Rotates a secret." webhookRotateSecret: Int
+  "Imports from CSV and Jira." issueImportCreateCSVJira: Int
+}
+`
+	write := func(name, text string) {
+		if err := os.WriteFile(filepath.Join(app, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("schema.graphql", schema)
+	source := `{"graphql": {"path": "/graphql", "url": "https://example.invalid/schema.graphql", "sha256": "` + sha256Hex([]byte(schema)) + `"}}`
+	write("source.json", source)
+	endpoint := func(names string) string {
+		return `{"guarded": {"webhookRotateSecret": "Replaces a secret."}, "graphql": [{"path": "/graphql", "reason": "All of it."` + names +
+			`, "operation": {"id": "graphql-query", "summary": "A GraphQL query"}}]}`
+	}
+	run := func() (string, error) {
+		err := Operations(context.Background(), OperationsOptions{Apps: apps, Name: "gql"})
+		data, _ := os.ReadFile(filepath.Join(app, "operations.json"))
+		return string(data), err
+	}
+
+	write("exceptions.json", endpoint(`, "names": {"verb": "last", "categories": true}`))
+	got, err := run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `[
+{"graphql":"/graphql","query":true,"operation":{"id":"graphql-query","summary":"A GraphQL query","class":"read"}},
+{"graphql":"/graphql","mutation":"issueCreate","operation":{"id":"issueCreate","summary":"Creates an issue.","class":"write","category":"issue"}},
+{"graphql":"/graphql","mutation":"issueDelete","operation":{"id":"issueDelete","summary":"Deletes an issue.","class":"guarded","category":"issue"}},
+{"graphql":"/graphql","mutation":"issueImportCreateCSVJira","operation":{"id":"issueImportCreateCSVJira","summary":"Imports from CSV and Jira.","class":"write","category":"issue"}},
+{"graphql":"/graphql","mutation":"issueLabelArchive","operation":{"id":"issueLabelArchive","summary":"Archives an issue label.","class":"write","category":"issue"}},
+{"graphql":"/graphql","mutation":"webhookRotateSecret","operation":{"id":"webhookRotateSecret","summary":"Rotates a secret.","class":"guarded","category":"webhook"}}
+]
+`
+	if got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+
+	// Without names, the verb is the first word: issueDelete is a write, and
+	// no name gives a category.
+	write("exceptions.json", endpoint(``))
+	if got, err = run(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `"id":"issueDelete","summary":"Deletes an issue.","class":"write"}`) {
+		t.Fatalf("issueDelete without names:\n%s", got)
+	}
+
+	// The verbs guarded are what names says, in place of delete.
+	write("exceptions.json", endpoint(`, "names": {"verb": "last", "guarded": ["Archive"]}`))
+	if got, err = run(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `"id":"issueLabelArchive","summary":"Archives an issue label.","class":"guarded"}`) ||
+		!strings.Contains(got, `"id":"issueDelete","summary":"Deletes an issue.","class":"write"}`) {
+		t.Fatalf("guarded Archive:\n%s", got)
+	}
+
+	for names, why := range map[string]string{
+		`, "names": {"verb": "middle"}`:         `names.verb is "middle", not "first" or "last"`,
+		`, "names": {"guarded": ["two words"]}`: `names.guarded holds "two words", which is not one word`,
+		`, "names": {"guarded": "delete"}`:      `names.guarded is not an array of verbs`,
+		`, "names": {"categories": "yes"}`:      `names.categories is "yes", not true or false`,
+		`, "names": {"verbs": "last"}`:          `names has verbs, which is not verb, guarded or categories`,
+	} {
+		write("exceptions.json", endpoint(names))
+		if _, err := run(); err == nil || !strings.Contains(err.Error(), why) {
+			t.Fatalf("%s: got %v, want %q", names, err, why)
+		}
+	}
+
+	// A GraphQL-only source.json pins nothing else.
+	write("exceptions.json", endpoint(``))
+	write("source.json", `{"server": "https://example.invalid", "graphql": {"path": "/graphql", "url": "https://example.invalid/s", "sha256": "`+sha256Hex([]byte(schema))+`"}}`)
+	if _, err := run(); err == nil || !strings.Contains(err.Error(), "pins no spec, only a GraphQL schema, so it gives no server") {
+		t.Fatalf("server beside a GraphQL-only pin: %v", err)
+	}
+}
+
+func TestWords(t *testing.T) {
+	for name, want := range map[string]string{
+		"issueCreate":                              "issue Create",
+		"issueImportCreateCSVJira":                 "issue Import Create CSV Jira",
+		"integrationGitHubEnterpriseServerConnect": "integration Git Hub Enterprise Server Connect",
+		"deleteIssue":                              "delete Issue",
+		"x":                                        "x",
+		"oauth2Connect":                            "oauth2 Connect",
+	} {
+		if got := strings.Join(words(name), " "); got != want {
+			t.Errorf("words(%s) = %q, want %q", name, got, want)
+		}
 	}
 }

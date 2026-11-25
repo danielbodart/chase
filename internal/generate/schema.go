@@ -36,16 +36,16 @@ func schemaFields(sdl string) ([]field, error) {
 	}
 
 	// The root types are Mutation and Subscription unless a schema
-	// definition names others.
+	// definition names others. The query root it names is not listed: a
+	// query is one read, whatever its fields (Linear's schema names all
+	// three).
 	kinds := []string{"mutation", "subscription"}
 	roots := map[string]string{"mutation": "Mutation", "subscription": "Subscription"}
 	for _, s := range doc.Schema {
 		for _, o := range s.OperationTypes {
-			k := string(o.Operation)
-			if _, ok := roots[k]; !ok {
-				kinds = append(kinds, k)
+			if k := string(o.Operation); k != "query" {
+				roots[k] = o.Type
 			}
-			roots[k] = o.Type
 		}
 	}
 

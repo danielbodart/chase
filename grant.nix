@@ -114,7 +114,7 @@ in
       inherit dockerTiers checkouts;
       # The apps whose routes a project's frisket section answers: those
       # whose operations a project names (PLAN.md, decision 18).
-      answerable = [ "cloudflare" "gcloud" "git" "github" "huggingface" ];
+      answerable = [ "cloudflare" "gcloud" "git" "github" "huggingface" "linear" ];
       inherit (cfg.signer) allowedSigners;
       # flong's binary, by a launcher's name: flong reads a subcommand
       # after it when it is run as `flong`.

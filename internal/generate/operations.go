@@ -30,6 +30,7 @@ import (
 //	chase-generate operations huggingface [path/to/openapi.json]
 //	chase-generate operations github [path/to/openapi.json]
 //	chase-generate operations docker [path/to/swagger.yaml]
+//	chase-generate operations linear
 //
 // Every operation in the spec becomes one rule: a method, a path template,
 // and a class (PLAN.md, decision 18). GET and HEAD are reads, DELETE is
@@ -49,11 +50,17 @@ import (
 // is a read, whatever it reads. Where source.json pins the provider's
 // GraphQL schema too, under `graphql`, each field of its mutation and
 // subscription types is an operation of its own, named by the field, in the
-// schema's own words and category: a write, or guarded where its name says
-// it deletes, and otherwise as exceptions.json says, by the same names as
-// any other operation. Without a schema an endpoint's mutations are
-// unmatched. An endpoint decides every request at its path, so the
-// operations the spec has there are replaced, and it names them.
+// schema's own words and category: a write, or guarded where its name's
+// verb is one its endpoint's `names` guards (delete, unless it says), and
+// otherwise as exceptions.json says, by the same names as any other
+// operation. `names` says too whether the verb is a name's first word or
+// its last, and whether a field the schema gives no category takes its
+// noun's first word as one (classify.go's naming). Without a schema an
+// endpoint's mutations are unmatched. An endpoint decides every request at
+// its path, so the operations the spec has there are replaced, and it
+// names them. An API that is GraphQL alone (Linear) pins only its schema:
+// a source.json with `graphql` and no `url` has no spec, and no operations
+// but its endpoint's.
 //
 // The spec is PINNED by hash, in the app's source.json. A newer one is
 // never picked up on its own, because that would let an endpoint be allowed
@@ -157,15 +164,19 @@ func Operations(ctx context.Context, o OperationsOptions) error {
 
 	pinned := hand[source]
 	pin := func(orEmpty bool, path ...string) (string, error) { return rawField(pinned, orEmpty, path...) }
-	url, err1 := pin(false, "url")
-	sha, err2 := pin(false, "sha256")
-	server, err3 := pin(true, "server")
-	basePath, err4 := pin(true, "basePath")
-	version, err5 := pin(true, "apiVersions", "max")
-	format, err6 := pin(true, "format")
-	if err := errors.Join(err1, err2, err3, err4, err5, err6); err != nil {
+
+	// An API that is GraphQL and nothing else (Linear) has no spec to pin:
+	// its source.json pins only the schema, under `graphql`, and the app has
+	// no operations but its endpoint's.
+	graphqlPath, err := pin(true, "graphql", "path")
+	if err != nil {
 		return exitf(5, "operations: %s: %v", source, err)
 	}
+	anySpec, err := pin(true, "url")
+	if err != nil {
+		return exitf(5, "operations: %s: %v", source, err)
+	}
+	graphqlOnly := anySpec == "" && graphqlPath != ""
 
 	work, err := os.MkdirTemp("", "operations.")
 	if err != nil {
@@ -173,80 +184,34 @@ func Operations(ctx context.Context, o OperationsOptions) error {
 	}
 	defer os.RemoveAll(work)
 
-	// Which kind of spec, and in what: exactly one of server and basePath,
-	// and a format that agrees with it where one is given.
-	switch format {
-	case "", "swagger2-json", "swagger2-yaml", "openapi3-json", "openapi3-yaml":
-	default:
-		return exitf(1, "operations: %s: format %s is not swagger2-json, swagger2-yaml, openapi3-json or openapi3-yaml", source, format)
-	}
-	var flavor string
-	switch {
-	case basePath != "" && server == "":
-		flavor = "swagger2"
-	case server != "" && basePath == "":
-		flavor = "openapi3"
-	default:
-		return exitf(1, "operations: %s needs exactly one of server (OpenAPI 3) and basePath (Swagger 2.0)", source)
-	}
-	if format != "" && format[:strings.LastIndex(format, "-")] != flavor {
-		by := "server"
-		if basePath != "" {
-			by = "basePath"
-		}
-		return exitf(1, "operations: %s: format %s, but a %s spec by its %s", source, format, flavor, by)
-	}
-	if flavor == "swagger2" && version == "" {
-		return exitf(1, "operations: %s: a Swagger spec is its basePath's version, which apiVersions.max must say", source)
-	}
-	var ext string
-	switch {
-	case format != "":
-		ext = format[strings.Index(format, "-")+1:]
-	case strings.HasSuffix(url, ".json"):
-		ext = "json"
-	case strings.HasSuffix(url, ".yaml"), strings.HasSuffix(url, ".yml"):
-		ext = "yaml"
-	default:
-		return exitf(1, "operations: %s: %s is neither .json nor .yaml, so format must say which", source, url)
-	}
-
-	spec := o.Spec
-	switch {
-	case spec == "" && isFile(app+"/spec."+ext):
-		spec = app + "/spec." + ext
-	case spec == "" && ext == "json" && isFile(app+"/openapi.json"):
-		spec = app + "/openapi.json"
-	case spec == "":
-		spec = work + "/spec." + ext
-		if err := fetch(ctx, o.Client, url, spec); err != nil {
-			return exitf(1, "operations: could not fetch %s: %v", url, err)
-		}
-	}
-
-	// The bytes that were hashed are what is read: YAML only after it is
-	// pinned.
-	data, err := os.ReadFile(spec)
-	if err != nil {
-		return exitf(1, "operations: %v", err)
-	}
-	if actual := sha256Hex(data); actual != sha {
-		return exitf(1, "operations: %s is not the pinned spec.\n  expected sha256 %s\n  got             %s\n  (pinned: %s, in %s/source.json)", spec, sha, actual, url, app)
-	}
+	var url, sha, server, basePath, version, flavor string
 	var root any
-	if ext == "yaml" {
-		if root, err = readYAML(data); err != nil {
-			return exitf(1, "operations: could not read %s as YAML: %v", spec, err)
+	if graphqlOnly {
+		for _, key := range []string{"sha256", "server", "basePath", "apiVersions", "format"} {
+			if v, err := pin(true, key); err != nil || v != "" {
+				return exitf(1, "operations: %s pins no spec, only a GraphQL schema, so it gives no %s", source, key)
+			}
 		}
+		flavor = "graphql"
+		paths := NewObject()
+		spec := NewObject()
+		spec.Set("paths", paths)
+		root = spec
 	} else {
-		values, _, err := parseJSON(data)
-		if err != nil {
-			return exitf(5, "operations: %s is not JSON: %v", spec, err)
+		var format string
+		var err1, err2, err3, err4, err5, err6 error
+		url, err1 = pin(false, "url")
+		sha, err2 = pin(false, "sha256")
+		server, err3 = pin(true, "server")
+		basePath, err4 = pin(true, "basePath")
+		version, err5 = pin(true, "apiVersions", "max")
+		format, err6 = pin(true, "format")
+		if err := errors.Join(err1, err2, err3, err4, err5, err6); err != nil {
+			return exitf(5, "operations: %s: %v", source, err)
 		}
-		if len(values) != 1 {
-			return exitf(1, "operations: %s is %d JSON values, not one", spec, len(values))
+		if root, flavor, err = readSpec(ctx, o, app, source, work, url, sha, server, basePath, version, format); err != nil {
+			return err
 		}
-		root = values[0]
 	}
 
 	// No exceptions is none; no admit.json is an app whose classes are
@@ -261,10 +226,6 @@ func Operations(ctx context.Context, o OperationsOptions) error {
 	}
 
 	// The GraphQL schema, pinned the same way, read into its operations.
-	graphqlPath, err := pin(true, "graphql", "path")
-	if err != nil {
-		return exitf(5, "operations: %s: %v", source, err)
-	}
 	var fields []field
 	if graphqlPath != "" {
 		gURL, err1 := pin(false, "graphql", "url")
@@ -421,4 +382,87 @@ func creationMode() os.FileMode {
 	u := unix.Umask(0)
 	unix.Umask(u)
 	return 0o666 &^ os.FileMode(u)
+}
+
+// readSpec is the pinned spec, read: which kind it is, by source.json's
+// server or basePath and its format, and its bytes, hashed as pinned before
+// they are read.
+func readSpec(ctx context.Context, o OperationsOptions, app, source, work, url, sha, server, basePath, version, format string) (any, string, error) {
+	// Which kind of spec, and in what: exactly one of server and basePath,
+	// and a format that agrees with it where one is given.
+	switch format {
+	case "", "swagger2-json", "swagger2-yaml", "openapi3-json", "openapi3-yaml":
+	default:
+		return nil, "", exitf(1, "operations: %s: format %s is not swagger2-json, swagger2-yaml, openapi3-json or openapi3-yaml", source, format)
+	}
+	var flavor string
+	switch {
+	case basePath != "" && server == "":
+		flavor = "swagger2"
+	case server != "" && basePath == "":
+		flavor = "openapi3"
+	default:
+		return nil, "", exitf(1, "operations: %s needs exactly one of server (OpenAPI 3) and basePath (Swagger 2.0)", source)
+	}
+	if format != "" && format[:strings.LastIndex(format, "-")] != flavor {
+		by := "server"
+		if basePath != "" {
+			by = "basePath"
+		}
+		return nil, "", exitf(1, "operations: %s: format %s, but a %s spec by its %s", source, format, flavor, by)
+	}
+	if flavor == "swagger2" && version == "" {
+		return nil, "", exitf(1, "operations: %s: a Swagger spec is its basePath's version, which apiVersions.max must say", source)
+	}
+	var ext string
+	switch {
+	case format != "":
+		ext = format[strings.Index(format, "-")+1:]
+	case strings.HasSuffix(url, ".json"):
+		ext = "json"
+	case strings.HasSuffix(url, ".yaml"), strings.HasSuffix(url, ".yml"):
+		ext = "yaml"
+	default:
+		return nil, "", exitf(1, "operations: %s: %s is neither .json nor .yaml, so format must say which", source, url)
+	}
+
+	spec := o.Spec
+	switch {
+	case spec == "" && isFile(app+"/spec."+ext):
+		spec = app + "/spec." + ext
+	case spec == "" && ext == "json" && isFile(app+"/openapi.json"):
+		spec = app + "/openapi.json"
+	case spec == "":
+		spec = work + "/spec." + ext
+		if err := fetch(ctx, o.Client, url, spec); err != nil {
+			return nil, "", exitf(1, "operations: could not fetch %s: %v", url, err)
+		}
+	}
+
+	// The bytes that were hashed are what is read: YAML only after it is
+	// pinned.
+	data, err := os.ReadFile(spec)
+	if err != nil {
+		return nil, "", exitf(1, "operations: %v", err)
+	}
+	if actual := sha256Hex(data); actual != sha {
+		return nil, "", exitf(1, "operations: %s is not the pinned spec.\n  expected sha256 %s\n  got             %s\n  (pinned: %s, in %s/source.json)", spec, sha, actual, url, app)
+	}
+	var root any
+	if ext == "yaml" {
+		if root, err = readYAML(data); err != nil {
+			return nil, "", exitf(1, "operations: could not read %s as YAML: %v", spec, err)
+		}
+	} else {
+		values, _, err := parseJSON(data)
+		if err != nil {
+			return nil, "", exitf(5, "operations: %s is not JSON: %v", spec, err)
+		}
+		if len(values) != 1 {
+			return nil, "", exitf(1, "operations: %s is %d JSON values, not one", spec, len(values))
+		}
+		root = values[0]
+	}
+
+	return root, flavor, nil
 }

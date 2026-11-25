@@ -25,7 +25,7 @@
     };
 
     frisket = {
-      url = "github:danielbodart/frisket/v0.201.128";
+      url = "github:danielbodart/frisket/v0.205.132";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flong.follows = "flong";
       inputs.quoin.follows = "quoin";
@@ -40,7 +40,7 @@
     # the host's, see ./module.nix); the checks and the VM tests do. frisket
     # follows this one, so the lock holds one quoin.
     quoin = {
-      url = "github:danielbodart/quoin/v0.118.32";
+      url = "github:danielbodart/quoin/v0.120.34";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -717,6 +717,39 @@
               && hostScope.containers.chase-trusted.bindMounts ? "/home/alice/.cache/huggingface/hub"
               && ! hostScope.chase.internal.config.session.tiers.trusted.stores ? huggingface)
               || throw "assertions: huggingface's downloads were not kept where its scope says";
+            # Linear as github is: a tier authenticated with a credential it
+            # was not given is refused ...
+            assert refused "an unbound linear credential"
+              { chase.tiers.trusted.apps.linear = { enable = true; authenticated = true; }; }
+              "chase.tiers.trusted.apps.linear is authenticated, but has no credentialFile";
+            # ... one bound puts its key bare in Authorization, and the
+            # session holds the placeholder; GraphQL is all its route has,
+            # a query read, issueDelete guarded and issueCreate a write. One
+            # not authenticated holds no key.
+            assert
+              (let
+                bound = configWith {
+                  chase.tiers.trusted.apps.linear = { enable = true; authenticated = true; };
+                  chase.apps.linear.credentialFile = "/run/secrets/linear";
+                };
+                anonymous = configWith { chase.tiers.strict.apps.linear.enable = true; };
+                route = bound.chase.internal.policies.trusted.routes.linear;
+                gql = route.graphql."/graphql";
+              in
+              lib.all (a: a.assertion) bound.assertions
+              && route.host == "api.linear.app" && route.bare
+              && route.credentialFile == "/run/secrets/linear"
+              && ! route ? paths
+              && gql.query.operation.class == "read"
+              && gql.mutations.issueDelete.operation.class == "guarded"
+              && gql.mutations.issueCreate.operation.class == "write"
+              && gql.mutations.issueCreate.operation.category == "issue"
+              && gql.mutations.webhookCreate.operation.class == "guarded"
+              && bound.containers.chase-trusted.config.environment.variables.LINEAR_API_KEY == bound.chase.placeholder
+              && bound.containers.chase-trusted.config.environment.variables.LINEAR_IGNORE_ENV_FILE == "1"
+              && ! anonymous.chase.internal.policies.strict.routes.linear ? credentialFile
+              && ! anonymous.containers.chase-strict.config.environment.variables ? LINEAR_API_KEY)
+              || throw "assertions: linear's route did not hold together";
             # mise's installs follow the tier's caches as Hugging Face's do:
             # trusted's for the tier, in a store, with its shims on PATH;
             # strict's overlaid from the host. Its state is the host's,

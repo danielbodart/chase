@@ -177,7 +177,7 @@ func newHarness(t *testing.T) *harness {
 			Policies:   dir + "/policies",
 			Checkouts:  map[string][]string{"example/nix-config": {"/home/user/Projects/nix-config"}},
 			Apps:       map[string]grant.App{},
-			Answerable: []string{"cloudflare", "gcloud", "git", "github", "huggingface"},
+			Answerable: []string{"cloudflare", "gcloud", "git", "github", "huggingface", "linear"},
 			Approver:   dir + "/bin/approver",
 			Sops:       dir + "/bin/sops",
 			Diff:       diffPath(t),

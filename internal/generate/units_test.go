@@ -299,7 +299,6 @@ type Subscription { "Sub" sub: Int }
 		`["mutation","none",null,null,"Deprecated."]`,
 		`["mutation","later","Later",null,null]`,
 		`["subscription","sub","Sub",null,null]`,
-		`["query","a","q",null,null]`,
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("fields:\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

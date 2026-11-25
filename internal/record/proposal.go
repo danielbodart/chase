@@ -99,7 +99,7 @@ type Proposal struct {
 
 // grantApps are the routes a project's frisket section answers, by name,
 // as the module has them (grant.nix's answerable).
-var grantApps = []string{"cloudflare", "gcloud", "git", "github", "huggingface"}
+var grantApps = []string{"cloudflare", "gcloud", "git", "github", "huggingface", "linear"}
 
 // highSurface are calls a grant may allow and a person should know they
 // allow: each a large piece of kernel reached from the session, and not

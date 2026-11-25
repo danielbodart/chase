@@ -1,0 +1,7 @@
+{
+  "graphql": {
+    "path": "/graphql",
+    "url": "https://raw.githubusercontent.com/linear/linear/31f4dd9db7020b6c6a472b7cdf58be900115a02d/packages/sdk/src/schema.graphql",
+    "sha256": "ee3d23e0c68f31f5297f752e86003592e6c7c7c440559a979a785516298fbc2a"
+  }
+}

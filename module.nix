@@ -385,6 +385,7 @@ in
     ./apps/deepsec.nix
     ./apps/cloudflare.nix
     ./apps/huggingface.nix
+    ./apps/linear.nix
     ./apps/gcloud.nix
     ./apps/docker.nix
     ./apps/ssh.nix

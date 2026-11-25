@@ -9,6 +9,5 @@
 {"graphql":"/graphql","mutation":"laterThing","operation":{"id":"laterThing","summary":"Later.","description":"Later. Field.","class":"write","category":"later"}},
 {"graphql":"/graphql","mutation":"oldThing","operation":{"id":"oldThing","summary":"Old one!","description":"Old one! Still here\n\nDeprecated: Deprecated.","class":"write"}},
 {"graphql":"/graphql","mutation":"reclassed","operation":{"id":"reclassed","summary":"Reclassed?","description":"Reclassed? Yes.","class":"read"}},
-{"graphql":"/graphql","query":"a","operation":{"id":"a","summary":"A query field","class":"write"}},
 {"graphql":"/graphql","subscription":"subThing","operation":{"id":"subThing","summary":"Sub it","class":"write"}}
 ]

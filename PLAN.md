@@ -403,7 +403,7 @@ A request is answered by the most specific of these that says anything:
    asks, with the dialog showing what arrived. Not refused: when in doubt, a
    person decides.
 
-Only cloudflare, gcloud, git, github and huggingface take a project's
+Only cloudflare, gcloud, git, github, huggingface and linear take a project's
 answers. What a project answers for any other route — Claude Code's,
 Codex's, Docker's, whose answers are the machine's alone — or for a route
 its tier does not have, is said and left out (decision 8), as is a
