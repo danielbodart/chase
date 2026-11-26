@@ -117,9 +117,11 @@ What the module runs, rather than a person:
   chase workspace                  flong's workspace: the checkout's root
   chase guard TIER                 flong's guard for a sandbox tier
   chase hook binds TIER            flong's binds: what is bound beside it
-  chase hook approve TIER          flong's seccompPolicy: approve the grant
+  chase hook approve TIER          flong's approve: the guard's refusals,
+                                   then approve the grant and stage it
   chase hook record-approve TIER   a record launcher's: the same, and learn
                                    what the session calls
+  chase hook seccomp TIER          flong's seccompPolicy: the staged lines
   chase hook record-exec TIER AGENT [ARG...]
                                    a record launcher's exec: the same, the
                                    session's document a recording's
@@ -347,6 +349,27 @@ func runGuard(ctx context.Context, cfgPath string, args []string) int {
 		args = args[:1]
 	}
 	return selector.RunGuard(ctx, s, args, os.LookupEnv, os.Stderr)
+}
+
+// guardFirst is the guard's refusals, asked by flong's approve hook before
+// the approval: approve runs before binds and the guard, so that nothing
+// is bound but what was approved, and a launch the guard would refuse --
+// a checkout of another tier, one nested in another's -- must not put its
+// file to the signer first. It says nothing but a refusal: the guard,
+// which runs again once the binds are known, says the rest.
+func guardFirst(ctx context.Context, cfgPath, tier, ws string) int {
+	_, s, err := selectorOf(cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "chase hook approve: %v\n", err)
+		return 1
+	}
+	defer s.Close()
+	chosen := os.Getenv(selector.ChosenTier) == tier
+	if err := s.Guard(ctx, tier, ws, "", chosen, io.Discard); err != nil {
+		term.Say(os.Stderr, "%v", err)
+		return 1
+	}
+	return 0
 }
 
 // runWorkspace is flong's workspace hook: the root of the checkout the
@@ -587,8 +610,8 @@ func withDir(dir, pwd string) (string, error) {
 }
 
 // runHook is one of flong's hooks for a sandbox tier. flong runs each as a
-// command, never through a shell, with $workspace, $binds and (from
-// seccompPolicy on) $machine in its environment, and the launcher's own
+// command, never through a shell, with $workspace, $machine and (from
+// guard on) $binds in its environment, and the launcher's own
 // arguments after the hook's, which are exec's alone to read: the agent,
 // and its arguments.
 func runHook(ctx context.Context, cfgPath string, args []string) int {
@@ -606,10 +629,36 @@ func runHook(ctx context.Context, cfgPath string, args []string) int {
 	takes := cfg.Grant != nil && slices.Contains(cfg.GrantTiers, tier)
 	switch hook {
 	case "binds":
-		if err := session.Binds(cfg.Session, tier, ws, os.Getenv(session.With), os.Stdout); err != nil {
+		// The caller's own directories, then what the approved file says:
+		// read from the stage approve wrote, never from the checkout.
+		with := os.Getenv(session.With)
+		if takes {
+			signed, err := grant.With(*cfg.Grant, ws, machine, os.Stderr)
+			if err != nil {
+				term.Say(os.Stderr, "%v", err)
+				return 1
+			}
+			if len(signed) > 0 {
+				with = strings.Join(append([]string{with}, signed...), "\n")
+			}
+		}
+		if err := session.Binds(cfg.Session, tier, ws, with, os.Stdout); err != nil {
 			term.Say(os.Stderr, "%s: %v", ws, err)
 			return 1
 		}
+		return 0
+	case "seccomp":
+		// flong's seccompPolicy: the lines approve staged.
+		if !takes {
+			fmt.Fprintf(os.Stderr, "chase hook %s: %s takes no grant\n", hook, tier)
+			return 1
+		}
+		l, err := grant.Lines(*cfg.Grant, machine)
+		if err != nil {
+			term.Say(os.Stderr, "%v", err)
+			return 1
+		}
+		io.WriteString(os.Stdout, l)
 		return 0
 	case "exec":
 		return runExec(ctx, cfg, tier, ws, machine, takes, args[2:])
@@ -628,12 +677,17 @@ func runHook(ctx context.Context, cfgPath string, args []string) int {
 		if hook == "record-exec" {
 			return grant.ExecRecording(ctx, cfg.Session, cfg.Grant, nil, rec, tier, ws, machine, os.Getenv("binds"), args[2:], os.Stdout, os.Stderr)
 		}
+		if rc := guardFirst(ctx, cfgPath, tier, ws); rc != 0 {
+			return rc
+		}
 		r, err := grant.ApproveRecording(ctx, *cfg.Grant, ws, machine, tier, rec, os.Stderr)
+		if err == nil {
+			err = grant.StageLines(*cfg.Grant, machine, r)
+		}
 		if err != nil {
 			term.Say(os.Stderr, "%v", err)
 			return 1
 		}
-		io.WriteString(os.Stdout, r.Lines())
 		return 0
 	case "approve", "poststop":
 		if !takes {
@@ -647,6 +701,9 @@ func runHook(ctx context.Context, cfgPath string, args []string) int {
 	e := *cfg.Grant
 	switch hook {
 	case "approve":
+		if rc := guardFirst(ctx, cfgPath, tier, ws); rc != 0 {
+			return rc
+		}
 		return grant.RunApprove(ctx, e, []string{ws, machine, tier}, os.Stdin, os.Stdout, os.Stderr)
 	default:
 		return grant.RunPostStop(ctx, e, nil, []string{machine}, os.Stdin, os.Stdout, os.Stderr)

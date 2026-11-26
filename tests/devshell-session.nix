@@ -78,6 +78,11 @@ let
   grantJson = pkgs.writeText "chase.json" ''
     {"version": 2, "chase": {"apps": {"nix": {"devShell": true}}}}
   '';
+  # The same, signed with another checkout to mount read-only beside it,
+  # and one that is not there.
+  withJson = pkgs.writeText "chase.json" ''
+    {"version": 2, "chase": {"apps": {"nix": {"devShell": true}}, "with": {"../bashrc": "ro", "../nowhere": "rw"}}}
+  '';
 
   # What a devShell realised with no network cannot do: fetch, and build
   # anything of its own -- this, in no binary cache, nor in the store.
@@ -171,7 +176,7 @@ in
         codex.package = pkgs.hello;
       };
       tiers.own = {
-        match = [{ paths = map (d: "${home}/${d}") [ "mine" "mine-nogrant" "mine-flake" "bashrc" "getflake" "pathinput" "gone" ]; }];
+        match = [{ paths = map (d: "${home}/${d}") [ "mine" "mine-nogrant" "mine-flake" "bashrc" "getflake" "pathinput" "gone" "withsigned" ]; }];
         egress = "direct";
         allow = [ "*" ];
         grants = true;
@@ -378,6 +383,13 @@ in
           assert "chase: mounting ${home}/bashrc (own, rw)" in said, said
           s, said = launch("${chase}", "mine", "withro", shell="run --with ${home}/bashrc:ro bash")
           assert s is not None and "chase: mounting ${home}/bashrc (own, ro)" in said, said
+          # A signed chase.with mounts its directories at every launch,
+          # read from what approve staged; one not there is said.
+          checkout("withsigned", "${shellNix}", "shell.nix", "${withJson}", "chase.json")
+          s, said = launch("${own}", "withsigned")
+          assert s is not None, said
+          assert "chase: mounting ${home}/bashrc (own, ro)" in said, said
+          assert "nowhere, which is not there: not mounted" in said, said
           # A wrapper takes no option: --tier is the agent's word, not chase's.
           s, said = launch("${chase}", "mine", "nooption", shell="run shell --tier theirs")
           assert s is None, said

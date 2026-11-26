@@ -2,12 +2,13 @@
 // decisions 7, 10, 11 and 17): what the checkout's chase.json asks for
 // beyond its tier, once a person has signed it. Its steps:
 //
-//	approve   seccompPolicy, before the session is built: snapshots the
-//	          checkout's chase.json, its signature and the sops file it
-//	          names, checks what it says against what a project may say,
-//	          has the signer sign it if its signature does not verify,
-//	          stages it for this launch, and prints its syscall lines for
-//	          flong
+//	approve   flong's approve, once the session is named and before
+//	          anything is bound: snapshots the checkout's chase.json, its
+//	          signature and the sops file it names, checks what it says
+//	          against what a project may say, has the signer sign it if
+//	          its signature does not verify, and stages it for this
+//	          launch with its syscall lines, which binds and seccompPolicy
+//	          read from the stage
 //	launch    exec, after seccompPolicy and before the session is built:
 //	          decrypts the secrets the staged file binds, prepares each
 //	          bound app, merges its frisket section over the tier's policy

@@ -103,6 +103,13 @@ type Section struct {
 	Secrets       string       `json:"secrets,omitempty"`
 	SecretsSHA256 string       `json:"secretsSHA256,omitempty"`
 	Apps          *SectionApps `json:"apps,omitempty"`
+	// With are directories every session of the checkout is given beside
+	// it, each "rw" or "ro": relative to the checkout's root, under the
+	// home as ~/..., or absolute. What `chase run --with` gives one launch,
+	// signed for all of them; the binds hook reads it from the approved
+	// file alone (With), and a directory that is not there is said and
+	// not mounted.
+	With map[string]string `json:"with,omitempty"`
 }
 
 // SectionApps are the apps a project binds, each made into routes at
@@ -471,6 +478,16 @@ func (s Section) check() error {
 	}
 	if s.SecretsSHA256 != "" && !sha256Hex.MatchString(s.SecretsSHA256) {
 		return fmt.Errorf("chase.secretsSHA256: %q is not 64 lower-case hex digits", s.SecretsSHA256)
+	}
+	for _, dir := range slices.Sorted(maps.Keys(s.With)) {
+		switch {
+		case dir == "" || dir == "~":
+			return fmt.Errorf("chase.with: %q names no directory under the checkout or the home", dir)
+		case strings.ContainsAny(dir, ":\n\x00"):
+			return fmt.Errorf("chase.with: %q has a ':', a newline or a NUL in it, which a bind's line cannot carry", dir)
+		case s.With[dir] != "rw" && s.With[dir] != "ro":
+			return fmt.Errorf("chase.with.%s: %q is not rw or ro", dir, s.With[dir])
+		}
 	}
 	if s.Apps == nil {
 		return nil

@@ -2,12 +2,17 @@
 #
 # For a tier that takes grants, each launch:
 #
-#   seccompPolicy  before the session is built: snapshots the checkout's
+#   approve        once the session is named, before anything is bound:
+#                  asks the guard's refusals first, so that no launch it
+#                  would refuse reaches the signer; snapshots the checkout's
 #                  `chase.json` -- data, never evaluated -- and checks it
 #                  against what a grant may say; has quoin's signer sign it
 #                  if its signature does not verify; stages the signed file
-#                  for this launch's exec, and prints its syscall
-#                  loosenings for flong
+#                  for this launch, with its syscall loosenings
+#   binds          gives the session the directories the staged file's
+#                  `chase.with` names (module.nix's hook), read from the
+#                  stage, never from the checkout
+#   seccompPolicy  prints the staged loosenings for flong
 #   exec           still before the session is built: decrypts the secrets
 #                  the staged result binds into /run/user/<uid>/chase/<machine>/;
 #                  prepares each bound app; writes the session's policy
@@ -21,9 +26,10 @@
 #                  /run/user/<uid>/chase/<machine>/ and anything staged for it
 #
 # All of it runs as the user who launched: a launcher has no privilege of its
-# own (PLAN.md, decision 2). The approval is split from the rest because a
-# syscall filter is installed before anything in the session runs, so what
-# loosens it has to be known, and signed, before flong starts bwrap. The
+# own (PLAN.md, decision 2). The approval is split from the rest because
+# what a session is given beside its workspace, and the syscall filter
+# installed before anything in it runs, have to be known, and signed,
+# before flong binds a directory or starts bwrap. The
 # rest is exec's because exec is the one hook whose output is the session's
 # environment: nothing is written for a session to source, and nothing of
 # chase's runs inside one but, where a devShell is given, the bash that
@@ -123,10 +129,12 @@ in
     };
 
     flong = lib.mapAttrs' (name: _: lib.nameValuePair "chase-${name}" {
-      # After the guard, before bwrap: the filter is fixed before anything in
-      # the session runs, so this is where the grant is approved. It is
-      # applied in the tier's exec, module.nix's, which runs next.
-      seccompPolicy = [ [ chase "hook" "approve" name ] ];
+      # Once the session is named and before anything is bound: what the
+      # session is given, its binds among it, is only ever what was
+      # approved. The filter's lines are staged with it and printed after
+      # the guard, and the rest applied in the tier's exec, module.nix's.
+      approve = [ [ chase "hook" "approve" name ] ];
+      seccompPolicy = [ [ chase "hook" "seccomp" name ] ];
       postStop = [ [ chase "hook" "poststop" name ] ];
     }) tiers;
 

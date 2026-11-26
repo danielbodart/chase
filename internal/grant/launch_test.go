@@ -766,7 +766,7 @@ func TestALaunchAppliesOneApprovalOnce(t *testing.T) {
 	if h.launch("trusted", ws, "m9") == 0 {
 		t.Error("a launch nothing approved was applied")
 	}
-	if h.err != "chase: "+ws+": nothing was approved for this launch: the tier's seccompPolicy did not run\n" {
+	if h.err != "chase: "+ws+": nothing was approved for this launch: the tier's approve hook did not run\n" {
 		t.Errorf("an unapproved launch said: %q", h.err)
 	}
 	if _, err := os.Stat(h.dir + "/run/chase/m9"); err == nil {

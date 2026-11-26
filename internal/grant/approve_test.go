@@ -115,8 +115,8 @@ func TestWhatApproveNeedsFirst(t *testing.T) {
 		args []string
 		said string
 	}{
-		{[]string{"approve", ws}, "chase: no machine: flong names the session before seccompPolicy runs\n"},
-		{[]string{"approve", ws, "m1"}, "chase: no tier: the tier's seccompPolicy names it\n"},
+		{[]string{"approve", ws}, "chase: no machine: flong names the session before approve runs\n"},
+		{[]string{"approve", ws, "m1"}, "chase: no tier: the tier's approve hook names it\n"},
 	} {
 		if rc := h.run(c.args...); rc != 1 || h.err != c.said {
 			t.Errorf("%q: %d %q", c.args, rc, h.err)

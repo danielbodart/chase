@@ -53,9 +53,9 @@ func unset(stderr io.Writer, what string) int {
 	return 1
 }
 
-// RunApprove is `approve WS MACHINE TIER`, seccompPolicy: the approval, and
-// the approved policy's `allow` and `deny` lines, which are all it prints on
-// stdout.
+// RunApprove is `approve WS MACHINE TIER`, flong's approve: the approval,
+// staged for the launch with the approved policy's `allow` and `deny`
+// lines, which seccompPolicy prints (Lines). It prints nothing on stdout.
 func RunApprove(ctx context.Context, c Config, args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
 		return unset(stderr, "workspace")
@@ -65,7 +65,9 @@ func RunApprove(ctx context.Context, c Config, args []string, _ io.Reader, stdou
 	if err != nil {
 		return fail(stderr, err)
 	}
-	io.WriteString(stdout, r.Lines())
+	if err := StageLines(c, args[1], r); err != nil {
+		return fail(stderr, err)
+	}
 	return 0
 }
 

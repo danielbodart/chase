@@ -239,7 +239,18 @@ func (h *harness) approve(ws, machine, tier, file string) int {
 			h.t.Logf("chase sign: %v", err)
 		}
 	}
-	return h.run("approve", ws, machine, tier)
+	rc := h.run("approve", ws, machine, tier)
+	if rc == 0 {
+		// approve prints nothing: what seccompPolicy prints is what it
+		// staged, which the harness reads as flong's next hook would.
+		if h.out != "" {
+			h.t.Errorf("approve printed %q", h.out)
+		}
+		if l, err := grant.Lines(h.cfg, machine); err == nil {
+			h.out = l
+		}
+	}
+	return rc
 }
 
 // approveUnsigned is approve with file written as it is and unsigned, as a

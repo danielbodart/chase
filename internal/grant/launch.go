@@ -26,7 +26,7 @@ import (
 )
 
 // Launch is the grant's half of flong's exec hook, run on the host after
-// seccompPolicy and before the session is built: what seccompPolicy staged
+// seccompPolicy and before the session is built: what approve staged
 // for this launch, applied. It consumes the stage, so a launch applies one
 // approval once; re-checks that the sops file beside it is the one whose
 // digest was approved; decrypts the secret each bound app names; prepares
@@ -56,7 +56,7 @@ func launch(ctx context.Context, c Config, registry map[string]apps.App, rec *Re
 	defer unix.Umask(old)
 	stage := staged(c, machine)
 	if !regular(stage) {
-		return session.Given{}, refuse("%s: nothing was approved for this launch: the tier's seccompPolicy did not run", ws)
+		return session.Given{}, refuse("%s: nothing was approved for this launch: the tier's approve hook did not run", ws)
 	}
 	b, err := os.ReadFile(stage)
 	if err != nil {
@@ -477,5 +477,6 @@ func PostStop(ctx context.Context, c Config, registry map[string]apps.App, machi
 	}
 	os.RemoveAll(c.runtime() + "/chase/" + machine)
 	os.RemoveAll(staged(c, machine))
+	os.RemoveAll(stagedLines(c, machine))
 	return nil
 }

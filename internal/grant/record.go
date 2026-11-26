@@ -129,10 +129,10 @@ func (r Recording) learning(res Result) Result {
 	return res
 }
 
-// ApproveRecording is a recording session's seccompPolicy: Approve, the
-// grant asked about as for any launch, and its lines with what flong
-// learns by; and, for a `chase record` waiting on it, this session's name,
-// which seccompPolicy is the first hook to know.
+// ApproveRecording is a recording session's approve: Approve, the grant
+// asked about as for any launch, and its lines with what flong learns by;
+// and, for a `chase record` waiting on it, this session's name, which
+// approve is the first hook to know.
 func ApproveRecording(ctx context.Context, c Config, ws, machine, tier string, rec Recording, stderr io.Writer) (Result, error) {
 	res, err := Approve(ctx, c, ws, machine, tier, stderr)
 	if err != nil {

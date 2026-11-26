@@ -54,8 +54,8 @@ func (r Result) Lines() string {
 	return b.String()
 }
 
-// Approve is seccompPolicy: snapshot, read, check, have it signed or
-// approved, stage.
+// Approve is flong's approve hook: snapshot, read, check, have it signed,
+// stage.
 //
 // A project's file is DATA, read and checked by chase, never evaluated, so
 // nothing of the checkout's runs to find out what it asks for. It is
@@ -79,10 +79,10 @@ func Approve(ctx context.Context, c Config, ws, machine, tier string, stderr io.
 	old := unix.Umask(0o077)
 	defer unix.Umask(old)
 	if machine == "" {
-		return Result{}, refuse("no machine: flong names the session before seccompPolicy runs")
+		return Result{}, refuse("no machine: flong names the session before approve runs")
 	}
 	if tier == "" {
-		return Result{}, refuse("no tier: the tier's seccompPolicy names it")
+		return Result{}, refuse("no tier: the tier's approve hook names it")
 	}
 	runtime := c.runtime()
 	if fi, err := os.Stat(runtime); err != nil || !fi.IsDir() {

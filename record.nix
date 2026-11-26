@@ -9,11 +9,13 @@
 #                  connection to frisket, so a name off the allowlist, a
 #                  port, a host on the local network is seen and decided,
 #                  as a direct tier's pasta would never show it
-#   seccompPolicy  `chase hook record-approve`: the grant approved as for
+#   approve        `chase hook record-approve`: the grant approved as for
 #                  any launch, and flong's `log` lines after its own, so
 #                  every call the filter would refuse is allowed and
 #                  audited -- against the tier, or with --base none
-#                  against nothing but the calls every process makes
+#                  against nothing but the calls every process makes,
+#                  staged for the launch
+#   seccompPolicy  `chase hook seccomp`: prints the staged lines
 #   exec           `chase hook record-exec`: the session's document as any
 #                  launch writes it, with frisket's record block: what the
 #                  policy would refuse or ask about is put to a person, or
@@ -90,7 +92,8 @@ in
             # The tier's own session, as its launcher has it: who runs, where,
             # beside what, under which filter, checked by its guard.
             inherit (tier) user seccomp workspace binds guard overlays masks limits path;
-            seccompPolicy = [ [ chase "hook" "record-approve" name ] ];
+            approve = [ [ chase "hook" "record-approve" name ] ];
+            seccompPolicy = [ [ chase "hook" "seccomp" name ] ];
             exec = [ chase "hook" "record-exec" name ];
             postStop = [ [ chase "hook" "poststop" name ] ];
           })

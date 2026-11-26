@@ -26,7 +26,7 @@ import (
 //     decrypted, no token minted with a real key, no unit started;
 //   - what earlier versions left on the host that nothing reads now
 //     (forget), gone;
-//   - for a tier that takes grants, what seccompPolicy approved,
+//   - for a tier that takes grants, what approve approved,
 //     applied (Launch) -- its secrets decrypted, its apps prepared, the
 //     session's policy document written for frisket -- and what it exports
 //     and seeds handed to the payload, with nothing written for a session
