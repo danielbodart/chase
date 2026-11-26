@@ -1,0 +1,13 @@
+{
+  "version": "0.251.157",
+  "assets": {
+    "x86_64-linux": {
+      "url": "https://github.com/danielbodart/chase/releases/download/v0.251.157/chase-0.251.157-linux-amd64",
+      "hash": "sha256-8lU5UP2Y4ezK9FiwTExpRGGoNnLPg/PkmReLkQGbjjI="
+    },
+    "aarch64-linux": {
+      "url": "https://github.com/danielbodart/chase/releases/download/v0.251.157/chase-0.251.157-linux-arm64",
+      "hash": "sha256-VqYwg14ennLQs7v8Sc9Xpe70k+71Ab0++tykScGbcZo="
+    }
+  }
+}
