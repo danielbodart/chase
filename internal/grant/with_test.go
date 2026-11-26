@@ -66,3 +66,15 @@ func TestChaseWithIsChecked(t *testing.T) {
 		}
 	}
 }
+
+// A project's seccomp.debug and seccomp.log are flong's, said as the
+// lines seccompPolicy prints: ptrace allowed, and @known logged.
+func TestFlongDebugAndLogAreLines(t *testing.T) {
+	d, _, err := ParseDoc([]byte(`{"flong":{"seccomp":{"debug":true,"log":true,"syscalls":{"keyctl":"deny"}}},"version":2}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := d.Flong.Lines().Lines(); got != "allow ptrace\ndeny keyctl\nlog @known\n" {
+		t.Errorf("printed %q", got)
+	}
+}
