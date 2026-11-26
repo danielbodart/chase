@@ -26,11 +26,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/danielbodart/chase/internal/apps/claude"
-	"github.com/danielbodart/chase/internal/apps/codex"
+	"github.com/danielbodart/chase/internal/appcmd"
 	"github.com/danielbodart/chase/internal/checkout"
 	"github.com/danielbodart/chase/internal/config"
-	"github.com/danielbodart/chase/internal/gcloud"
 	"github.com/danielbodart/chase/internal/gitsafe"
 	"github.com/danielbodart/chase/internal/grant"
 	"github.com/danielbodart/chase/internal/projectaddr"
@@ -138,13 +136,9 @@ chase internal COMMAND:
   origin DIR
   ls-files DIR                 a checkout read without running its git
   copy-tracked WS DEST         the snapshot copier, paths on stdin
-  claude-refresh               systemd: keep Claude Code's login fresh
-  codex-refresh                systemd: keep Codex's login fresh
-  codex-placeholder            activation: Codex's placeholder login
-  gcloud-renew mint|loop RUN   systemd: a session's Google Cloud token
-  ssh-check                    the system's build: its SSH catalogues and
-                               each tier's own machines, as a launch
-                               would check them
+  app NAME COMMAND [ARG...]    an app's own commands, which each app
+                               registers (internal/appcmd); chase
+                               internal app lists them
 
 Every command that needs the module's configuration reads
 /etc/chase/config.json, or the file given before the command as
@@ -156,8 +150,7 @@ Every command that needs the module's configuration reads
 var systemCommands = map[string]bool{
 	"workspace": true, "guard": true, "hook": true, "grant": true,
 	"checkout": true, "origin": true, "ls-files": true, "copy-tracked": true,
-	"claude-refresh": true, "codex-refresh": true, "codex-placeholder": true,
-	"gcloud-renew": true, "ssh-check": true,
+	"app": true,
 }
 
 func main() {
@@ -243,19 +236,20 @@ func main() {
 		exit(snapshot.Run(args, os.Stdin, os.Stdout, os.Stderr))
 	case "project-address":
 		err = runProjectAddress(args, os.Stdout)
-	case "claude-refresh":
-		err = runClaude(ctx, cfgPath)
-	case "codex-refresh", "codex-placeholder":
-		err = runCodex(ctx, cfgPath, command)
-	case "gcloud-renew":
-		cfg, lerr := config.Load(cfgPath)
-		if lerr != nil {
+	case "app":
+		// An app's own commands (internal/appcmd), each reading its own
+		// section of the configuration, which is read as every command
+		// reads it first.
+		if _, lerr := config.Load(cfgPath); lerr != nil {
 			err = lerr
 			break
 		}
-		exit(gcloud.Run(ctx, args, os.Getenv, os.Stderr, cfg.GCloudRenew))
-	case "ssh-check":
-		err = runSSHCheck(cfgPath)
+		b, rerr := os.ReadFile(cfgPath)
+		if rerr != nil {
+			err = rerr
+			break
+		}
+		exit(appcmd.Run(ctx, b, args, os.Stderr))
 	case "check":
 		err = runCheck(cfgPath, args)
 	case "schema":
@@ -319,19 +313,6 @@ func runSchema(args []string) error {
 		return nil
 	}
 	return errors.New("usage: chase schema [-config]")
-}
-
-// runSSHCheck is what every launch would refuse of the machine's own SSH
-// (apps/ssh.nix's system.checks): nothing, for a machine with none.
-func runSSHCheck(cfgPath string) error {
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return err
-	}
-	if cfg.Grant == nil || cfg.Grant.SSH == nil {
-		return nil
-	}
-	return cfg.Grant.SSH.Check()
 }
 
 // exit ends the process with a command's own status, which it has already
@@ -820,32 +801,6 @@ func runDocker(ctx context.Context, cfgPath string, args []string) int {
 	tier := s.TierOrFallback(ctx, abs)
 	s.Close()
 	return grant.RunDocker(ctx, *cfg.Grant, []string{abs, tier}, os.Stdin, os.Stdout, os.Stderr)
-}
-
-func runClaude(ctx context.Context, cfgPath string) error {
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return err
-	}
-	if cfg.Claude == nil {
-		return errors.New("the module configures no claude")
-	}
-	return claude.RunRefresh(ctx, *cfg.Claude, os.Stderr)
-}
-
-func runCodex(ctx context.Context, cfgPath, command string) error {
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return err
-	}
-	if cfg.Codex == nil {
-		return errors.New("the module configures no codex")
-	}
-	codex.MoveState(*cfg.Codex, os.Stderr)
-	if command == "codex-placeholder" {
-		return codex.WritePlaceholder(*cfg.Codex)
-	}
-	return codex.RunRefresh(ctx, *cfg.Codex, os.Stderr)
 }
 
 func runProjectAddress(argv []string, out io.Writer) error {

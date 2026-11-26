@@ -65,7 +65,7 @@ func (c Config) tokenURL() string {
 	return c.TokenURL
 }
 
-// Outcome is how a mint ended, as the exit code `chase internal gcloud-renew mint`
+// Outcome is how a mint ended, as the exit code `chase internal app gcloud renew mint`
 // gives it. The launch switches on it: a refusal, or a key for another
 // account, ends the launch; Google out of reach only warns, since the unit
 // keeps trying.

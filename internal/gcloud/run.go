@@ -14,7 +14,7 @@ import (
 // `loop RUN`, as sysexits.h's EX_USAGE.
 const Usage = 64
 
-// Run is `chase internal gcloud-renew mint|loop RUN`, and returns its exit code.
+// Run is `chase internal app gcloud renew mint|loop RUN`, and returns its exit code.
 //
 //	mint RUN  mints RUN/gcloud-token.json once, and exits with its Outcome:
 //	          0 minted, 1 transient, 2 Google refused the grant, 3 the key

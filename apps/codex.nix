@@ -15,8 +15,8 @@ let
   # The placeholder login, and each tier's own CODEX_HOME. Under chase's
   # state directory: neither is the host's own login or state.
   stateDir = "${cfg.home}/.local/state/chase/codex";
-  # Where an earlier chase kept it, moved from by the first `chase
-  # codex-placeholder` or `codex-refresh` to run (internal/apps/codex).
+  # Where an earlier chase kept it, moved from by the first `chase internal
+  # app codex placeholder` or `refresh` to run (internal/apps/codex).
   formerStateDir = "${cfg.home}/.local/state/agents/codex";
   placeholderFile = "${stateDir}/auth-placeholder.json";
 
@@ -143,7 +143,7 @@ in
 
       # The placeholder is a bind source: flong refuses to start without it.
       home.activation.codexPlaceholder = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        ${lib.getExe cfg.package} internal codex-placeholder || echo "codex: no placeholder login written"
+        ${lib.getExe cfg.package} internal app codex placeholder || echo "codex: no placeholder login written"
       '';
 
       systemd.user.services.codex-refresh = {
@@ -152,7 +152,7 @@ in
         Service = {
           Restart = "always";
           RestartSec = 60;
-          ExecStart = "${lib.getExe cfg.package} internal codex-refresh";
+          ExecStart = "${lib.getExe cfg.package} internal app codex refresh";
         };
       };
     };

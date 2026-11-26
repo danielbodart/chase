@@ -2,7 +2,7 @@
 
 codex. frisket puts your host login's token on each request. The session
 holds a placeholder JWT that expires in 2100, so codex never refreshes it;
-refreshing stays on the host, where `codex-refresh` keeps the login fresh.
+refreshing stays on the host, where the `codex-refresh` service keeps the login fresh.
 codex's own sandbox is bypassed: the container is the sandbox.
 
 | `chase.apps.codex.…` | Default | |
