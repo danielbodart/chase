@@ -115,10 +115,6 @@ type FlongSeccomp struct {
 	// reaches no further than the session's own processes. A line,
 	// `allow ptrace`, as a tier's would be.
 	Debug bool `json:"debug,omitempty"`
-	// Log is flong's seccomp.log: every call of @known the filter would
-	// refuse is allowed and logged instead, to learn a policy, as `chase
-	// record` does for one session. A line, `log @known`.
-	Log bool `json:"log,omitempty"`
 }
 
 // SudoLayer is the sudo gate's section, read by the gate itself for a sudo
@@ -468,9 +464,6 @@ func (f *FlongLayer) Lines() Result {
 	s := f.Seccomp
 	r.Allow = slices.Clone(s.Allow)
 	r.Deny = slices.Clone(s.Deny)
-	if s.Log {
-		r.Log = append(r.Log, "@known")
-	}
 	for _, n := range slices.Sorted(maps.Keys(s.Syscalls)) {
 		switch s.Syscalls[n] {
 		case "allow":

@@ -67,15 +67,21 @@ func TestChaseWithIsChecked(t *testing.T) {
 	}
 }
 
-// A project's seccomp.debug and seccomp.log are flong's, said as the
-// lines seccompPolicy prints: ptrace allowed, and @known logged.
-func TestFlongDebugAndLogAreLines(t *testing.T) {
-	d, _, err := ParseDoc([]byte(`{"flong":{"seccomp":{"debug":true,"log":true,"syscalls":{"keyctl":"deny"}}},"version":2}`))
+// A project's seccomp.debug is flong's, said as the line seccompPolicy
+// prints: ptrace allowed. seccomp.log is not a project's: it would allow
+// and log every call the filter refuses, in every session, where `chase
+// record` learns a policy in one session a person starts, and a call is
+// logged by name in syscalls.
+func TestFlongDebugIsALineAndLogIsRefused(t *testing.T) {
+	d, _, err := ParseDoc([]byte(`{"flong":{"seccomp":{"debug":true,"syscalls":{"keyctl":"deny","mbind":"log"}}},"version":2}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := d.Flong.Lines().Lines(); got != "allow ptrace\ndeny keyctl\nlog @known\n" {
+	if got := d.Flong.Lines().Lines(); got != "allow ptrace\ndeny keyctl\nlog mbind\n" {
 		t.Errorf("printed %q", got)
+	}
+	if _, _, err := ParseDoc([]byte(`{"flong":{"seccomp":{"log":true}},"version":2}`)); err == nil || !strings.Contains(err.Error(), `unknown field "log"`) {
+		t.Errorf("seccomp.log: %v", err)
 	}
 }
 
