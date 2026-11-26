@@ -498,7 +498,7 @@ func wrap(ctx context.Context, cfgPath, name, program string, o runOptions, args
 	t, bare := s.Bare(tier)
 	if len(o.with) > 0 {
 		if bare {
-			term.Say(os.Stderr, "%s: --with is a sandbox's: '%s' runs on the host, where %s is yours already", name, tier, strings.Join(o.with, ", "))
+			fmt.Fprintln(os.Stderr, term.Clean(fmt.Sprintf("%s: --with is a sandbox's: '%s' runs on the host, where %s is yours already", name, tier, strings.Join(o.with, ", "))))
 		} else {
 			env = append(env, session.With+"="+strings.Join(o.with, "\n"))
 		}
