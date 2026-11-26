@@ -78,3 +78,20 @@ func TestFlongDebugAndLogAreLines(t *testing.T) {
 		t.Errorf("printed %q", got)
 	}
 }
+
+// A project's limits and network ports are the layer flong's exec is
+// given, and nothing else of the section is: the seccomp section is
+// seccompPolicy's.
+func TestTheFlongLayerIsLimitsAndPorts(t *testing.T) {
+	d, _, err := ParseDoc([]byte(`{"flong":{"limits":{"MemoryMax":"8G"},"network":{"hostPorts":[5432]},"seccomp":{"debug":true}},"version":2}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l, err := d.Flong.LaunchLayer(); err != nil || l != `{"limits":{"MemoryMax":"8G"},"network":{"hostPorts":[5432]}}` {
+		t.Errorf("layer %s %v", l, err)
+	}
+	d, _, _ = ParseDoc([]byte(`{"flong":{"seccomp":{"debug":true}},"version":2}`))
+	if l, err := d.Flong.LaunchLayer(); err != nil || l != "" {
+		t.Errorf("a seccomp section alone made a layer: %s %v", l, err)
+	}
+}

@@ -75,6 +75,36 @@ type Doc struct {
 // the map's.
 type FlongLayer struct {
 	Seccomp *FlongSeccomp `json:"seccomp,omitempty"`
+	// Limits is flong's limits -- MemoryMax, MemoryHigh, MemorySwapMax,
+	// TasksMax, CPUQuota, CPUWeight, oomGroup -- merged over the tier's,
+	// field by field. Network is its forwardPorts and hostPorts, each
+	// replacing the tier's list whole, in a tier whose egress is direct.
+	// flong applies both at launch, from the layer exec prints
+	// (LaunchLayer), and checks them there and at approve, as a project
+	// layer's: chase leaves their types to flong.
+	Limits  map[string]any `json:"limits,omitempty"`
+	Network *FlongNetwork  `json:"network,omitempty"`
+}
+
+// FlongNetwork is what of flong's network a project's file may say: the
+// ports published on the host, and the host's loopback ports the session
+// reaches.
+type FlongNetwork struct {
+	ForwardPorts any `json:"forwardPorts,omitempty"`
+	HostPorts    any `json:"hostPorts,omitempty"`
+}
+
+// LaunchLayer is the layer flong's exec is given, `layer:JSON`: the
+// section's limits and network, which flong applies at launch, or "" for
+// none. The seccomp section is not in it: its lines are seccompPolicy's,
+// compiled before exec runs.
+func (f *FlongLayer) LaunchLayer() (string, error) {
+	if f == nil || (len(f.Limits) == 0 && f.Network == nil) {
+		return "", nil
+	}
+	l := FlongLayer{Limits: f.Limits, Network: f.Network}
+	b, err := json.Marshal(l)
+	return string(b), err
 }
 
 type FlongSeccomp struct {

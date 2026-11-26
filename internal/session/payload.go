@@ -51,6 +51,10 @@ type Given struct {
 	// least of the session's environment, and what the argument list is
 	// wrapped in; nil for none.
 	DevShell *DevShell
+	// Layer is the approved file's flong layer, as flong's exec gives it
+	// with `layer:`: limits and the network's ports, applied at launch;
+	// "" for none.
+	Layer string
 	// DevShellGranted is whether the approved grant turns the checkout's
 	// devShell on, apps.nix.devShell: the exec hook's to read before it
 	// realises one (internal/devshell), never the payload's.
@@ -66,6 +70,7 @@ type Exec struct {
 	Files   []File
 	Forward string
 	Label   string
+	Layer   string
 }
 
 // What Claude Code's placeholder login grants: what it offers is decided
@@ -357,6 +362,7 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 	if t.Forward {
 		e.Forward = given.Forward
 	}
+	e.Layer = given.Layer
 	e.Label = Label(tier)
 
 	if err := e.check(c.Home); err != nil {
@@ -529,7 +535,8 @@ func (e Exec) check(home string) error {
 // argument list, its program first, `file:MODE:PATH` for each file
 // followed by one field that is its content, and `forward:ADDRESS` when
 // the published ports are bound to an address of the launch's own, and
-// `label:TEXT`, what the terminal is told the container is called.
+// `label:TEXT`, what the terminal is told the container is called, and
+// `layer:JSON`, the project's flong layer, when it has one.
 func (e Exec) Write(w io.Writer) error {
 	var b bytes.Buffer
 	field := func(s string) {
@@ -551,6 +558,9 @@ func (e Exec) Write(w io.Writer) error {
 	}
 	if e.Label != "" {
 		field("label:" + e.Label)
+	}
+	if e.Layer != "" {
+		field("layer:" + e.Layer)
 	}
 	_, err := w.Write(b.Bytes())
 	return err

@@ -532,3 +532,20 @@ func TestALabelIsTheTier(t *testing.T) {
 		}
 	}
 }
+
+// A project's flong layer reaches flong as exec's `layer:` field, after
+// the rest, and a launch with none prints none.
+func TestTheLayerIsExecsLastField(t *testing.T) {
+	var b bytes.Buffer
+	if err := (Exec{Argv: []string{"bash"}, Layer: `{"limits":{"TasksMax":77}}`}).Write(&b); err != nil {
+		t.Fatal(err)
+	}
+	if b.String() != "arg:bash\x00layer:{\"limits\":{\"TasksMax\":77}}\x00" {
+		t.Errorf("printed %q", b.String())
+	}
+	b.Reset()
+	(Exec{Argv: []string{"bash"}}).Write(&b)
+	if strings.Contains(b.String(), "layer:") {
+		t.Errorf("printed %q", b.String())
+	}
+}

@@ -289,6 +289,9 @@ func apply(ctx context.Context, c Config, registry map[string]apps.App, pd *poli
 	// The devShell, which exec realises once the document is written:
 	// nothing of it is prepared here.
 	given.DevShellGranted = sectionApps.Nix != nil && sectionApps.Nix.DevShell
+	if given.Layer, err = doc.Flong.LaunchLayer(); err != nil {
+		return given, err
+	}
 	if doc.Frisket != nil {
 		if err := applyLayer(c, pd, doc.Frisket, ws, tier, stderr); err != nil {
 			return given, err

@@ -362,7 +362,7 @@ func TestWhatAChaseJSONMayNotSayIsRefused(t *testing.T) {
 		{`{"version": 2, "frisket": {"allow": {"*.co.uk": true}}}`, "public suffix"},
 		{`{"version": 2, "frisket": {"lan": {"*.lan": {}}}}`, "never a wildcard"},
 		{`{"version": 2, "frisket": {"lan": {"shop.example.internal": {}}}}`, "a project's name"},
-		{`{"version": 2, "flong": {"limits": {}}}`, `unknown field "limits"`},
+		{`{"version": 2, "flong": {"binds": []}}`, `unknown field "binds"`},
 		{`{"version": 2, "flong": {"seccomp": {"allow": ["ptrace"]}}}`, `seccomp.syscalls names: {"ptrace": "allow"}`},
 		{`{"version": 2, "flong": {"seccomp": {"syscalls": {"@debug": "allow"}}}}`, "is not a call's name"},
 		{`{"version": 2, "flong": {"seccomp": {"syscalls": {"ptrace": "maybe"}}}}`, "not allow, deny or log"},

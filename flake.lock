@@ -8,16 +8,16 @@
         "nixpkgs-unstable": "nixpkgs-unstable"
       },
       "locked": {
-        "lastModified": 1795714880,
-        "narHash": "sha256-DMNYWFaBERoxM3oeg8HqT8JoiNqGUm2blbnGW1TDuGk=",
+        "lastModified": 1795718656,
+        "narHash": "sha256-idkxAB3kjrHjBZa3MEnDhRvLcnSk+j1U28KLRAnAe7o=",
         "owner": "danielbodart",
         "repo": "flong",
-        "rev": "b0aa468ae77b6fe311f974749b8c455d4dcdeb0b",
+        "rev": "8600ff8de0aa5302be1b89bb3023693ba47d37fc",
         "type": "github"
       },
       "original": {
         "owner": "danielbodart",
-        "ref": "v0.169.135",
+        "ref": "v0.170.136",
         "repo": "flong",
         "type": "github"
       }
