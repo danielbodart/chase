@@ -1144,8 +1144,11 @@
               # it, not environment.variables alone.
               jq -e '.session.tiers.strict.environment.XDG_DATA_DIRS | contains("''${HOME}/.nix-profile/share")' ${file} > /dev/null \
                 || fail "strict's environment is not flong's: $(jq -c .session.tiers.strict.environment ${file})"
-              # A closed list: nothing else on the container's PATH runs.
-              ! workspace=/w chase -config ${file} hook exec strict sh -c id > /dev/null 2>&1 || fail "strict ran sh"
+              # Any program runs as it is, its words its own; no program
+              # at all is refused.
+              workspace=/w chase -config ${file} hook exec strict sh -c id > program 2> said || fail "strict did not run sh: $(cat said)"
+              tr '\0' '\n' < program | grep -qx 'arg:sh' || fail "sh ran as $(tr '\0' ' ' < program)"
+              ! workspace=/w chase -config ${file} hook exec strict "" > /dev/null 2>&1 || fail "strict ran no program"
               for section in selector session grant wrappers claude codex; do
                 jq -e --arg s "$section" 'has($s)' ${file} >/dev/null || fail "no $section section"
               done
