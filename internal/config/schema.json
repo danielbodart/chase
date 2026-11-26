@@ -148,7 +148,6 @@
           "type": "array",
           "items": { "type": "string" }
         },
-        "approver": { "description": "chase.approver: the program that asks a person to approve a legacy grant, a chase.jsonc. Empty is none.", "$ref": "#/$defs/optionalAbsPath" },
         "recordDir": { "description": "Where frisket appends a recording session's lines. Empty is the journal alone.", "$ref": "#/$defs/optionalAbsPath" },
         "sops": { "description": "The sops that decrypts a project's secrets.", "$ref": "#/$defs/absPath" },
         "diff": { "description": "The diff that shows a person what changed.", "$ref": "#/$defs/absPath" },

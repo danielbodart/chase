@@ -1,7 +1,6 @@
 // Package grant is a project's own file, applied at launch (PLAN.md,
 // decisions 7, 10, 11 and 17): what the checkout's chase.json asks for
-// beyond its tier, once a person has signed it -- or, for one release, its
-// legacy chase.jsonc, once a person has approved it. Its steps:
+// beyond its tier, once a person has signed it. Its steps:
 //
 //	approve   seccompPolicy, before the session is built: snapshots the
 //	          checkout's chase.json, its signature and the sops file it
@@ -19,14 +18,14 @@
 //
 // and postStop: each app's Stop, then the session's run directory and
 // anything staged for it removed. And the commands a person runs on a
-// project's file: check, fmt, schema, sign and migrate.
+// project's file: check, fmt, schema and sign.
 //
 // All of it runs as the user who launched: a launcher has no privilege of
 // its own (PLAN.md, decision 2). The approval is split from the rest because
 // a syscall filter is installed before anything in the session runs, so what
 // loosens it has to be known, and signed, before flong starts bwrap.
 //
-// A checkout with neither file is the tier as it is. Anything that goes
+// A checkout with no chase.json is the tier as it is. Anything that goes
 // wrong on the way ends the launch: a project's file is applied whole or the
 // session does not start.
 package grant
@@ -63,9 +62,8 @@ type Config struct {
 	// path, where an app's files are seeded: a snapshot is taken under
 	// Home/.cache/chase, and State defaults to Home/.local/state/chase.
 	Home string `json:"home"`
-	// State is where chase keeps what it approved (approved/<key>), each
-	// checkout's own directory (checkouts/<key>). Empty is
-	// Home/.local/state/chase.
+	// State is where chase keeps each checkout's own directory
+	// (checkouts/<key>). Empty is Home/.local/state/chase.
 	State string `json:"state,omitempty"`
 	// Runtime is the user's runtime directory, where a launch stages its
 	// approval (chase/.grant/<machine>.json) and keeps its session's own
@@ -116,12 +114,8 @@ type Config struct {
 	// launched as those that do, for routes made at launch that are the
 	// tier's own: a tier's SSH machines (apps/ssh.nix). Approve stages each
 	// launch of one as a checkout with no grant, and never reads its
-	// chase.jsonc.
+	// chase.json.
 	Ungranted []string `json:"ungranted,omitempty"`
-	// Approver is chase.approver: the program that asks a person to
-	// approve a checkout's legacy grant, its chase.jsonc. Empty is none,
-	// and nothing is approved.
-	Approver string `json:"approver,omitempty"`
 	// RecordDir is where frisket appends a recording session's lines,
 	// its -record-dir: each session's <RecordDir>/<machine>.jsonl, named
 	// in the record block a recording's exec writes. Empty: the journal
@@ -191,9 +185,9 @@ func (c Config) paths() error {
 			return fmt.Errorf("%s is %q, which is not an absolute path", p.name, p.path)
 		}
 	}
-	// Empty is a default, or, for the approver, none: nothing is approved.
+	// Empty is a default.
 	for _, p := range []struct{ name, path string }{
-		{"state", c.State}, {"runtime", c.Runtime}, {"approver", c.Approver}, {"recordDir", c.RecordDir},
+		{"state", c.State}, {"runtime", c.Runtime}, {"recordDir", c.RecordDir},
 		{"allowedSigners", c.AllowedSigners}, {"signerAgent", c.SignerAgent}, {"flong", c.Flong}, {"declarations", c.Declarations},
 	} {
 		if p.path != "" && !filepath.IsAbs(p.path) {

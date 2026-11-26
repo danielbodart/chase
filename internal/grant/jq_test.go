@@ -129,41 +129,11 @@ func TestAnGrantIsPrintedAsJqPrintedIt(t *testing.T) {
 			args []string
 		}{
 			{v.compact() + "\n", []string{"-c", "."}},
-			{v.sorted() + "\n", []string{"-cS", "."}},
 			{v.pretty() + "\n", []string{"."}},
-			{v.prettySorted() + "\n", []string{"-S", "."}},
 		} {
 			if want := jq(t, e, c.args...); c.got != want {
 				t.Errorf("jq %q of %s: %q, not %q", c.args, e, c.got, want)
 			}
 		}
-	}
-}
-
-// The approver's stdin is what `jq -n --arg ...` made of the two strings,
-// whatever is in them: a path a session named, a diff of its grant.
-func TestTheApproversDocumentIsJqs(t *testing.T) {
-	for _, s := range []string{"plain", "x\x1b]0;TITLE\x07y", "tab\tnewline\n\"quote\" \\ back", "é   <&>", "bad \xff\xfe utf-8", "nul\x01"} {
-		doc := jobject()
-		doc.set("workspace", jstr(s))
-		doc.set("diff", jstr(s+"\n"))
-		want := jq(t, "", "-n", "--arg", "workspace", s, "--arg", "diff", s+"\n",
-			"{workspace: $workspace, diff: $diff}")
-		if got := doc.pretty() + "\n"; got != want {
-			t.Errorf("%q: %q, not %q", s, got, want)
-		}
-	}
-}
-
-// Values are ordered as jq orders them: what `sort` gives is what
-// namedTwice's groups are in.
-func TestValuesAreOrderedAsJqOrdersThem(t *testing.T) {
-	in := `[{"b": 1}, {"a": 2}, {"a": 1, "b": 1}, [2], [1, 2], "b", "a", "ab", 10, 9.5, true, false, null, {"a": 1}]`
-	v, _ := parseJSON([]byte(in))
-	items := append([]*value(nil), v.items...)
-	sortValues(items)
-	out := &value{kind: '[', items: items}
-	if want := jq(t, in, "-c", "sort"); out.compact()+"\n" != want {
-		t.Errorf("sorted: %s, not %s", out.compact(), want)
 	}
 }

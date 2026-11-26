@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -366,13 +365,7 @@ func (h *harvest) run(events []Event, pids map[int]bool) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		h.notes = append(h.notes, fmt.Sprintf("%s could not be read: %v", path, err))
 	}
-	var legacy []byte
-	if current == nil {
-		if legacy, _, err = readGrant(filepath.Join(s.Workspace, grant.LegacyName)); err == nil {
-			h.notes = append(h.notes, "the checkout has a "+grant.LegacyName+": run chase migrate, then chase record apply")
-		}
-	}
-	against := h.against(current, legacy)
+	against := h.against(current)
 	o := s.Args.Options
 	p := Propose(lines, calls, o, against)
 	header := []string{
@@ -384,7 +377,7 @@ func (h *harvest) run(events []Event, pids map[int]bool) {
 	proposal := p.File(header)
 
 	diff := ""
-	if len(p.Entries) > 0 && legacy == nil {
+	if len(p.Entries) > 0 {
 		if merged, _, err := Merge(current, proposal); err != nil {
 			h.notes = append(h.notes, fmt.Sprintf("the proposal could not be merged: %v", err))
 		} else {
@@ -442,14 +435,12 @@ func (h *harvest) lines(ctx context.Context) ([]Line, bool) {
 }
 
 // against is what a proposal is made against: the machines the
-// checkout's chase.json -- or its chase.jsonc, before it is migrated --
-// names, and the calls it allows; the calls the tier's syscalls map logs,
+// checkout's chase.json names, and the calls it allows; the calls the tier's syscalls map logs,
 // which it allows; and for a recording from scratch, the calls the tier's
 // filter allows.
-func (h *harvest) against(current, legacy []byte) Against {
+func (h *harvest) against(current []byte) Against {
 	a := Against{Hosts: map[string]bool{}, Allowed: map[string]bool{}, Granted: map[string]bool{}}
-	switch {
-	case current != nil:
+	if current != nil {
 		if d, _, err := grant.ParseDoc(current); err != nil {
 			h.notes = append(h.notes, fmt.Sprintf("%s is not one chase reads: %v", grant.FileName, err))
 		} else {
@@ -460,24 +451,6 @@ func (h *harvest) against(current, legacy []byte) Against {
 			}
 			for _, n := range d.Flong.Lines().Allow {
 				a.Allowed[n], a.Granted[n] = true, true
-			}
-		}
-	case legacy != nil:
-		if b, err := grant.ParseFile(slices.Clone(legacy)); err != nil {
-			h.notes = append(h.notes, fmt.Sprintf("%s is not a grant chase reads: %v", grant.LegacyName, err))
-		} else {
-			var f grant.File
-			if json.Unmarshal(b, &f) == nil {
-				if f.Apps.SSH != nil {
-					for name := range f.Apps.SSH.Hosts {
-						a.Hosts[name] = true
-					}
-				}
-				if f.Seccomp != nil {
-					for _, n := range f.Seccomp.Allow {
-						a.Allowed[n], a.Granted[n] = true, true
-					}
-				}
 			}
 		}
 	}
@@ -564,8 +537,7 @@ func unified(path, labelA, labelB string, a, b []byte) string {
 // Apply is `chase record apply [--last | MACHINE]`: the recording's
 // proposal merged into its checkout's chase.json, what changed shown, the
 // recording marked applied, and the file signed through the signer.
-// Applying one twice adds nothing the second time. A checkout with only a
-// chase.jsonc is migrated first, with chase migrate.
+// Applying one twice adds nothing the second time.
 func Apply(ctx context.Context, c grant.Config, args []string, stdout, stderr io.Writer) int {
 	if len(args) > 1 {
 		term.Say(stderr, "%s", Usage)
@@ -593,10 +565,6 @@ func Apply(ctx context.Context, c grant.Config, args []string, stdout, stderr io
 		mode = fi.Mode().Perm()
 	case errors.Is(err, os.ErrNotExist):
 		current = nil
-		if _, err := os.Lstat(filepath.Join(m.Workspace, grant.LegacyName)); err == nil {
-			term.Say(stderr, "%s has a %s: run chase migrate there first", m.Workspace, grant.LegacyName)
-			return 1
-		}
 	default:
 		term.Say(stderr, "%v", err)
 		return 1

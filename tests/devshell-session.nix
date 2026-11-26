@@ -164,10 +164,6 @@ in
       uid = 1000;
       gid = 100;
       order = [ "own" "theirs" ];
-      # Asked nothing: every checkout's chase.json is signed.
-      approver = "${pkgs.writeShellScript "approver" ''
-        ${pkgs.coreutils}/bin/cat | ${pkgs.util-linux}/bin/logger -t chase-test-approver
-      ''}";
       signer.allowedSigners = signing.allowedSigners;
       fallback = "others";
       apps = {

@@ -63,10 +63,10 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 	h.checkout(ws)
 	write(t, ws+"/secrets.json", string(secrets))
 	h.fx.Run("-C", ws, "add", "secrets.json")
-	h.launched(ws, "m1", "trusted", `{"secrets": "secrets.json", "apps": {"gcloud": {
+	h.launched(ws, "m1", "trusted", `{"version": 2, "chase": {"secrets": "secrets.json", "apps": {"gcloud": {
 		"serviceAccount": "`+sa+`", "credential": {"secret": "gcloud-key"},
-		"apis": {"add": ["pubsub"], "remove": ["storage"]},
-		"allow": ["category:bigquery"], "ask": ["pubsub.projects.topics.delete"]}}}`)
+		"apis": {"pubsub": true, "storage": false}}}},
+		"frisket": {"routes": {"gcloud": {"operations": {"category:bigquery": "allow", "pubsub.projects.topics.delete": "ask"}}}}}`)
 	run := h.dir + "/run/chase/m1"
 	if !h.said("chase: gcloud from secrets.json:gcloud-key") {
 		t.Errorf("where gcloud came from was not said: %s", h.err)
@@ -137,9 +137,10 @@ func TestGoogleCloudIsLaunchedAndStoppedWithItsSession(t *testing.T) {
 	// LISTS THAT DO NOT APPLY end the launch: a category of an API this
 	// session does not carry -- storage, removed -- is the script's `||
 	// die`, said after why, and nothing of the session is written or given.
-	h.approved(ws, "m2", "trusted", `{"secrets": "secrets.json", "apps": {"gcloud": {
+	h.approved(ws, "m2", "trusted", `{"version": 2, "chase": {"secrets": "secrets.json", "apps": {"gcloud": {
 		"serviceAccount": "`+sa+`", "credential": {"secret": "gcloud-key"},
-		"apis": {"remove": ["storage"]}, "allow": ["category:storage"]}}}`)
+		"apis": {"storage": false}}}},
+		"frisket": {"routes": {"gcloud": {"operations": {"category:storage": "allow"}}}}}`)
 	if rc := h.launch("trusted", ws, "m2"); rc != 1 {
 		t.Fatalf("lists that do not apply were launched: %d %s", rc, h.err)
 	}

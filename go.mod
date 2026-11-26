@@ -8,7 +8,6 @@ go 1.26.0
 require (
 	github.com/danielbodart/frisket v0.205.132
 	github.com/danielbodart/quoin v0.120.34
-	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
 	github.com/vektah/gqlparser/v2 v2.5.64
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.59.0

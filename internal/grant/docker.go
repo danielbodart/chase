@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 
@@ -37,9 +36,9 @@ func dockerTier(c Config, tier string) bool {
 // Show is `chase docker`: where a checkout's project is, for a person to
 // read on the host. Its project address and the name frisket answers for
 // it, which are the project's whatever the tier -- its dev servers are
-// forwarded there -- and, in a tier with Docker, the ports last approved
-// for this project: an approval of the checkout as another project, before
-// its origin changed, approved none of this one's.
+// forwarded there -- and, in a tier with Docker, the ports its signed
+// chase.json gives this project: a file signed as another project, before
+// its origin changed, gives none of this one's.
 func Show(ctx context.Context, c Config, ws, tier string, stdout, stderr io.Writer) error {
 	g, err := newGit(c)
 	if err != nil {
@@ -73,25 +72,9 @@ func Show(ctx context.Context, c Config, ws, tier string, stdout, stderr io.Writ
 		return refuse("%s: its checkout cannot be sorted: %s", ws, gitsafe.Output(out.Bytes()))
 	}
 	root, _, _ := strings.Cut(gitsafe.Output(out.Bytes()), "\t")
+	ports := "(none signed)"
 	if b, err := projpolicy.ReadFile(root + "/" + FileName); err == nil {
-		fmt.Fprintf(stdout, "  ports    %s\n", signedPorts(c, root, b, slug))
-		return nil
-	}
-	result := jnull
-	if p := c.state() + "/approved/" + key(root) + "/grant.json"; regular(p) {
-		b, err := os.ReadFile(p)
-		if err == nil {
-			result, err = parseJSON(b)
-		}
-		if err != nil {
-			return refuse("%s: its approved grant cannot be read", ws)
-		}
-	}
-	ports, err := approvedPorts(result, slug)
-	if err != nil {
-		// The script's jq failed inside printf's argument, which printed
-		// the line with nothing after it.
-		term.Say(stderr, "%v", err)
+		ports = signedPorts(c, root, b, slug)
 	}
 	fmt.Fprintf(stdout, "  ports    %s\n", ports)
 	return nil
@@ -120,31 +103,4 @@ func signedPorts(c Config, root string, b []byte, slug string) string {
 		said[i] = strconv.Itoa(p)
 	}
 	return strings.Join(said, " ") + "   (signed)"
-}
-
-// approvedPorts is the ports the approved grant gives slug, as `chase
-// docker` says them: none unless it was approved as this project.
-func approvedPorts(result *value, slug string) (string, error) {
-	var ports []string
-	if result.kind == '{' {
-		if dp := result.members["dockerProject"]; dp != nil && dp.kind == '"' && dp.text == slug {
-			pv, err := result.path("apps", "docker", "ports")
-			if err != nil {
-				return "", err
-			}
-			items, err := pv.or(&value{kind: '['}).iterate()
-			if err != nil {
-				return "", err
-			}
-			for _, x := range items {
-				if x.kind == '0' {
-					ports = append(ports, x.tostring())
-				}
-			}
-		}
-	}
-	if len(ports) == 0 {
-		return "(none approved)", nil
-	}
-	return strings.Join(ports, " ") + "   (approved)", nil
 }

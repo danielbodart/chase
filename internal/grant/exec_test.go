@@ -63,7 +63,7 @@ func TestTheExecHookAppliesTheGrantAndPrintsItsPayload(t *testing.T) {
 	s := sessionConfig(h)
 	h.cfg.Apps["gcloud"] = grant.App{Credential: no()}
 	h.registry["gcloud"] = seeder{}
-	given := `{"apps": {"cloudflare": {"accountId": "11111111111111111111111111111111"}, "gcloud": {"serviceAccount": "s@p.iam.gserviceaccount.com"}}}`
+	given := `{"chase": {"apps": {"cloudflare": {"accountId": "11111111111111111111111111111111"}, "gcloud": {"serviceAccount": "s@p.iam.gserviceaccount.com"}}}, "version": 2}`
 
 	// An agent the tier does not run, or none, is refused before the
 	// stage is consumed: nothing is prepared, no directory made, no policy
@@ -112,7 +112,7 @@ func TestTheExecHookAppliesTheGrantAndPrintsItsPayload(t *testing.T) {
 	// And so is a payload refused after the grant was applied: an
 	// export the container sets otherwise.
 	h.cfg.Apps["docker"] = grant.App{Credential: no(), Env: map[string]string{"SSL_CERT_FILE": "/elsewhere"}}
-	h.approved(ws, "m3", "trusted", `{"apps": {"docker": {"images": ["postgres:18"]}, "cloudflare": {"accountId": "11111111111111111111111111111111"}}}`)
+	h.approved(ws, "m3", "trusted", `{"chase":{"apps":{"cloudflare":{"accountId":"11111111111111111111111111111111"},"docker":{"images":{"postgres:18":true}}}},"version":2}`)
 	if rc := h.exec(s, true, "trusted", ws, "m3", "shell"); rc != 1 || h.out != "" {
 		t.Errorf("a refused payload: status %d, printed %q", rc, h.out)
 	}
@@ -126,7 +126,7 @@ func TestTheExecHookBindsPublishedPortsToTheProjectsAddress(t *testing.T) {
 	h, _, ws := newProjectLaunch(t)
 	s := sessionConfig(h)
 	s.Tiers["trusted"] = session.Tier{Forward: true}
-	h.approved(ws, "m1", "trusted", `{}`)
+	h.approved(ws, "m1", "trusted", `{"version":2}`)
 	if rc := h.exec(s, true, "trusted", ws, "m1", "shell"); rc != 0 {
 		t.Fatalf("the shell was refused: %s", h.err)
 	}
@@ -137,7 +137,7 @@ func TestTheExecHookBindsPublishedPortsToTheProjectsAddress(t *testing.T) {
 
 	none := h.root() + "/w/none"
 	h.repo(none)
-	h.approved(none, "m2", "trusted", `{}`)
+	h.approved(none, "m2", "trusted", `{"version":2}`)
 	if rc := h.exec(s, true, "trusted", none, "m2", "shell"); rc != 0 {
 		t.Fatalf("a checkout with no origin was refused: %s", h.err)
 	}
@@ -151,7 +151,7 @@ func TestTheExecHookBindsPublishedPortsToTheProjectsAddress(t *testing.T) {
 	// A recording of the same checkout has no network of flong's to
 	// publish ports from, whatever the tier's, so it is given no forward,
 	// which flong would refuse the launch for.
-	h.approved(ws, "m3", "trusted", `{}`)
+	h.approved(ws, "m3", "trusted", `{"version":2}`)
 	var out, errb bytes.Buffer
 	registry := grant.DefaultApps(h.cfg, &bytes.Buffer{})
 	maps.Copy(registry, h.registry)
@@ -185,12 +185,12 @@ func TestAWorktreeIsServedAsAProjectOfItsOwn(t *testing.T) {
 
 	s := sessionConfig(h)
 	s.Tiers["trusted"] = session.Tier{Forward: true}
-	h.approved(wt, "m1", "trusted", `{"apps": {"docker": {"images": ["postgres:18"], "ports": [64320]}}}`)
+	h.approved(wt, "m1", "trusted", `{"chase":{"apps":{"docker":{"images":{"postgres:18":true},"ports":{"64320":true}}}},"version":2}`)
 	if got := h.stagedProject("m1"); got != "example/fix-login.shop" {
 		t.Errorf("the worktree's Docker was staged as %v", got)
 	}
-	if !strings.Contains(h.approvals()[0].Diff, `"dockerProject": "example/shop"`) {
-		t.Errorf("the approval is not the repository's: %s", h.approvals()[0].Diff)
+	if f := read(t, wt+"/chase.json"); !strings.Contains(f, `"project": "example/shop"`) {
+		t.Errorf("the file signed is not the repository's: %s", f)
 	}
 	if rc := h.exec(s, true, "trusted", wt, "m1", "shell"); rc != 0 {
 		t.Fatalf("the shell was refused: %s", h.err)

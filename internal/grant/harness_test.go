@@ -21,29 +21,27 @@ import (
 	"github.com/danielbodart/chase/internal/gitsafe"
 	"github.com/danielbodart/chase/internal/gitsafe/gitsafetest"
 	"github.com/danielbodart/chase/internal/grant"
+	"github.com/danielbodart/chase/internal/grant/signertest"
 	"github.com/danielbodart/chase/internal/session"
 	"github.com/danielbodart/chase/internal/term"
 )
 
-// THE GRANT AS A TIER RUNS IT, where a test can watch it. The approver logs
-// what it is asked and approves, unless told to refuse; sops extracts a key
-// from a JSON file; systemctl says what it was asked. Each is this test
-// binary, run by the name of a link to it, as the module runs each tool at
-// its path.
+// THE GRANT AS A TIER RUNS IT, where a test can watch it. A stand-in
+// signer signs a project's chase.json (signertest); sops extracts a key
+// from a JSON file; systemctl says what it was asked. Each tool is this
+// test binary, run by the name of a link to it, as the module runs each
+// tool at its path.
 
 // Where the fakes log, and what they are told, all through the environment
 // the grant's children inherit.
 const (
 	logDir    = "CHASE_TEST_LOG_DIR"
-	refuseAll = "CHASE_TEST_REFUSE"
 	sopsFails = "CHASE_TEST_SOPS_FAILS"
 )
 
 func TestMain(m *testing.M) {
 	gitsafe.MaybeExec()
 	switch filepath.Base(os.Args[0]) {
-	case "approver":
-		os.Exit(fakeApprover())
 	case "sops":
 		os.Exit(fakeSops())
 	case "systemctl":
@@ -63,19 +61,6 @@ func appendLog(name, line string) {
 	}
 	defer f.Close()
 	f.WriteString(line + "\n")
-}
-
-func fakeApprover() int {
-	in, _ := io.ReadAll(os.Stdin)
-	var compact bytes.Buffer
-	json.Compact(&compact, in)
-	appendLog("approvals.jsonl", compact.String())
-	os.WriteFile(filepath.Join(os.Getenv(logDir), "approver.stdin"), in, 0o600)
-	fmt.Println("the approver was asked")
-	if os.Getenv(refuseAll) != "" {
-		return 1
-	}
-	return 0
 }
 
 func fakeSops() int {
@@ -136,10 +121,10 @@ type harness struct {
 	// registry is the test's own apps, beside those DefaultApps makes of
 	// cfg.
 	registry map[string]apps.App
-	// out and err are what the last call printed, and migrate whether it
-	// said to run chase migrate, which err leaves out.
+	// out and err are what the last call printed.
 	out, err string
-	migrate  bool
+	// signer signs what approve writes, as a person would through quoin's.
+	signer *signertest.Signer
 	// given is what the last launch gave the session.
 	given session.Given
 }
@@ -156,15 +141,14 @@ func newHarness(t *testing.T) *harness {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"approver", "sops", "systemctl"} {
+	for _, name := range []string{"sops", "systemctl"} {
 		if err := os.Symlink(self, filepath.Join(dir, "bin", name)); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Setenv(logDir, filepath.Join(dir, "logs"))
-	t.Setenv(refuseAll, "")
 	t.Setenv(sopsFails, "")
-	return &harness{
+	h := &harness{
 		t:   t,
 		dir: dir,
 		fx:  gitsafetest.NewFixture(t),
@@ -178,11 +162,13 @@ func newHarness(t *testing.T) *harness {
 			Checkouts:  map[string][]string{"example/nix-config": {"/home/user/Projects/nix-config"}},
 			Apps:       map[string]grant.App{},
 			Answerable: []string{"cloudflare", "gcloud", "git", "github", "huggingface", "linear"},
-			Approver:   dir + "/bin/approver",
 			Sops:       dir + "/bin/sops",
 			Diff:       diffPath(t),
 		},
 	}
+	h.signer = signertest.New(t, h.cfg.Home)
+	h.cfg.AllowedSigners, h.cfg.SignerAgent = h.signer.AllowedSigners, h.signer.Socket
+	return h
 }
 
 // root is where the test's checkouts are, every link in its path resolved.
@@ -194,24 +180,8 @@ func (h *harness) run(args ...string) int {
 	var out, errb bytes.Buffer
 	rc := grant.Run(context.Background(), h.cfg, args, strings.NewReader(""), &out, &errb)
 	h.out = out.String()
-	h.err, h.migrate = withoutMigrate(errb.String())
+	h.err = errb.String()
 	return rc
-}
-
-// withoutMigrate is what a call said, less the line a legacy chase.jsonc
-// is approved with, which the harness, approving one by default, keeps
-// apart: whether it was said.
-func withoutMigrate(said string) (string, bool) {
-	var kept []string
-	told := false
-	for _, l := range strings.SplitAfter(said, "\n") {
-		if strings.HasSuffix(l, ": chase.jsonc is read as it always was, for this release only: run chase migrate\n") {
-			told = true
-			continue
-		}
-		kept = append(kept, l)
-	}
-	return strings.Join(kept, ""), told
 }
 
 // launch is the grant's half of `chase hook exec TIER` for machine: its
@@ -244,16 +214,41 @@ func (h *harness) env() []string {
 	return out
 }
 
-// approve is `chase grant approve WS MACHINE TIER` with grant, when it is
-// not "", written to WS's chase.jsonc and tracked -- by a git told to run
-// nothing the checkout's config names, which a test may have set to see
-// whether approve runs it.
-func (h *harness) approve(ws, machine, tier, grant string) int {
+// approve is `chase grant approve WS MACHINE TIER` with file, when it is
+// not "", written to WS's chase.json and signed as `chase sign` signs it,
+// with what it derives of the checkout: the sops file's digest, the Docker
+// project. The signer is asked only when that differs from what it signed
+// last, as a person signs only a change. A file `chase sign` refuses is
+// left as it is, unsigned, for the launch to say why.
+func (h *harness) approve(ws, machine, tier, file string) int {
 	h.t.Helper()
-	if grant != "" {
-		write(h.t, ws+"/chase.jsonc", grant)
-		h.fx.Run("-C", ws, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "add", "chase.jsonc")
+	if file != "" {
+		// chase sign reads the file before it derives the digest, so a
+		// file naming a sops file gives one to be replaced, as a person
+		// writing one does.
+		var doc map[string]any
+		if json.Unmarshal([]byte(file), &doc) == nil {
+			if c, ok := doc["chase"].(map[string]any); ok && c["secrets"] != nil && c["secretsSHA256"] == nil {
+				c["secretsSHA256"] = strings.Repeat("0", 64)
+				b, _ := json.Marshal(doc)
+				file = string(b)
+			}
+		}
+		write(h.t, ws+"/chase.json", file)
+		if err := grant.Sign(context.Background(), h.cfg, ws, io.Discard, io.Discard); err != nil {
+			h.t.Logf("chase sign: %v", err)
+		}
 	}
+	return h.run("approve", ws, machine, tier)
+}
+
+// approveUnsigned is approve with file written as it is and unsigned, as a
+// checkout's session could leave it: what the launch refuses before the
+// signer is asked, it refuses here.
+func (h *harness) approveUnsigned(ws, machine, tier, file string) int {
+	h.t.Helper()
+	write(h.t, ws+"/chase.json", file)
+	os.Remove(ws + "/chase.json.sig")
 	return h.run("approve", ws, machine, tier)
 }
 
@@ -271,6 +266,9 @@ func (h *harness) launched(ws, machine, tier, env string) {
 		h.t.Fatalf("%s was not launched: %s", machine, h.err)
 	}
 }
+
+// asked is how many files the signer has been asked to sign.
+func (h *harness) asked() int { return len(h.signer.Asked()) }
 
 // said is whether the last call said line, whole, on stderr.
 func (h *harness) said(line string) bool {
@@ -291,22 +289,6 @@ func (h *harness) log(name string) []string {
 		return nil
 	}
 	return strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
-}
-
-type approval struct {
-	Workspace string `json:"workspace"`
-	Diff      string `json:"diff"`
-}
-
-func (h *harness) approvals() []approval {
-	var out []approval
-	for _, line := range h.log("approvals.jsonl") {
-		var a approval
-		if json.Unmarshal([]byte(line), &a) == nil {
-			out = append(out, a)
-		}
-	}
-	return out
 }
 
 // stagedDoc is what approve staged for machine, or nil.

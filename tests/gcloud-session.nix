@@ -373,10 +373,6 @@ in
       uid = 1000;
       gid = 100;
       fallback = "trusted";
-      # Asked nothing: the project's chase.json is signed.
-      approver = "${pkgs.writeShellScript "approver" ''
-        ${pkgs.coreutils}/bin/cat | ${pkgs.util-linux}/bin/logger -t chase-test-approver
-      ''}";
       signer.allowedSigners = signing.allowedSigners;
       apps = {
         claude.package = pkgs.hello;
@@ -473,7 +469,6 @@ in
           leader = machine.succeed("cat /tmp/last-leader").strip()
           run = f"/run/user/1000/chase/{name}"
           print(machine.succeed("cat /tmp/session.out"))
-          machine.fail("journalctl -q -t chase-test-approver -o cat --no-pager | grep -q .")
           assert user_unit("is-active", f"chase-gcloud-renew@{name}.service") == "active"
           issued = [l["issued"] for l in google_log() if "issued" in l]
           assert len(issued) >= 1, google_log()

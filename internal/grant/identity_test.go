@@ -146,7 +146,7 @@ func TestAPinIsHeldBothWays(t *testing.T) {
 	h.refusedAs(r+"/p/shop/nested", "is a checkout of "+r+"/p/shop/nested, not of "+r+"/p/shop")
 }
 
-const dockerGrant = `{"apps": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}`
+const dockerGrant = `{"chase":{"apps":{"docker":{"images":{"postgres:18":true},"ports":{"64320":true,"64321":true}}}},"version":2}`
 
 // stagedProject is the Docker project of the chase.json staged for
 // machine.
@@ -173,9 +173,10 @@ func walkAny(v any, path ...string) (any, bool) {
 	return v, true
 }
 
-// APPROVAL, of a grant that binds Docker: asked about once while it is
-// unchanged, and again when its origin changes. Where it is served is not
-// said beside it: exec says that, once, for Docker and forwards alike.
+// A FILE THAT BINDS DOCKER is signed with the project its origin names,
+// and refused once its origin names another, until it is signed again.
+// Where it is served is not said beside it: exec says that, once, for
+// Docker and forwards alike.
 func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	h := newIdentity(t)
 	r := h.root()
@@ -189,35 +190,24 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	if got := h.stagedProject("m1"); got != "example/shop" {
 		t.Errorf("the project was not staged: %v", got)
 	}
-	if n := len(h.approvals()); n != 1 {
-		t.Errorf("the grant was asked about %d times", n)
-	}
-	if !strings.Contains(h.approvals()[0].Diff, `"dockerProject": "example/shop"`) {
-		t.Errorf("the approval's diff does not show the project: %s", h.approvals()[0].Diff)
+
+	// Launched again, unchanged, it is not asked about.
+	asked := len(h.signer.Asked())
+	h.approved(ws, "m2", "trusted", "")
+	if len(h.signer.Asked()) != asked {
+		t.Error("an unchanged file was asked about again")
 	}
 
-	// Approved again, the same project is not asked about.
-	h.approved(ws, "m2", "trusted", dockerGrant)
-	if n := len(h.approvals()); n != 1 {
-		t.Error("an unchanged grant was asked about again")
-	}
-
-	// A changed origin is a changed grant, asked about again.
+	// A changed origin is refused until the file says it, signed.
 	app := r + "/w/scp"
 	h.repo(app, "git@github.com:acme/app.git")
 	h.approved(app, "m5", "trusted", dockerGrant)
-	if n := len(h.approvals()); n != 2 {
-		t.Error("acme/app was not asked about")
-	}
 	h.fx.Run("-C", app, "remote", "set-url", "origin", "git@github.com:acme/app2.git")
+	if h.approve(app, "m6", "trusted", "") == 0 {
+		t.Error("a changed origin was launched as the old project")
+	}
+	h.mustSay("its origin names the project acme/app2, and chase.json's apps.docker.project says acme/app")
 	h.approved(app, "m6", "trusted", dockerGrant)
-	envs := h.approvals()
-	if len(envs) != 3 {
-		t.Fatal("a changed origin was not asked about")
-	}
-	if d := envs[2].Diff; !strings.Contains(d, `-  "dockerProject": "acme/app"`) || !strings.Contains(d, `+  "dockerProject": "acme/app2"`) {
-		t.Errorf("the diff does not show the origin's change: %s", d)
-	}
 	if got := h.stagedProject("m6"); got != "acme/app2" {
 		t.Errorf("the new project was not staged: %v", got)
 	}
@@ -229,22 +219,6 @@ func TestTheProjectIsApprovedBesideItsAddress(t *testing.T) {
 	h.approved(esc, "m13", "trusted", dockerGrant)
 	if strings.ContainsAny(h.err, "\x1b\x07") {
 		t.Errorf("a control byte reached the terminal: %q", h.err)
-	}
-}
-
-// A declined approval stages nothing.
-func TestADeclinedProjectIsNotStaged(t *testing.T) {
-	h := newIdentity(t)
-	d := h.root() + "/w/declined"
-	h.repo(d, "git@github.com:acme/declined.git")
-	// Its source is approved, so what is declined is the grant.
-	t.Setenv(refuseAll, "1")
-	if h.approve(d, "m14", "trusted", dockerGrant) == 0 {
-		t.Error("a declined grant was applied")
-	}
-	h.mustSay("chase: " + d + ": its grant was not approved")
-	if h.isStaged("m14") {
-		t.Error("a declined grant was staged")
 	}
 }
 
@@ -283,7 +257,7 @@ func TestOnlyDockerNeedsAProject(t *testing.T) {
 		t.Error("a checkout with no origin was staged")
 	}
 
-	h.approved(none, "m10", "trusted", `{"apps": {"github": {"allow": ["x"]}}}`)
+	h.approved(none, "m10", "trusted", `{"frisket":{"routes":{"github":{"operations":{"x":"allow"}}}},"version":2}`)
 	if _, has := walkAny(h.stagedDoc("m10"), "file", "chase", "apps", "docker", "project"); has {
 		t.Error("a grant without Docker gained a project")
 	}
@@ -291,9 +265,10 @@ func TestOnlyDockerNeedsAProject(t *testing.T) {
 		t.Errorf("a grant without Docker printed one: %s", h.err)
 	}
 
-	// What chase derives is never the grant's to say.
-	for _, own := range []string{`"dockerProject": "example/shop"`, `"secretsSHA256": "0"`} {
-		if h.approve(none, "m11", "trusted", `{`+own+`, "apps": {"github": {"allow": ["x"]}}}`) == 0 {
+	// What chase derives is the file's only as chase sign writes it: a
+	// digest with no sops file, or a project beside no Docker, is refused.
+	for _, own := range []string{`"dockerProject": "example/shop"`, `"chase": {"secretsSHA256": "0"}`} {
+		if h.approve(none, "m11", "trusted", `{`+own+`, "version": 2}`) == 0 {
 			t.Errorf("a grant saying %s was approved", own)
 		}
 		if h.isStaged("m11") {

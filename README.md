@@ -35,7 +35,6 @@ its grant. The design and its decisions are in [PLAN.md](PLAN.md).
 | operation | One endpoint of an app's API, classed as a read, a write or guarded. |
 | answer | What frisket does with a request: `allow`, `ask` or `refuse`. |
 | grant | A project's `chase.json`, signed beside it as `chase.json.sig`: what it asks for beyond its tier. |
-| approver | The program that asks you to approve a changed `chase.jsonc`, the grant's old form, read for this release only. A `chase.json` is signed instead, through quoin's signer. |
 | scope | Where an app keeps its state: `session`, `workspace`, `tier` or `host`. |
 
 ## Example
@@ -102,7 +101,6 @@ for each choice.
 | `chase check FILE` | Read FILE as a launch reads a project's `chase.json`, say what is wrong with it, and whether it is signed. |
 | `chase fmt [-check] FILE` | Print FILE in its canonical form, the bytes it is signed over; with `-check`, only whether it is. |
 | `chase sign [DIR]` | Write what is derived of the checkout into its `chase.json` -- the sops file's digest, its Docker project -- put it in its canonical form, and sign it through quoin's signer, which shows you the change. |
-| `chase migrate [DIR]` | Write the checkout's `chase.jsonc` as a `chase.json`, say each comment it cannot keep, remove `chase.jsonc`, and sign the new file. |
 | `chase schema` | Print a `chase.json`'s JSON Schema, frisket's own sections included. |
 | `chase check -config FILE` | Read FILE as chase reads `/etc/chase/config.json`, and say what is wrong with it. |
 | `chase schema -config` | Print that file's JSON Schema. |
@@ -126,7 +124,6 @@ a-fork                     strict    first commit by someone@upstream.org
 | `tiers.<name>` | | See [Tiers](#tiers). |
 | `apps.<app>` | | Each app's package and credential. See [Apps](#apps). |
 | `workspaceGroups` | `[]` | Checkouts mounted beside each other, read-write. |
-| `approver` | `null` | The program that approves a `chase.jsonc`, for this release. Null approves none. |
 | `placeholder` | `proxy-injected` | What a session holds in place of a credential. |
 
 The module writes these, and what each app adds, to `/etc/chase/config.json`,
@@ -345,12 +342,6 @@ the signed bytes: the sops file's digest and, for a grant that binds Docker,
 the `owner/repo` its `origin` names. A file saying otherwise is refused, so
 new ciphertext or a changed `origin` is signed like any other change. `chase
 sign` writes both, puts the file in its canonical form and signs it.
-
-A checkout with only a `chase.jsonc`, the grant's old form, JSON with
-comments, is still read for this release: approved by `chase.approver` as it
-always was, applied as the `chase.json` it migrates to, and told to run
-`chase migrate`, which writes that file, says each comment it cannot keep,
-removes `chase.jsonc` and signs the new one.
 
 ## Project addresses
 

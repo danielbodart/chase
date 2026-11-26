@@ -82,7 +82,7 @@ func TestTheExecHookRealisesTheDevShellAfterTheGrant(t *testing.T) {
 	s := sessionConfig(h)
 	s.Tiers["trusted"] = session.Tier{Nix: h.nixOf()}
 	h.tracked(ws, map[string]string{"shell.nix": "{}"})
-	h.approved(ws, "m1", "trusted", `{"network": {"allow": ["example.org"]}, "apps": {"nix": {"devShell": true}}}`)
+	h.approved(ws, "m1", "trusted", `{"chase":{"apps":{"nix":{"devShell":true}}},"frisket":{"allow":{"example.org":true}},"version":2}`)
 	if rc := h.exec(s, true, "trusted", ws, "m1", "shell"); rc != 0 {
 		t.Fatalf("refused: %s", h.err)
 	}
@@ -134,7 +134,7 @@ func TestTheGrantTurnsTheDevShellOn(t *testing.T) {
 		n.Offline = c.offline
 		s.Tiers["trusted"] = session.Tier{Nix: n}
 		h.tracked(ws, map[string]string{"shell.nix": "{}"})
-		h.approved(ws, "m1", "trusted", `{"network": {"allow": ["example.org"]}}`)
+		h.approved(ws, "m1", "trusted", `{"frisket":{"allow":{"example.org":true}},"version":2}`)
 		if rc := h.exec(s, true, "trusted", ws, "m1", "shell"); rc != 0 {
 			t.Fatalf("offline %v: refused: %s", c.offline, h.err)
 		}
@@ -142,7 +142,7 @@ func TestTheGrantTurnsTheDevShellOn(t *testing.T) {
 			t.Errorf("offline %v: a devShell no grant turned on: %q", c.offline, got)
 		}
 		h.mustSay(`"chase": {"apps": {"nix": {"devShell": true}}}`)
-		h.approved(ws, "m2", "trusted", `{"apps": {"nix": {"devShell": true}}}`)
+		h.approved(ws, "m2", "trusted", `{"chase":{"apps":{"nix":{"devShell":true}}},"version":2}`)
 		if rc := h.exec(s, true, "trusted", ws, "m2", "shell"); rc != 0 {
 			t.Fatalf("offline %v: refused: %s", c.offline, h.err)
 		}
@@ -154,7 +154,7 @@ func TestTheGrantTurnsTheDevShellOn(t *testing.T) {
 		}
 	}
 	h, _, ws := newProjectLaunch(t)
-	h.approved(ws, "m3", "trusted", `{"apps": {"nix": {"devShell": true}}}`)
+	h.approved(ws, "m3", "trusted", `{"chase":{"apps":{"nix":{"devShell":true}}},"version":2}`)
 	if rc := h.exec(sessionConfig(h), true, "trusted", ws, "m3", "shell"); rc != 0 {
 		t.Fatalf("refused: %s", h.err)
 	}
@@ -166,7 +166,7 @@ func TestTheGrantTurnsTheDevShellOn(t *testing.T) {
 func TestATierWithoutNixRealisesNothing(t *testing.T) {
 	h, _, ws := newProjectLaunch(t)
 	h.tracked(ws, map[string]string{"shell.nix": "{}"})
-	h.approved(ws, "m1", "trusted", `{}`)
+	h.approved(ws, "m1", "trusted", `{"version":2}`)
 	if rc := h.exec(sessionConfig(h), true, "trusted", ws, "m1", "shell"); rc != 0 {
 		t.Fatalf("refused: %s", h.err)
 	}

@@ -193,7 +193,7 @@ that binding goes and the project carries it.
    dialog. Anything else is a gap in the classification. *Done:* both
    dialogs, a refusal read by wrangler in Cloudflare's own error shape, and
    no request unmatched.
-6. Then the grant, then a real app. *Done:* a real app's `chase.jsonc`
+6. Then the grant, then a real app. *Done:* a real app's grant
    binds a token for its own account, restricted to local
    development, from its sops file; `wrangler dev` runs with remote D1, R2
    and AI, and its allow-list names the two preview-session endpoints

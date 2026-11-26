@@ -138,10 +138,6 @@ in
       gid = 100;
       order = [ "trusted" ];
       fallback = "trusted";
-      # Asked nothing: shop's chase.json is signed.
-      approver = "${pkgs.writeShellScript "approver" ''
-        ${pkgs.coreutils}/bin/cat | ${pkgs.util-linux}/bin/logger -t chase-test-approver
-      ''}";
       signer.allowedSigners = signing.allowedSigners;
       apps = {
         claude.package = pkgs.hello;
@@ -260,7 +256,6 @@ in
           print(machine.succeed("cat /tmp/session.out"))
           name = machine.succeed("cat /tmp/last-session").strip()
           run = f"/run/user/1000/chase/{name}"
-          machine.fail("journalctl -q -t chase-test-approver -o cat --no-pager | grep -q .")
           policy = vm_json(machine, f"{run}/policy.json")
           assert policy["version"] == 2, policy
           route = policy["routes"]["docker"]

@@ -26,10 +26,8 @@ import (
 func v2(t *testing.T) (*harness, *signertest.Signer) {
 	t.Helper()
 	h := newHarness(t)
-	s := signertest.New(t, h.cfg.Home)
-	h.cfg.AllowedSigners, h.cfg.SignerAgent = s.AllowedSigners, s.Socket
 	write(t, h.cfg.Policies+"/trusted.json", tierDoc("trusted", "github.com"))
-	return h, s
+	return h, h.signer
 }
 
 // canonical is v as chase.json is written.
@@ -60,22 +58,19 @@ func (h *harness) project(s *signertest.Signer, ws, file string, signed bool) {
 	}
 }
 
-// A CHASE.JSON SIGNED as it is launches with nothing asked: neither the
-// signer nor the approver, and nothing kept in chase's state.
+// A CHASE.JSON SIGNED as it is launches with nothing asked of the signer,
+// and nothing kept in chase's state.
 func TestASignedFileLaunchesUnasked(t *testing.T) {
 	h, s := v2(t)
 	ws := h.root() + "/w"
 	file := canonical(t, `{"version": 2, "flong": {"seccomp": {"syscalls": {"ptrace": "allow", "keyctl": "deny", "userfaultfd": "log"}, "allow": ["@keyring"]}}, "frisket": {"allow": {"pypi.org": true}}}`)
 	h.project(s, ws, file, true)
 	h.approved(ws, "m1", "trusted", "")
-	if len(s.Asked()) != 0 || len(h.approvals()) != 0 {
-		t.Errorf("a signed file was asked about: %v %v", s.Asked(), h.approvals())
+	if len(s.Asked()) != 0 {
+		t.Errorf("a signed file was asked about: %v", s.Asked())
 	}
 	if h.out != "allow @keyring ptrace\ndeny keyctl\nlog userfaultfd\n" {
 		t.Errorf("seccompPolicy printed %q", h.out)
-	}
-	if h.migrate || strings.Contains(h.err, "migrate") {
-		t.Errorf("a chase.json was told to migrate: %s", h.err)
 	}
 	if _, err := os.Stat(h.dir + "/state/approved"); err == nil {
 		t.Error("a signed file was kept in chase's state")
@@ -488,124 +483,6 @@ func TestTheSchemaIsTheComponents(t *testing.T) {
 	}
 }
 
-// MIGRATION: every chase.jsonc chase's own tests and docs hold, as the
-// chase.json it migrates to and the comments it cannot keep, each beside
-// it in testdata/migrate. CHASE_UPDATE_GOLDEN=1 writes them.
-func TestEveryChaseJSONCMigrates(t *testing.T) {
-	files, err := filepath.Glob("testdata/migrate/*.jsonc")
-	if err != nil || len(files) == 0 {
-		t.Fatalf("no examples: %v", err)
-	}
-	for _, f := range files {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		doc, comments, err := grant.Migrate(b)
-		if err != nil {
-			t.Errorf("%s: %v", f, err)
-			continue
-		}
-		out, err := projpolicy.Encode(doc)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// With what chase migrate derives of the checkout, it is one
-		// chase reads.
-		var derived map[string]any
-		json.Unmarshal(out, &derived)
-		if c, ok := derived["chase"].(map[string]any); ok {
-			if c["secrets"] != nil {
-				c["secretsSHA256"] = strings.Repeat("0", 64)
-			}
-		}
-		withDerived, _ := json.Marshal(derived)
-		if _, _, err := grant.ParseDoc(withDerived); err != nil {
-			t.Errorf("%s migrates to a file chase does not read: %v\n%s", f, err, out)
-		}
-		said := strings.Join(comments, "\n")
-		if len(comments) > 0 {
-			said += "\n"
-		}
-		golden := strings.TrimSuffix(f, ".jsonc")
-		if os.Getenv("CHASE_UPDATE_GOLDEN") != "" {
-			os.WriteFile(golden+".json", out, 0o644)
-			os.WriteFile(golden+".comments", []byte(said), 0o644)
-			continue
-		}
-		if want := read(t, golden+".json"); string(out) != want {
-			t.Errorf("%s migrates to\n%s\nnot\n%s", f, out, want)
-		}
-		if want := read(t, golden+".comments"); said != want {
-			t.Errorf("%s's comments are\n%s\nnot\n%s", f, said, want)
-		}
-	}
-	if _, _, err := grant.Migrate([]byte(`{"apps": {"github": {"allow": ["x"], "refuse": ["x"]}}}`)); err == nil || !strings.Contains(err.Error(), "x is in allow and refuse") {
-		t.Errorf("one name in two lists migrated: %v", err)
-	}
-}
-
-// `chase migrate` writes the chase.json, says the comments, removes
-// chase.jsonc, and signs the new file; a launch then reads it unasked.
-func TestMigrateWritesSignsAndRemoves(t *testing.T) {
-	h, s := v2(t)
-	r := h.root()
-	h.cfg.Checkouts["example/shop"] = []string{r + "/p/shop"}
-	ws := r + "/p/shop"
-	h.repo(ws, "git@github.com:example/shop.git")
-	write(t, ws+"/secrets.json", `{"cf": "token"}`)
-	write(t, ws+"/chase.jsonc", "// shop's\n{\"secrets\": \"secrets.json\", \"apps\": {\"docker\": {\"images\": [\"postgres:18\"], \"ports\": [64320]}, \"github\": {\"allow\": [\"pulls/create\"]}}, \"seccomp\": {\"allow\": [\"ptrace\"]}}\n")
-	var out, errb bytes.Buffer
-	if err := grant.MigrateCommand(context.Background(), h.cfg, []string{ws}, &out, &errb); err != nil {
-		t.Fatalf("%v: %s", err, errb.String())
-	}
-	if _, err := os.Lstat(ws + "/chase.jsonc"); err == nil {
-		t.Error("chase.jsonc was kept")
-	}
-	if !strings.Contains(errb.String(), "chase.jsonc: dropped comment: // shop's") {
-		t.Errorf("the comment was not said: %s", errb.String())
-	}
-	want := canonical(t, `{"version": 2,
-		"chase": {"secrets": "secrets.json", "secretsSHA256": "`+sha256Hex(`{"cf": "token"}`)+`", "apps": {"docker": {"project": "example/shop", "images": {"postgres:18": true}, "ports": {"64320": true}}}},
-		"flong": {"seccomp": {"syscalls": {"ptrace": "allow"}}},
-		"frisket": {"routes": {"github": {"operations": {"pulls/create": "allow"}}}}}`)
-	if got := read(t, ws+"/chase.json"); got != want {
-		t.Errorf("chase.json is\n%s\nnot\n%s", got, want)
-	}
-	if len(s.Asked()) != 1 {
-		t.Errorf("the signer was asked %d times", len(s.Asked()))
-	}
-	h.approved(ws, "m1", "trusted", "")
-	if len(s.Asked()) != 1 || h.migrate {
-		t.Errorf("a migrated file was asked about, or told to migrate: %s", h.err)
-	}
-	if err := grant.MigrateCommand(context.Background(), h.cfg, []string{ws}, &out, &errb); err == nil {
-		t.Error("a checkout with no chase.jsonc migrated")
-	}
-	// Beside a chase.json, a chase.jsonc is neither migrated nor read.
-	write(t, ws+"/chase.jsonc", "{}")
-	if err := grant.MigrateCommand(context.Background(), h.cfg, []string{ws}, &out, &errb); err == nil || !strings.Contains(err.Error(), "has a chase.json already") {
-		t.Errorf("a chase.jsonc beside a chase.json: %v", err)
-	}
-	h.approved(ws, "m2", "trusted", "")
-	h.mustSay("chase.jsonc is not read beside chase.json: remove it")
-}
-
-// A legacy chase.jsonc alone is approved as it always was, and told to
-// migrate.
-func TestALegacyFileIsToldToMigrate(t *testing.T) {
-	h := newHarness(t)
-	ws := h.root() + "/w"
-	h.checkout(ws)
-	h.approved(ws, "m1", "trusted", `{"apps": {}}`)
-	if !h.migrate {
-		t.Error("a chase.jsonc was not told to run chase migrate")
-	}
-	if len(h.approvals()) != 1 {
-		t.Errorf("a chase.jsonc was not approved as ever: %v", h.approvals())
-	}
-}
-
 // flong's own check of the flong section, against the tier's
 // declaration, refuses a call the architecture has no name for -- run
 // where the module names flong, here a stand-in that says what it was
@@ -633,7 +510,7 @@ func TestTheFlongSectionIsCheckedByFlong(t *testing.T) {
 	}
 }
 
-// `chase sign` and `chase migrate` with no DIR name the working directory
+// `chase sign` with no DIR names the working directory
 // ".", which the signer's namespace needs absolute, as the kernel names it.
 func TestTheRootOfTheWorkingDirectoryIsAbsolute(t *testing.T) {
 	ws := t.TempDir()

@@ -53,7 +53,7 @@ func TestARecordingLearnsWhatTheFilterWouldRefuse(t *testing.T) {
 	h := newHarness(t)
 	ws := h.root() + "/w"
 	h.checkout(ws)
-	h.approved(ws, "m0", "trusted", `{"seccomp": {"allow": ["io_uring_setup", "read"], "deny": ["ptrace"]}}`)
+	h.approved(ws, "m0", "trusted", `{"flong":{"seccomp":{"syscalls":{"io_uring_setup":"allow","ptrace":"deny","read":"allow"}}},"version":2}`)
 	tok := strings.Repeat("0f", 16)
 	var errb bytes.Buffer
 	r, err := grant.ApproveRecording(context.Background(), h.cfg, ws, "m1", "trusted", grant.Recording{Base: "tier", Token: tok}, &errb)
@@ -103,10 +103,9 @@ func TestARecordingLearnsWhatTheFilterWouldRefuse(t *testing.T) {
 		t.Errorf("with no grant, it printed %q, %v", r.Lines(), err)
 	}
 
-	// A grant that is not approved is not recorded either.
-	t.Setenv(refuseAll, "1")
-	write(t, ws+"/chase.jsonc", `{"seccomp": {"allow": ["bpf"]}}`)
-	h.fx.Run("-C", ws, "add", "chase.jsonc")
+	// A file the signer refuses is not recorded either.
+	h.signer.Refuse(true)
+	write(t, ws+"/chase.json", "{\n  \"flong\": {\n    \"seccomp\": {\n      \"syscalls\": {\n        \"bpf\": \"allow\"\n      }\n    }\n  },\n  \"version\": 2\n}\n")
 	if _, err := grant.ApproveRecording(context.Background(), h.cfg, ws, "m4", "trusted", grant.Recording{Base: "tier", Token: tok}, &errb); err == nil {
 		t.Error("an unapproved grant was recorded")
 	}
@@ -126,7 +125,7 @@ func TestARecordingsDocumentHasItsRecordBlock(t *testing.T) {
 	write(t, h.cfg.Policies+"/trusted.json", tierDoc("trusted", "api.github.com"))
 	ws := h.root() + "/w"
 	h.checkout(ws)
-	h.approved(ws, "m1", "trusted", `{"network": {"allow": ["registry.npmjs.org", "*.pythonhosted.org"]}}`)
+	h.approved(ws, "m1", "trusted", `{"frisket":{"allow":{"**.pythonhosted.org":true,"registry.npmjs.org":true}},"version":2}`)
 	s := session.Config{Home: h.cfg.Home, Tiers: map[string]session.Tier{"trusted": {}}}
 	var out, errb bytes.Buffer
 	rec := grant.Recording{Default: "allow", Base: "tier"}
@@ -183,72 +182,71 @@ func TestARecordingsDocumentHasItsRecordBlock(t *testing.T) {
 	}
 }
 
-// A GRANT'S NETWORK is names, as frisket's allowlist holds them, added to
-// the session's: exact names and *.suffix, never "*" -- every name, which
-// only a tier says -- nor *. before a public suffix, near enough it, nor an
-// address, nor one twice. One that names nothing
-// is approved as none.
+// A FILE'S NAMES are frisket's allowlist's, added to the session's: exact
+// names and *.suffix, never every name -- which only a tier says -- nor *.
+// before a public suffix, near enough it, nor an address. A file that
+// names nothing is signed once.
 func TestAGrantsNetworkIsNames(t *testing.T) {
+	allow := func(names ...string) string {
+		m := map[string]bool{}
+		for _, n := range names {
+			m[n] = true
+		}
+		b, _ := json.Marshal(map[string]any{"version": 2, "frisket": map[string]any{"allow": m}})
+		return string(b)
+	}
 	for _, bad := range []string{
-		`{"network": {"allow": ["*"]}}`,
-		`{"network": {"allow": ["10.0.0.1"]}}`,
-		`{"network": {"allow": ["Example.com"]}}`,
-		`{"network": {"allow": ["a..b"]}}`,
-		`{"network": {"allow": ["a.example", "a.example"]}}`,
-		`{"network": {"allow": ["*.*.example"]}}`,
-		`{"network": {"allow": ["*.com"]}}`,
-		`{"network": {"allow": ["*.co.uk"]}}`,
-		`{"network": {"allow": ["*.github.io"]}}`,
-		`{"network": {"allow": ["*.internal"]}}`,
-		`{"network": {"allow": ["host:443"]}}`,
-		`{"network": {"deny": ["a.example"]}}`,
+		allow("*"),
+		allow("**"),
+		allow("10.0.0.1"),
+		allow("a..b"),
+		allow("*.com"),
+		allow("*.co.uk"),
+		allow("*.github.io"),
+		allow("*.internal"),
 	} {
-		if _, err := grant.ParseFile([]byte(bad)); err == nil {
+		if _, _, err := grant.ParseDoc([]byte(bad)); err == nil {
 			t.Errorf("%s was read", bad)
 		}
 	}
-	b, err := grant.ParseFile([]byte(`{"network": {"allow": ["registry.npmjs.org", "*.pythonhosted.org", "*.corp.internal", "com"]}}`))
-	if err != nil || string(b) != `{"apps":{},"network":{"allow":["registry.npmjs.org","*.pythonhosted.org","*.corp.internal","com"]}}` {
-		t.Errorf("%s, %v", b, err)
+	if _, _, err := grant.ParseDoc([]byte(allow("registry.npmjs.org", "*.pythonhosted.org", "*.corp.internal", "com"))); err != nil {
+		t.Errorf("names a file may give were refused: %v", err)
 	}
 	h := newHarness(t)
 	ws := h.root() + "/w"
 	h.checkout(ws)
-	h.approved(ws, "m1", "trusted", `{"network": {}}`)
-	h.approved(ws, "m2", "trusted", `{"network": {"allow": []}}`)
-	if asked := h.approvals(); len(asked) != 1 {
-		t.Errorf("a network that names nothing was asked about again: %d", len(asked))
+	h.approved(ws, "m1", "trusted", `{"version":2}`)
+	h.approved(ws, "m2", "trusted", `{"version":2}`)
+	if n := h.asked(); n != 1 {
+		t.Errorf("a file that names nothing was asked about again: %d", n)
 	}
 	// A tier that allows every name is left as it is.
 	write(t, h.cfg.Policies+"/trusted.json", tierDoc("trusted", "**"))
-	h.launched(ws, "m3", "trusted", `{"network": {"allow": ["a.example"]}}`)
+	h.launched(ws, "m3", "trusted", `{"frisket":{"allow":{"a.example":true}},"version":2}`)
 	if d := h.policyDoc("m3"); !slices.Equal(d.Allow, []string{"*"}) {
 		t.Errorf("every name became %q", d.Allow)
 	}
 }
 
-// A GRANT'S LAN is frisket's lan list: each name exact, lower-case and
-// once, never an address, a project's name or frisket's own; its ports
-// TCP's, each once, and none for every port. At launch each is put in the
-// session's document's lan and on its allowlist, as frisket requires, and
-// one that is a route's host is refused before frisket would refuse it.
-// The approval shows it as it shows the rest of the grant.
+// A FILE'S LAN is frisket's lan list: each name exact, lower-case, never
+// an address, a project's name or frisket's own. At launch each is put in
+// the session's document's lan and on its allowlist, as frisket requires,
+// and one that is a route's host is refused before frisket would refuse
+// it. What else frisket holds a lan entry to -- its ports -- frisket's own
+// layer check says at launch.
 func TestAGrantsLANIsFrisketsLANList(t *testing.T) {
+	lan := func(name string) string {
+		return `{"version": 2, "frisket": {"lan": {"` + name + `": {}}}}`
+	}
 	for _, bad := range []string{
-		`{"network": {"lan": [{"name": "*.lan"}]}}`,
-		`{"network": {"lan": [{"name": "NAS.lan"}]}}`,
-		`{"network": {"lan": [{"name": "nas.lan."}]}}`,
-		`{"network": {"lan": [{"name": "192.168.1.10"}]}}`,
-		`{"network": {"lan": [{"name": "shop.example.internal"}]}}`,
-		`{"network": {"lan": [{"name": "docker.frisket.internal"}]}}`,
-		`{"network": {"lan": [{"name": "nas.lan"}, {"name": "nas.lan", "ports": [445]}]}}`,
-		`{"network": {"lan": [{"name": "nas.lan", "ports": [0]}]}}`,
-		`{"network": {"lan": [{"name": "nas.lan", "ports": [65536]}]}}`,
-		`{"network": {"lan": [{"name": "nas.lan", "ports": [445, 445]}]}}`,
-		`{"network": {"lan": [{"name": "nas.lan", "address": "192.168.1.10"}]}}`,
-		`{"network": {"lan": ["nas.lan"]}}`,
+		lan("*.lan"),
+		lan("NAS.lan"),
+		lan("nas.lan."),
+		lan("192.168.1.10"),
+		lan("shop.example.internal"),
+		lan("docker.frisket.internal"),
 	} {
-		if _, err := grant.ParseFile([]byte(bad)); err == nil {
+		if _, _, err := grant.ParseDoc([]byte(bad)); err == nil {
 			t.Errorf("%s was read", bad)
 		}
 	}
@@ -256,7 +254,7 @@ func TestAGrantsLANIsFrisketsLANList(t *testing.T) {
 	write(t, h.cfg.Policies+"/trusted.json", tierDoc("trusted", "api.github.com"))
 	ws := h.root() + "/w"
 	h.checkout(ws)
-	h.launched(ws, "m1", "trusted", `{"network": {"lan": [{"name": "nas.home.arpa", "ports": [445]}, {"name": "printer.lan"}]}}`)
+	h.launched(ws, "m1", "trusted", `{"frisket":{"allow":{"nas.home.arpa":true,"printer.lan":true},"lan":{"nas.home.arpa":{"ports":[445]},"printer.lan":{}}},"version":2}`)
 	d := h.policyDoc("m1")
 	if !slices.Equal(d.Allow, []string{"api.github.com", "nas.home.arpa", "printer.lan"}) {
 		t.Errorf("the LAN's names were not allowed: %q", d.Allow)
@@ -265,13 +263,13 @@ func TestAGrantsLANIsFrisketsLANList(t *testing.T) {
 		t.Errorf("the document's lan is %s", got)
 	}
 	frisketCheck(t, h.dir+"/run/chase/m1/policy.json")
-	if asked := h.approvals(); len(asked) != 1 || !strings.Contains(asked[0].Diff, `"nas.home.arpa"`) || !strings.Contains(asked[0].Diff, `"lan"`) {
-		t.Errorf("the approval did not show the LAN: %+v", asked)
+	if asked := h.signer.Asked(); len(asked) != 1 || !strings.Contains(string(asked[0].New), `"nas.home.arpa"`) || !strings.Contains(string(asked[0].New), `"lan"`) {
+		t.Errorf("the signer was not shown the LAN: %+v", asked)
 	}
 
 	// A route's host is frisket's own address in the session's DNS.
 	write(t, h.cfg.Policies+"/trusted.json", `{"version": 2, "name": "trusted", "allow": {"**.nas.lan": true}, "routes": {"nas": {"host": "**.nas.lan", "upstream": "https://**.nas.lan"}}}`)
-	h.approved(ws, "m2", "trusted", `{"network": {"lan": [{"name": "files.nas.lan"}]}}`)
+	h.approved(ws, "m2", "trusted", `{"frisket":{"allow":{"files.nas.lan":true},"lan":{"files.nas.lan":{}}},"version":2}`)
 	if rc := h.launch("trusted", ws, "m2"); rc == 0 {
 		t.Error("a route's host was launched as a name on the LAN")
 	}

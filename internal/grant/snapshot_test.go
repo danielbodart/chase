@@ -14,9 +14,8 @@ import (
 // a link to one of the host's -- another project's sops directory -- so a
 // copy through it would put the host's file where the project's was.
 // Refused, naming the link, with nothing staged and no host byte anywhere
-// chase keeps things. And which files are tracked is read from the index
-// alone, so nothing the checkout's git config names is run on the host to
-// find out.
+// chase keeps things. Nothing the checkout's git config names is run on
+// the host on the way.
 
 type snapshotCase struct {
 	*harness
@@ -27,7 +26,7 @@ func newSnapshotCase(t *testing.T) *snapshotCase {
 	h := newHarness(t)
 	s := &snapshotCase{harness: h, r: h.root(), host: h.dir + "/hostsecret"}
 	write(t, s.host+"/secrets.yaml", "TOPSECRET\n")
-	write(t, h.dir+"/hostgrant.jsonc", `{"secrets": "../../hostsecret/secrets.yaml"}`)
+	write(t, h.dir+"/hostgrant.json", "{\n  \"version\": 2\n}\n")
 	return s
 }
 
@@ -57,7 +56,7 @@ func (s *snapshotCase) refused(ws, machine, prefix string) {
 // refusedSaying is refused, of a PREFIX said as SAID.
 func (s *snapshotCase) refusedSaying(ws, machine, prefix, said string) {
 	s.t.Helper()
-	if s.approve(ws, machine, "trusted", `{"secrets": `+jqString(prefix+"/secrets.yaml")+`, "apps": {}}`) == 0 {
+	if s.approve(ws, machine, "trusted", `{"version": 2, "chase": {"secrets": `+jqString(prefix+"/secrets.yaml")+`}}`) == 0 {
 		s.t.Errorf("%s was approved with %s a link", ws, prefix)
 	}
 	s.mustSay("chase: " + ws + ": " + said + " is a link, so what is tracked under it would be copied from wherever it points")
@@ -82,7 +81,7 @@ func (s *snapshotCase) stagedText(machine string) any {
 func TestWhatIsTrackedIsCopiedAndStaged(t *testing.T) {
 	s := newSnapshotCase(t)
 	s.checkout(s.r+"/plain", "link/secrets.yaml")
-	s.approved(s.r+"/plain", "m0", "trusted", `{"secrets": "link/secrets.yaml", "apps": {}}`)
+	s.approved(s.r+"/plain", "m0", "trusted", `{"chase":{"secrets":"link/secrets.yaml"},"version":2}`)
 	if got := s.stagedText("m0"); got != "the project's own\n" {
 		t.Errorf("the project's sops file was not staged: %v", got)
 	}
@@ -113,15 +112,15 @@ func TestWhatIsNotAsTrackedIsRefused(t *testing.T) {
 	s.checkout(s.r+"/file", "d/secrets.yaml")
 	os.RemoveAll(s.r + "/file/d")
 	write(t, s.r+"/file/d", "x\n")
-	s.approved(s.r+"/file", "m2", "trusted", `{"apps": {}}`)
-	if s.approve(s.r+"/file", "m3", "trusted", `{"secrets": "d/secrets.yaml"}`) == 0 {
+	s.approved(s.r+"/file", "m2", "trusted", `{"version":2}`)
+	if s.approve(s.r+"/file", "m3", "trusted", `{"chase":{"secrets":"d/secrets.yaml"},"version":2}`) == 0 {
 		t.Error("a tracked directory made a file was approved")
 	}
 	s.mustSay("chase: " + s.r + "/file: its tracked files could not be copied: d: it is not a directory")
 
 	s.checkout(s.r+"/gone", "gone")
 	os.Remove(s.r + "/gone/gone")
-	if s.approve(s.r+"/gone", "m4", "trusted", `{"secrets": "gone"}`) == 0 {
+	if s.approve(s.r+"/gone", "m4", "trusted", `{"chase":{"secrets":"gone"},"version":2}`) == 0 {
 		t.Error("a checkout missing a tracked file was approved")
 	}
 	s.mustSay("chase: " + s.r + "/gone: its tracked files could not be copied: gone: ")
@@ -136,30 +135,27 @@ func TestATrackedLinkToAHostFileIsOutsideTheCheckout(t *testing.T) {
 	os.Symlink(s.host+"/secrets.yaml", s.r+"/c/secrets.yaml")
 	os.Chmod(s.r+"/c/tool", 0o755)
 	s.fx.Run("-C", s.r+"/c", "add", "-A")
-	if s.approve(s.r+"/c", "m5", "trusted", `{"secrets": "secrets.yaml", "apps": {}}`) == 0 {
+	if s.approve(s.r+"/c", "m5", "trusted", `{"chase":{"secrets":"secrets.yaml"},"version":2}`) == 0 {
 		t.Error("a sops file linked to the host's was approved")
 	}
-	s.mustSay("chase: " + s.r + "/c: secrets.yaml is outside the checkout")
+	s.mustSay("chase: " + s.r + "/c: secrets.yaml is not a plain file")
 	if s.leaked() {
 		t.Error("a tracked link was read through")
 	}
 }
 
-// (d) A tracked chase.jsonc made a link, to a grant of the host's, is not
-// the checkout's.
-func TestAChaseJsoncMadeALinkIsNotTheCheckouts(t *testing.T) {
+// (d) A chase.json made a link, to a file of the host's, is not the
+// checkout's.
+func TestAChaseJSONMadeALinkIsNotTheCheckouts(t *testing.T) {
 	s := newSnapshotCase(t)
 	s.checkout(s.r + "/d")
-	write(t, s.r+"/d/chase.jsonc", "{}")
-	s.fx.Run("-C", s.r+"/d", "add", "chase.jsonc")
-	os.Remove(s.r + "/d/chase.jsonc")
-	os.Symlink(s.dir+"/hostgrant.jsonc", s.r+"/d/chase.jsonc")
+	os.Symlink(s.dir+"/hostgrant.json", s.r+"/d/chase.json")
 	if s.approve(s.r+"/d", "m6", "trusted", "") == 0 {
-		t.Error("a chase.jsonc made a link was approved")
+		t.Error("a chase.json made a link was approved")
 	}
-	s.mustSay("chase: " + s.r + "/d: chase.jsonc is not a tracked file")
+	s.mustSay("chase: " + s.r + "/d: chase.json is not a plain file")
 	if s.isStaged("m6") {
-		t.Error("a linked chase.jsonc was staged")
+		t.Error("a linked chase.json was staged")
 	}
 }
 
@@ -193,8 +189,8 @@ func TestWhatASessionNamedIsSaidPlainly(t *testing.T) {
 // (f) The checkout's git config is the session's: a command it names, as
 // core.fsmonitor or a hook under core.hooksPath, is never run by approve.
 // The same config does run each when git is asked plainly, so the test would
-// see it. An untracked chase.jsonc is not the checkout's, and a workspace below
-// its checkout's root copies what is tracked there, relative to itself.
+// see it. A workspace below its checkout's root copies what is tracked
+// there, relative to itself.
 func TestTheCheckoutsGitConfigIsNeverRun(t *testing.T) {
 	s := newSnapshotCase(t)
 	pwned := s.dir + "/PWNED"
@@ -218,7 +214,7 @@ func TestTheCheckoutsGitConfigIsNeverRun(t *testing.T) {
 	os.Remove(pwned)
 	later := mustTime(t, "2021-01-01T00:00:00Z")
 	os.Chtimes(f+"/tracked", later, later)
-	s.approved(f, "m9", "trusted", `{"secrets": "tracked", "apps": {}}`)
+	s.approved(f, "m9", "trusted", `{"chase":{"secrets":"tracked"},"version":2}`)
 	if _, err := os.Stat(pwned); err == nil {
 		t.Error("approve ran the checkout's core.fsmonitor or core.hooksPath")
 	}
@@ -226,63 +222,14 @@ func TestTheCheckoutsGitConfigIsNeverRun(t *testing.T) {
 		t.Errorf("the checkout with core.fsmonitor set was not staged: %v", got)
 	}
 
-	u := s.r + "/untracked"
-	s.fx.Run("init", "-q", u)
-	write(t, u+"/chase.jsonc", "{}")
-	s.fx.Run("-C", u, "config", "core.fsmonitor", "touch "+pwned+"; false")
-	if s.approve(u, "m10", "trusted", "") == 0 {
-		t.Error("an untracked chase.jsonc was approved")
-	}
-	s.mustSay("chase: " + u + ": chase.jsonc is not a tracked file")
-	if _, err := os.Stat(pwned); err == nil {
-		t.Error("approve ran the untracked checkout's core.fsmonitor")
-	}
-	if s.isStaged("m10") {
-		t.Error("an untracked chase.jsonc was staged")
-	}
-
 	write(t, f+"/sub/tracked", "the sub's own\n")
 	s.fx.Run("-C", f, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "add", "sub")
 	os.Remove(pwned)
-	s.approved(f+"/sub", "m11", "trusted", `{"secrets": "tracked", "apps": {}}`)
+	s.approved(f+"/sub", "m11", "trusted", `{"chase":{"secrets":"tracked"},"version":2}`)
 	if _, err := os.Stat(pwned); err == nil {
 		t.Error("approve ran core.fsmonitor for a workspace below its root")
 	}
 	if got := s.stagedText("m11"); got != "the sub's own\n" {
 		t.Errorf("a workspace below its root did not copy its own tracked files: %v", got)
 	}
-}
-
-// A directory in no git checkout has nothing tracked to snapshot; an index
-// that needs more than itself is not read: a split index's shared part would
-// be read from beside the index, which the session writes, and a sparse
-// index would leave out what is under its sparse directories without a word.
-func TestAnIndexThatIsNotWholeIsNotRead(t *testing.T) {
-	s := newSnapshotCase(t)
-	write(t, s.r+"/nogit/chase.jsonc", "{}")
-	if s.approve(s.r+"/nogit", "m12", "trusted", "") == 0 {
-		t.Error("a directory outside git was approved")
-	}
-	s.mustSay("chase: " + s.r + "/nogit: a grant needs a git checkout")
-	if s.isStaged("m12") {
-		t.Error("a directory outside git was staged")
-	}
-
-	s.checkout(s.r+"/split", "f")
-	s.fx.Run("-C", s.r+"/split", "update-index", "--split-index")
-	if m, _ := filepath.Glob(s.r + "/split/.git/sharedindex.*"); len(m) == 0 {
-		t.Fatal("the split index has no shared part, so it proves nothing")
-	}
-	if s.approve(s.r+"/split", "m13", "trusted", `{"apps": {}}`) == 0 {
-		t.Error("a split index was approved")
-	}
-	s.mustSay("chase: " + s.r + "/split: a grant needs a git checkout, so what it says is what git tracks: the index of " + s.r + "/split cannot be read on its own")
-
-	s.checkout(s.r+"/sparse", "keep/f", "away/f")
-	s.fx.Run("-C", s.r+"/sparse", "-c", "user.name=x", "-c", "user.email=x@example.com", "commit", "-qm", "x")
-	s.fx.Run("-C", s.r+"/sparse", "sparse-checkout", "set", "--cone", "--sparse-index", "keep")
-	if s.approve(s.r+"/sparse", "m14", "trusted", `{"apps": {}}`) == 0 {
-		t.Error("a sparse index was approved")
-	}
-	s.mustSay("chase: " + s.r + "/sparse: a grant needs a git checkout, so what it says is what git tracks: the index of " + s.r + "/sparse is sparse, or cannot be read on its own")
 }

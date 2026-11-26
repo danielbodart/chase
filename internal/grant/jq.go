@@ -110,25 +110,8 @@ func (v *value) set(k string, m *value) {
 	v.members[k] = m
 }
 
-// del is `del(.k)`.
-func (v *value) del(k string) {
-	if _, ok := v.members[k]; !ok {
-		return
-	}
-	delete(v.members, k)
-	v.keys = slices.DeleteFunc(v.keys, func(x string) bool { return x == k })
-}
-
 // truthy is what jq's `//` keeps: anything but null and false.
 func (v *value) truthy() bool { return v != nil && v.kind != 'n' && v.kind != 'f' }
-
-// or is `. // alt`.
-func (v *value) or(alt *value) *value {
-	if v.truthy() {
-		return v
-	}
-	return alt
-}
 
 // typeName is what jq calls v's kind in an error.
 func (v *value) typeName() string {
@@ -150,82 +133,6 @@ func (v *value) index(k string) (*value, error) {
 	return nil, fmt.Errorf("Cannot index %s with %s", v.typeName(), jqQuote(k))
 }
 
-// path is .k1.k2...: index, one after another.
-func (v *value) path(keys ...string) (*value, error) {
-	var err error
-	for _, k := range keys {
-		if v, err = v.index(k); err != nil {
-			return nil, err
-		}
-	}
-	return v, nil
-}
-
-// iterate is `.[]`: an array's items, or an object's values in its order.
-func (v *value) iterate() ([]*value, error) {
-	switch v.kind {
-	case '[':
-		return v.items, nil
-	case '{':
-		out := make([]*value, len(v.keys))
-		for i, k := range v.keys {
-			out[i] = v.members[k]
-		}
-		return out, nil
-	}
-	return nil, fmt.Errorf("Cannot iterate over %s", v.describe())
-}
-
-// describe is v as jq names it in an error: its kind, and itself.
-func (v *value) describe() string {
-	s := v.compact()
-	if len(s) > 11 {
-		s = s[:10] + "..."
-	}
-	return fmt.Sprintf("%s (%s)", v.typeName(), s)
-}
-
-// entries is `to_entries[]` as a key and a value each: an object's in its
-// order, an array's by index.
-func (v *value) entries() ([]string, []*value, error) {
-	switch v.kind {
-	case '{':
-		vals := make([]*value, len(v.keys))
-		for i, k := range v.keys {
-			vals[i] = v.members[k]
-		}
-		return v.keys, vals, nil
-	case '[':
-		keys := make([]string, len(v.items))
-		for i := range v.items {
-			keys[i] = strconv.Itoa(i)
-		}
-		return keys, v.items, nil
-	}
-	return nil, nil, fmt.Errorf("%s has no keys", v.describe())
-}
-
-// length is jq's `length`.
-func (v *value) length() (float64, error) {
-	switch v.kind {
-	case 'n':
-		return 0, nil
-	case '[':
-		return float64(len(v.items)), nil
-	case '{':
-		return float64(len(v.keys)), nil
-	case '"':
-		return float64(len([]rune(v.text))), nil
-	case '0':
-		f := v.number()
-		if f < 0 {
-			f = -f
-		}
-		return f, nil
-	}
-	return 0, fmt.Errorf("%s has no length", v.describe())
-}
-
 func (v *value) number() float64 {
 	f, _ := strconv.ParseFloat(v.text, 64)
 	return f
@@ -233,12 +140,10 @@ func (v *value) number() float64 {
 
 // compact is `jq -c .`; sorted is `jq -cS .`.
 func (v *value) compact() string { return v.format(false, false) }
-func (v *value) sorted() string  { return v.format(true, false) }
 
 // pretty is `jq .`; prettySorted is `jq -S .`. Neither has the newline jq
 // ends its output with.
-func (v *value) pretty() string       { return v.format(false, true) }
-func (v *value) prettySorted() string { return v.format(true, true) }
+func (v *value) pretty() string { return v.format(false, true) }
 
 func (v *value) format(sortKeys, pretty bool) string {
 	var b strings.Builder
@@ -336,70 +241,3 @@ func (v *value) optional(k string) (string, error) {
 	}
 	return strings.TrimRight(m.raw(), "\n"), nil
 }
-
-// rank is where each kind sorts, as jq sorts them.
-func (v *value) rank() int {
-	return strings.IndexByte("nft0\"[{", v.kind)
-}
-
-// compare is jq's order of values: null, false, true, numbers, strings,
-// arrays, objects; numbers by value, strings by their bytes, arrays item by
-// item, and objects by their sorted keys and then their values in that
-// order.
-func compare(a, b *value) int {
-	if r := a.rank() - b.rank(); r != 0 {
-		return r
-	}
-	switch a.kind {
-	case '0':
-		x, y := a.number(), b.number()
-		switch {
-		case x < y:
-			return -1
-		case x > y:
-			return 1
-		}
-		return 0
-	case '"':
-		return strings.Compare(a.text, b.text)
-	case '[':
-		for i := 0; i < len(a.items) && i < len(b.items); i++ {
-			if c := compare(a.items[i], b.items[i]); c != 0 {
-				return c
-			}
-		}
-		return len(a.items) - len(b.items)
-	case '{':
-		ka, kb := slices.Sorted(slices.Values(a.keys)), slices.Sorted(slices.Values(b.keys))
-		if c := slices.Compare(ka, kb); c != 0 {
-			return c
-		}
-		for _, k := range ka {
-			if c := compare(a.members[k], b.members[k]); c != 0 {
-				return c
-			}
-		}
-	}
-	return 0
-}
-
-// join is jq's `join($sep)`: null as nothing, a string as itself, a
-// number or a boolean as JSON, and anything else refused.
-func join(items []*value, sep string) (string, error) {
-	parts := make([]string, len(items))
-	for i, x := range items {
-		switch x.kind {
-		case 'n':
-		case '"':
-			parts[i] = x.text
-		case '0', 't', 'f':
-			parts[i] = x.compact()
-		default:
-			return "", fmt.Errorf("Cannot join with %s", x.typeName())
-		}
-	}
-	return strings.Join(parts, sep), nil
-}
-
-// sortValues is jq's `sort`: stable, in jq's order.
-func sortValues(items []*value) { slices.SortStableFunc(items, compare) }

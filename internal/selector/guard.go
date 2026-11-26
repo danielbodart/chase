@@ -32,9 +32,9 @@ func (r *Refused) Error() string { return r.Message }
 // the wrapper and the launcher disagreeing about a checkout -- a launcher
 // started by hand, or a checkout whose remote changed since the wrapper
 // sorted it -- before a session is built around the wrong tier. What gates
-// a checkout's own changes to its session is chase.approver. Not the
-// fallback's: it is where anything the selector could not place goes, so it
-// takes any checkout. Nor a tier the caller chose, with `chase run --tier`:
+// a checkout's own changes to its session is its chase.json's signature. Not
+// the fallback's: it is where anything the selector could not place goes,
+// so it takes any checkout. Nor a tier the caller chose, with `chase run --tier`:
 // that is no disagreement, and a sandbox is never more than its caller has,
 // so it is only said. The one refusal after it is everyone's.
 func (s *Selector) Guard(ctx context.Context, tier, workspace, binds string, chosen bool, stderr io.Writer) error {

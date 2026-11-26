@@ -216,8 +216,7 @@ it, through its `policy-sign@quoin` extension, and shows you the change
 against what git's `HEAD` signed. Refused, the file is written and not
 signed, and the next launch asks again. Applying twice adds nothing. The
 session could write `chase.json`, so it is read as a launch takes it: a
-plain file of at most 1 MiB, never through a link or from a pipe. A
-checkout with only a `chase.jsonc` is migrated first, with `chase migrate`.
+plain file of at most 1 MiB, never through a link or from a pipe.
 Once the session ends, `^C` stops `chase record` itself.
 
 ## Setting it up

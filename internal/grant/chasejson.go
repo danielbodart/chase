@@ -50,12 +50,9 @@ import (
 // the apps a project binds -- a credential, the Docker project, its images
 // and ports, Google's APIs, the devShell, SSH machines -- which chase turns
 // into routes at launch (the apps' sugar).
-//
-// The legacy chase.jsonc (file.go) is read for one release beside it.
 const (
-	FileName   = "chase.json"
-	SigName    = FileName + projpolicy.SigSuffix
-	LegacyName = "chase.jsonc"
+	FileName = "chase.json"
+	SigName  = FileName + projpolicy.SigSuffix
 )
 
 // Doc is a chase.json, decoded. Frisket and Signer are layers merged over

@@ -91,10 +91,6 @@ const usage = `chase -- which sandbox a checkout gets, and which credential each
         its sops file's digest, its Docker project -- in its canonical form,
         signed through quoin's signer, which shows you the change.
 
-  chase migrate [DIR]
-        The checkout's chase.jsonc written as a chase.json, the comments it
-        cannot keep said, chase.jsonc removed, and the new file signed.
-
   chase schema [-config]
         A chase.json's JSON Schema; with -config, the module's
         configuration's.
@@ -240,7 +236,7 @@ func main() {
 		err = runSchema(args)
 	case "fmt":
 		err = grant.FmtCommand(args, os.Stdout)
-	case "sign", "migrate":
+	case "sign":
 		cfg, lerr := config.Load(cfgPath)
 		if lerr != nil {
 			err = lerr
@@ -250,11 +246,7 @@ func main() {
 			err = errors.New("the module configures no tier that takes a project's file")
 			break
 		}
-		if command == "sign" {
-			err = grant.SignCommand(ctx, *cfg.Grant, args, os.Stdout, os.Stderr)
-		} else {
-			err = grant.MigrateCommand(ctx, *cfg.Grant, args, os.Stdout, os.Stderr)
-		}
+		err = grant.SignCommand(ctx, *cfg.Grant, args, os.Stdout, os.Stderr)
 	case "version":
 		fmt.Println(version)
 	case "-h", "--help", "help":

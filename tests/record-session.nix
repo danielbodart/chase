@@ -189,9 +189,6 @@ in
       gid = 100;
       fallback = "recorded";
       # Never asked: chase.json is signed, by the signer.
-      approver = "${pkgs.writeShellScript "approver" ''
-        ${pkgs.coreutils}/bin/cat | ${pkgs.util-linux}/bin/logger -t chase-test-approver
-      ''}";
       signer.agentSocket = "/run/quoin-signer/agent";
       apps = {
         claude.package = pkgs.hello;
@@ -363,7 +360,6 @@ in
           asked = len(questions())
           machine.succeed(as_user(f"cd ${ws} && ${launcher} shell -c {shlex.quote('bash ${session} after')}"), timeout=300)
           assert len(questions()) == asked, questions()[asked:]
-          machine.fail("journalctl -q -t chase-test-approver -o cat --no-pager | grep -q .")
           assert result("after", "delete").strip() == "204", result("after", "delete")
           assert result("after", "plain") == "plain page\n", result("after", "plain")
           assert result("after", "nas") == "plain page\n", result("after", "nas")

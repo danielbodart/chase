@@ -760,7 +760,7 @@ func TestRecordingsArePrunedWhenOldAndMany(t *testing.T) {
 // `chase record apply` merges a recording's proposal into its checkout's
 // chase.json -- the last recording's, or one named -- keeping the file's
 // mode, says what it did, and signs it through the signer; a second apply
-// adds nothing. A checkout with only a chase.jsonc is migrated first.
+// adds nothing.
 func TestApplyAddsTheProposalToTheCheckout(t *testing.T) {
 	root := t.TempDir()
 	diff, err := exec.LookPath("diff")
@@ -844,13 +844,7 @@ func TestApplyAddsTheProposalToTheCheckout(t *testing.T) {
 	if rc := record.Apply(context.Background(), c, []string{"old"}, &out, &errb); rc == 0 || !strings.Contains(errb.String(), "not a plain file") {
 		t.Errorf("apply of a pipe: %d %s", rc, errb.String())
 	}
-	// A legacy chase.jsonc is migrated first.
 	os.Remove(ws + "/chase.json")
-	os.WriteFile(ws+"/chase.jsonc", []byte("{}"), 0o600)
-	errb.Reset()
-	if rc := record.Apply(context.Background(), c, []string{"old"}, &out, &errb); rc == 0 || !strings.Contains(errb.String(), "run chase migrate there first") {
-		t.Errorf("apply over a chase.jsonc: %d %s", rc, errb.String())
-	}
 	for _, bad := range [][]string{{"../state"}, {"nope"}, {"a", "b"}, {".x"}} {
 		errb.Reset()
 		if rc := record.Apply(context.Background(), c, bad, &out, &errb); rc == 0 {

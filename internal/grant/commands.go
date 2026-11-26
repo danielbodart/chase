@@ -2,7 +2,6 @@ package grant
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -17,8 +16,8 @@ import (
 	"github.com/danielbodart/chase/internal/term"
 )
 
-// The commands a person runs on a project's file: check, fmt, schema,
-// sign (sign.go) and migrate.
+// The commands a person runs on a project's file: check, fmt, schema and
+// sign (sign.go).
 
 func sha256Hex64(b []byte) string {
 	d := sha256.Sum256(b)
@@ -107,90 +106,4 @@ func FmtCommand(args []string, stdout io.Writer) error {
 	}
 	term.Say(stdout, "%s: formatted; its signature, if any, no longer matches it", path)
 	return nil
-}
-
-// MigrateCommand is `chase migrate [DIR]`: the checkout's chase.jsonc
-// written as the chase.json it says (File.V2) with what a launch derives
-// of the checkout, the comments it held said on stderr, since a chase.json
-// has none, chase.jsonc removed, and the new file signed.
-func MigrateCommand(ctx context.Context, c Config, args []string, stdout, stderr io.Writer) error {
-	dir := "."
-	switch len(args) {
-	case 0:
-	case 1:
-		dir = args[0]
-	default:
-		return errors.New("usage: chase migrate [DIR]")
-	}
-	root, err := Root(dir)
-	if err != nil {
-		return err
-	}
-	legacy := root + "/" + LegacyName
-	b, err := projpolicy.ReadFile(legacy)
-	if err != nil {
-		return err
-	}
-	if _, err := os.Lstat(root + "/" + FileName); err == nil {
-		return fmt.Errorf("%s has a %s already: compare the two, and remove %s", root, FileName, LegacyName)
-	}
-	doc, comments, err := Migrate(b)
-	if err != nil {
-		return fmt.Errorf("%s: %w", legacy, err)
-	}
-	for _, cm := range comments {
-		term.Say(stderr, "%s: dropped comment: %s", LegacyName, cm)
-	}
-	g, err := newGit(c)
-	if err != nil {
-		return err
-	}
-	defer g.Close()
-	if err := c.derive(ctx, g, root, doc, stderr); err != nil {
-		return fmt.Errorf("%s: %w", legacy, err)
-	}
-	out, err := encodeDoc(doc)
-	if err != nil {
-		return err
-	}
-	if _, _, err := ParseDoc(out); err != nil {
-		return fmt.Errorf("%s would not be a chase.json chase reads: %w", legacy, err)
-	}
-	mode := os.FileMode(0o644)
-	if fi, err := os.Lstat(legacy); err == nil {
-		mode = fi.Mode().Perm()
-	}
-	if err := writeBeside(root+"/"+FileName, out, mode); err != nil {
-		return err
-	}
-	if err := os.Remove(legacy); err != nil {
-		return err
-	}
-	term.Say(stdout, "%s: written from %s, which is removed", root+"/"+FileName, LegacyName)
-	if err := c.sign(ctx, g, root, stdout, stderr); err != nil {
-		return fmt.Errorf("%s is not signed (%w): chase sign signs it", FileName, err)
-	}
-	return nil
-}
-
-// Migrate is a chase.jsonc's grant as a chase.json, and its comments: what
-// `chase migrate` writes, less what is derived of the checkout.
-func Migrate(b []byte) (map[string]any, []string, error) {
-	comments, err := Comments(b)
-	if err != nil {
-		return nil, nil, err
-	}
-	out, err := ParseFile(b)
-	if err != nil {
-		return nil, nil, err
-	}
-	var f File
-	if err := strict(out, &f); err != nil {
-		return nil, nil, err
-	}
-	doc, err := f.V2()
-	if err != nil {
-		return nil, nil, err
-	}
-	return doc, comments, nil
 }

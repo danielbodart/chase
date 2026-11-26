@@ -19,6 +19,7 @@
 
 let
   pkgs = hostPkgs;
+  signing = import ./signing.nix { inherit pkgs lib; chase = self.packages.${pkgs.stdenv.hostPlatform.system}.chase; };
   ws = "/home/alice/proj";
   opsWs = "/home/alice/ops";
   # Nothing of the routes', so only the local network decides who reaches it.
@@ -55,8 +56,8 @@ let
     done
   '';
 
-  # The project: a chase.jsonc naming the machine, made while the test runs,
-  # since the machine's address and key are the test's to give.
+  # The project: a chase.json naming the machine, signed, made while the
+  # test runs, since the machine's address and key are the test's to give.
   mkProject = pkgs.writeShellScript "mk-project" ''
     set -euo pipefail
     export PATH=${lib.makeBinPath (with pkgs; [ coreutils git jq ])}
@@ -65,9 +66,10 @@ let
     cd ${ws}
     git init -q -b main
     jq -n --arg address "$address" --arg hostKey "$hostKey" \
-      '{apps: {ssh: {hosts: {server: {address: $address, user: "ops", hostKeys: [$hostKey]}}}}}' > chase.jsonc
+      '{version: 2, chase: {apps: {ssh: {hosts: {server: {address: $address, user: "ops", hostKeys: [$hostKey]}}}}}}' > chase.json
+    ${signing.sign} ${ws}
     printf 'cmd/\nrelease\n' > .gitignore
-    git add chase.jsonc .gitignore
+    git add chase.json chase.json.sig .gitignore
     git -c user.name=alice -c user.email=alice@example.com commit -qm project
   '';
 in
@@ -147,9 +149,8 @@ in
       gid = 100;
       fallback = "trusted";
       order = [ "ops" ];
-      approver = "${pkgs.writeShellScript "approver" ''
-        ${pkgs.coreutils}/bin/cat | ${pkgs.util-linux}/bin/logger -t chase-test-approver
-      ''}";
+      # Asked nothing: the project's chase.json is signed.
+      signer.allowedSigners = signing.allowedSigners;
       apps = {
         claude.package = pkgs.hello;
         codex.package = pkgs.hello;
@@ -241,15 +242,13 @@ in
       machine.succeed("install -d -m 0700 -o alice -g users /home/alice/.ssh && install -m 0600 -o alice -g users ${sshKeys}/client /home/alice/.ssh/frisket")
       machine.succeed("printf '%s\\n' '${password}' > ${passwordFile} && chown alice:users ${passwordFile} && chmod 0400 ${passwordFile}")
 
-      with subtest("the launch approves the machine the grant names, and routes it"):
+      with subtest("the launch reads the machine the signed file names, and routes it"):
           host_key = machine.succeed("cat ${sshKeys}/host.pub").strip()
           machine.succeed(f"runuser -l alice -c {shlex.quote(f'${mkProject} ${address} {shlex.quote(host_key)}')}")
           machine.succeed(as_user("cd ${ws} && ${launcher} shell -c 'bash ${runner}'") + " >/tmp/session.out 2>&1 &")
           machine.wait_until_succeeds("test -e ${ws}/cmd/ready", timeout=300)
           print(machine.succeed("cat /tmp/session.out"))
           name = machine.succeed("cat /tmp/last-session").strip()
-          approvals = machine.succeed("journalctl -t chase-test-approver -o cat --no-pager")
-          assert "${address}" in approvals, approvals
           policy = vm_json(machine, f"/run/user/1000/chase/{name}/policy.json")
           assert policy["version"] == 2, policy
           routes = policy["ssh"]
@@ -257,9 +256,7 @@ in
           route = routes["server"]
           assert (route["address"], route["user"], route["hostKeys"], route["keyFile"]) == \
               ("${address}", "ops", [host_key], "/home/alice/.ssh/frisket"), route
-          # A legacy chase.jsonc, approved as it always was, for this
-          # release, and told to migrate.
-          assert "run chase migrate" in machine.succeed("cat /tmp/session.out"), machine.succeed("cat /tmp/session.out")
+          assert "is not signed" not in machine.succeed("cat /tmp/session.out"), machine.succeed("cat /tmp/session.out")
 
       with subtest("the session's ssh reads frisket's files through the tier's config, its CA first"):
           rc, out = session("ssh -G server")

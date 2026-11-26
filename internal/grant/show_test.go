@@ -40,14 +40,13 @@ func TestWhereAProjectsDockerIsIsSaid(t *testing.T) {
 	ws := r + "/p/shop"
 	h.repo(ws, "git@github.com:Example/Shop.git")
 	os.MkdirAll(ws+"/sub", 0o755)
-	ports := "64320 64321   (approved)"
+	ports := "64320 64321   (signed)"
 
-	// Nothing approved: no port is the project's yet.
-	h.shown(ws, "trusted", block("(none approved)"))
+	// Nothing signed: no port is the project's yet.
+	h.shown(ws, "trusted", block("(none signed)"))
 
-	// Approved, its ports are the project's, from anywhere in the checkout,
-	// which is keyed by its root as the launch keys it.
-	h.approved(ws, "m1", "trusted", `{"apps": {"docker": {"images": ["postgres:18"], "ports": [64320, 64321]}}}`)
+	// Signed, its ports are the project's, from anywhere in the checkout.
+	h.approved(ws, "m1", "trusted", `{"chase":{"apps":{"docker":{"images":{"postgres:18":true},"ports":{"64320":true,"64321":true}}}},"version":2}`)
 	h.shown(ws, "trusted", block(ports))
 	h.shown(ws+"/sub", "trusted", block(ports))
 
@@ -55,16 +54,15 @@ func TestWhereAProjectsDockerIsIsSaid(t *testing.T) {
 	// the project's, and says it has no Docker.
 	h.shown(ws, "plain", "example/shop\n  address  127.101.170.171\n  names    shop.example.internal\n  (no Docker on plain)\n")
 
-	// An approval of the checkout as another project approved none of this
-	// one's ports.
+	// A file signed as another project gives none of this one's ports.
 	app := r + "/w/app"
 	h.repo(app, "git@github.com:acme/app.git")
-	h.approved(app, "m2", "trusted", `{"apps": {"docker": {"images": ["postgres:18"], "ports": [5432]}}}`)
-	if h.run("docker", app, "trusted") != 0 || !h.hasLine("  ports    5432   (approved)") {
+	h.approved(app, "m2", "trusted", `{"chase":{"apps":{"docker":{"images":{"postgres:18":true},"ports":{"5432":true}}}},"version":2}`)
+	if h.run("docker", app, "trusted") != 0 || !h.hasLine("  ports    5432   (signed)") {
 		t.Errorf("acme/app's ports were not shown: %s %s", h.out, h.err)
 	}
 	h.fx.Run("-C", app, "remote", "set-url", "origin", "git@github.com:acme/app2.git")
-	if h.run("docker", app, "trusted") != 0 || !strings.HasPrefix(h.out, "acme/app2\n") || !h.hasLine("  ports    (none approved)") {
+	if h.run("docker", app, "trusted") != 0 || !strings.HasPrefix(h.out, "acme/app2\n") || !h.hasLine("  ports    (none signed)") {
 		t.Errorf("another project's ports were shown as approved: %s %s", h.out, h.err)
 	}
 

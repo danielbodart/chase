@@ -2,12 +2,12 @@
 #
 # For a tier that takes grants, each launch:
 #
-#   seccompPolicy  before the session is built: reads the checkout's
-#                  tracked `chase.jsonc` -- data, never evaluated -- checks
-#                  it against what a grant may say; asks `chase.approver` if
-#                  the grant is not the one last approved for this checkout;
-#                  stages the approved grant for this launch's exec, and
-#                  prints its syscall loosenings for flong
+#   seccompPolicy  before the session is built: snapshots the checkout's
+#                  `chase.json` -- data, never evaluated -- and checks it
+#                  against what a grant may say; has quoin's signer sign it
+#                  if its signature does not verify; stages the signed file
+#                  for this launch's exec, and prints its syscall
+#                  loosenings for flong
 #   exec           still before the session is built: decrypts the secrets
 #                  the staged result binds into /run/user/<uid>/chase/<machine>/;
 #                  prepares each bound app; writes the session's policy
@@ -23,7 +23,7 @@
 # All of it runs as the user who launched: a launcher has no privilege of its
 # own (PLAN.md, decision 2). The approval is split from the rest because a
 # syscall filter is installed before anything in the session runs, so what
-# loosens it has to be known, and approved, before flong starts bwrap. The
+# loosens it has to be known, and signed, before flong starts bwrap. The
 # rest is exec's because exec is the one hook whose output is the session's
 # environment: nothing is written for a session to source, and nothing of
 # chase's runs inside one but, where a devShell is given, the bash that
@@ -31,7 +31,7 @@
 # container's PATH, given its script and data as arguments (PLAN.md,
 # decision 21).
 #
-# A checkout with no `chase.jsonc` is the tier as it is. Anything that goes
+# A checkout with no `chase.json` is the tier as it is. Anything that goes
 # wrong on the way ends the launch: a grant is applied whole or the session
 # does not start.
 #
@@ -58,19 +58,15 @@ let
   dockerTiers = lib.attrNames (lib.filterAttrs (_: t: !t.bare && (t.apps.docker.enable or false)) tiers);
 in
 {
-  options.chase = {
-    approver = mkOption {
-      type = types.nullOr (types.strMatching "/.*");
-      default = null;
-      description = ''
-        The program that asks a person to approve a checkout's grant when
-        it has changed (PLAN.md, decision 17). It runs as the user, from the
-        launch, with one JSON document on stdin: `workspace`, and `diff`,
-        unified, of the grant last approved against the one proposed. Exit 0
-        approves; anything else ends the launch. Null: nothing is approved.
-      '';
-    };
+  imports = [
+    (lib.mkRemovedOptionModule [ "chase" "approver" ] ''
+      chase reads no chase.jsonc, which chase.approver approved: a project's
+      file is chase.json, signed through quoin's signer, which shows a person
+      the change (PLAN.md, decision 17).
+    '')
+  ];
 
+  options.chase = {
     internal.launchedTiers = mkOption {
       internal = true;
       default = [ ];
@@ -79,7 +75,7 @@ in
         Tiers that take no grant but are launched as those that do, for
         routes of the tier's own made at launch -- its SSH machines
         (apps/ssh.nix). Each launch of one is the tier as it is, a
-        checkout's `chase.jsonc` never read.
+        checkout's `chase.json` never read.
       '';
     };
 
@@ -121,7 +117,6 @@ in
       flong = lib.getExe config.flong."chase-${lib.head (lib.attrNames tiers)}".launcher;
       ungranted = lib.attrNames (lib.filterAttrs (_: t: !t.grants) tiers);
       apps = cfg.internal.projectApps;
-      approver = if cfg.approver == null then "" else cfg.approver;
       signerAgent = if cfg.signer.agentSocket == null then "" else cfg.signer.agentSocket;
       sops = lib.getExe pkgs.sops;
       diff = "${pkgs.diffutils}/bin/diff";

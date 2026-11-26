@@ -24,7 +24,7 @@ needs without depending on the machine it is being worked on.
 ```
                  chase
                 ↑     ↑
-        nix-config     a project's chase.jsonc
+        nix-config     a project's chase.json
 ```
 
 Neither depends on the other. nix-config imports chase's module; a project
@@ -59,7 +59,7 @@ The adapter and chase both know about both projects, differently: the adapter
 is a *mechanism* the two must agree on — an ordering contract — and chase is
 *policy* built on top of it. Only the second belongs here.
 
-**2. A launcher has exactly the caller's privilege; the approver is the
+**2. A launcher has exactly the caller's privilege; the signature is the
 gate.** flong's sessions are rootless: no sudo, no setuid, no root anywhere.
 Every step of a launch — `workspace`, `binds`, `guard`, `seccompPolicy`,
 `exec`, `postStop` — runs as the user who started it, and the launcher
@@ -71,8 +71,8 @@ built can do no more than the caller running bwrap directly.
 What stops a checkout from widening its own sandbox is therefore not who runs
 the launcher but what the launcher applies. A project's grant is read
 at launch, and nothing it says — an app's settings, a secret,
-a syscall it wants back — takes effect until `chase.approver` has shown a
-person the change and they have said yes (decision 17). `guard` stays, as a
+a syscall it wants back — takes effect until quoin's signer has shown a
+person the change and they have signed it (decision 17). `guard` stays, as a
 consistency check between the wrapper and the launcher rather than a gate:
 it catches a launcher started by hand on a checkout the wrapper would have
 sorted differently.
@@ -182,9 +182,8 @@ for flong. The signer's and the gate's are checked and kept at
 
 Before it, the grant was `chase.jsonc`, JSON with comments and trailing
 commas, decoded into a schema of chase's own and translated, list by list,
-into what each component reads. A launch still reads one for this release,
-as the `chase.json` it migrates to, and `chase migrate` writes that file,
-saying each comment it cannot keep.
+into what each component reads. A section in each component's own shape
+needs no translation, and a file signed as it is needs no comments.
 
 This replaces a NixOS module, `chaseModules.default` in the project's flake,
 evaluated against chase's options. That was chosen while chase was Nix, for
@@ -210,8 +209,8 @@ reaches a prompt, *"which no editor, script or coding agent has"* —
 nix-config's own note on why containers get nothing from it. A launch from
 an editor would silently get no grant.
 
-So the launcher reads the checkout's `chase.jsonc` itself and is
-self-sufficient. A project with no `chase.jsonc` costs a stat, which is the
+So the launcher reads the checkout's `chase.json` itself and is
+self-sufficient. A project with no `chase.json` costs a stat, which is the
 ordinary case.
 
 **12. chase ships the machinery, not the tiers.** A tier is a name and what it
@@ -239,16 +238,16 @@ credential files are the user's own and a process with sudo simply reads
 them, and since a netns can be left with `nsenter`. So there is nothing that
 containerising such work would buy, for as long as it has root.
 
-**13. A tier for other people's code may take a grant, approved.** `grants` is
+**13. A tier for other people's code may take a grant, signed.** `grants` is
 a tier's switch, and the machine decides it (decision 5). Leaving it off is
 the stricter fit -- nothing a checkout ships loosens its sandbox -- but it
 leaves one way to give someone else's project what it needs: move it to a
 tier for one's own code, and give it everything that tier has. With it on,
 the project keeps the tier, and what it needs beyond it is named entry by
 entry -- a name to download from, a syscall its build makes -- as `chase
-record` proposes, and nothing applies until a person has read the diff and
-approved it. The approval is the boundary, not the tier: a checkout can write
-its own `chase.jsonc`, and what it writes there is only ever a request. Its
+record` proposes, and nothing applies until a person has read the change
+and signed it. The signature is the boundary, not the tier: a checkout can
+write its own `chase.json`, and what it writes there is only ever a request. Its
 lists for an anonymous app are still ignored (decision 18): there is no
 credential to write with, and no one to ask.
 
@@ -335,7 +334,7 @@ session to source. The policy document is written for every launch, the
 tier's own for a checkout with no grant, so frisket reads one path for every
 session of the tier.
 
-A checkout with no `chase.json` and no `chase.jsonc` is the tier as it is,
+A checkout with no `chase.json` is the tier as it is,
 and is never asked about. No approval is kept on the host: the signature is
 the record of what a person agreed to, and it is committed beside the file.
 Refused, the launch ends rather than running without the grant. Working from
@@ -343,19 +342,10 @@ the snapshot is what makes the signature mean something: a session of the
 same checkout cannot change a file between the signature's check and its
 use.
 
-For this release, a checkout with only a `chase.jsonc` is approved as it
-always was: its tracked file, read as decision 10's old schema, with its
-sops file's digest and Docker project beside it, put to `chase.approver`
-when it differs from what was last approved, in `~/.local/state/chase/`, on
-the host and bound into no session; a change to comments or order asks
-nothing. It is then applied as the `chase.json` it migrates to, and the
-launch says to run `chase migrate`.
-
 The snapshot is taken without running anything the checkout's config names:
-which files are tracked is read from the index alone (`chase ls-files`,
-internal/checkout), in an empty repository, never by `git ls-files` in the
-checkout, whose `core.fsmonitor` is a command git would run; the file git's
-HEAD signed is read from its objects alone, the same way; and each file is
+the file git's HEAD signed is read from its objects alone, in an empty
+repository (internal/checkout), never by a git in the checkout, whose
+`core.fsmonitor` is a command git would run; and each file is
 copied (internal/snapshot) following no link above it, so a directory the
 session made a link cannot bring a host file into what is signed and
 decrypted.
@@ -594,8 +584,8 @@ checkout it is the wrong order, since `nix develop` on the host runs their
 So exec, as the caller, after the grant and before the payload, realises
 the checkout's devShell -- flake.nix's `devShells.<system>.default`, or its
 shell.nix, flake.nix's when it has both -- in a tier whose `apps.nix` is
-enabled, where the checkout's approved grant turns it on, `"apps": {"nix":
-{"devShell": true}}`, and hands its environment to the payload
+enabled, where the checkout's signed grant turns it on, `"chase": {"apps":
+{"nix": {"devShell": true}}}`, and hands its environment to the payload
 (internal/devshell). That is so in every tier, one's own code's too, as
 `direnv allow` is: no checkout's Nix is evaluated unless it asks, and one
 that does not costs a launch nothing but a look for the files, a checkout
@@ -746,8 +736,8 @@ the lines it reads today.
   that exact.
 - **A stacking asker.** Done outside chase and frisket, as galley
   (github.com/danielbodart/galley): zenity's command line, every question
-  in one queue window. A machine's asker and approver use it when its
-  socket is there; neither chase nor frisket depends on it.
+  in one queue window. A machine's asker uses it when its socket is
+  there; neither chase nor frisket depends on it.
 
 ## Considered and rejected
 
@@ -765,11 +755,10 @@ the lines it reads today.
   checks. The parser is now `encoding/json` and the validator Go chase
   already carries. Decision 10.
 
-- **TOML, YAML or plain JSON for the grant.** Plain JSON has no comments,
-  and a grant's reasons belong next to its values. TOML and YAML would each
-  add a parser, and YAML many ways to write one value, to a path that runs
-  before anyone has approved anything. JSON with comments is JSON once they
-  are removed, so the privileged path parses only JSON. Decision 10.
+- **TOML or YAML for the grant.** Each would add a parser, and YAML many
+  ways to write one value, to a path that runs before anyone has signed
+  anything. `chase.json` is strict JSON in a canonical form, the bytes its
+  signature covers, which every component already parses. Decision 10.
 
 - **nix-config importing a project as a flake input.** The arrow points the
   wrong way: it makes the machine enumerate its projects, pins each one in
