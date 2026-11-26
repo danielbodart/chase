@@ -93,9 +93,11 @@ const never = 4102444800000
 // or PATH:rw a line, and given what the launch's grant adds. What it says
 // to a person, it says on stderr: stdout is the payload's.
 //
-// The agent is one of a closed list -- claude, codex and deepsec where the
-// tier has them, and shell -- so a launcher's argument can never run
-// anything else on the container's PATH:
+// The first argument is the program: an agent, which the tier sets up,
+// or anything else on the session's PATH, run as it is. A launcher's
+// arguments are its caller's, who could run `shell -c` with any program,
+// so naming one directly gives nothing more. An agent's name runs only
+// that agent, and only where the tier has it:
 //
 //   - claude: Claude Code with the tier's settings, which outrank the
 //     user's and the project's, its permission prompts skippable, and
@@ -107,9 +109,13 @@ const never = 4102444800000
 //   - deepsec: deepsec, as it is, but that `deepsec init` given no --agent
 //     is given the tier's (Deepsec.Agent), which it keeps in the checkout's
 //     own configuration for every later run;
-//   - shell: `bash -l`, what `chase shell` gets, the session as an agent
-//     gets it with no agent. A session with Docker is told, on stderr, where
-//     its containers' ports are.
+//   - shell: `bash -l`, what `chase run shell` gets, the session as an
+//     agent gets it with no agent. A session with Docker is told, on
+//     stderr, where its containers' ports are;
+//   - any other program: itself, found on the session's PATH once it is
+//     ordered, the devShell's first where there is one, as `nix develop
+//     -c` finds it; an agent, and shell's bash, are found on the
+//     container's alone.
 //
 // Where the launch realised the checkout's devShell (given.DevShell), the
 // agent's argument list is run by a bash ahead of it: the container's, given
@@ -299,14 +305,14 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 	case agent == "shell":
 		e.Argv = []string{"bash", "-l"}
 	default:
-		return Exec{}, fmt.Errorf("unknown agent '%s': %s runs %s", agent, tier, strings.Join(agents(t), ", "))
+		e.Argv = []string{agent}
 	}
 	e.Argv = append(e.Argv, rest...)
 	// A devShell's PATH, which exec cannot set, and its shellHook, which
 	// runs in the session: a bash ahead of the agent's own program, which
 	// it execs once both are done (wrap).
 	if ds := given.DevShell; ds != nil {
-		e.Argv = wrap(e.Argv, ds, t.PathFront, keepOf(t, own))
+		e.Argv = wrap(e.Argv, ds, t.PathFront, keepOf(t, own), !slices.Contains(agentNames, agent) && agent != "shell")
 	}
 
 	if cl := t.Claude; cl != nil {
@@ -359,27 +365,31 @@ func Payload(c Config, tier, workspace, binds string, args []string, given Given
 	return e, nil
 }
 
-// Agent refuses a launch whose launcher's arguments args name no agent
-// tier runs, or whose tier is not a sandbox's, as Payload does: the same
-// words, from the same closed list. It is Payload's first step, and is
-// taken on its own before anything else the exec hook does, so a launch
-// that was always going to be refused is refused before a grant is
-// applied -- before its stage is consumed, a secret decrypted, a token
-// minted from Google with the real key or a unit started for it -- and not
-// after, with flong's postStop left to undo it all.
+// Agent refuses a launch whose launcher's arguments args name no program,
+// or an agent the tier does not run, or whose tier is not a sandbox's, as
+// Payload does. It is Payload's first step, and is taken on its own before
+// anything else the exec hook does, so a launch that was always going to
+// be refused is refused before a grant is applied -- before its stage is
+// consumed, a secret decrypted, a token minted from Google with the real
+// key or a unit started for it -- and not after, with flong's postStop
+// left to undo it all.
 func Agent(c Config, tier string, args []string) error {
 	t, ok := c.Tiers[tier]
 	if !ok {
 		return fmt.Errorf("%s is not a sandbox tier", tier)
 	}
-	if len(args) == 0 {
-		return fmt.Errorf("no agent named: the launcher's first argument is the agent, one of %s", strings.Join(agents(t), ", "))
+	if len(args) == 0 || args[0] == "" {
+		return fmt.Errorf("no program named: the launcher's first argument is the program, %s or any other", strings.Join(agents(t), ", "))
 	}
-	if !slices.Contains(agents(t), args[0]) {
-		return fmt.Errorf("unknown agent '%s': %s runs %s", args[0], tier, strings.Join(agents(t), ", "))
+	if slices.Contains(agentNames, args[0]) && !slices.Contains(agents(t), args[0]) {
+		return fmt.Errorf("%s runs no %s: it runs %s", tier, args[0], strings.Join(agents(t), ", "))
 	}
 	return nil
 }
+
+// agentNames are the programs a session sets up, rather than runs as they
+// are, where the tier has them.
+var agentNames = []string{"claude", "codex", "deepsec"}
 
 // agents is the agents tier runs, as a person would name them.
 func agents(t Tier) []string {

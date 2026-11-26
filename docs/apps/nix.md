@@ -114,7 +114,7 @@ falls through; the devShell's; then the rest of the container's.
 `XDG_DATA_DIRS` is the devShell's ahead of the container's.
 
 A bash stands in front of the agent where a devShell is given: the
-container's, as `chase shell` runs it. It orders PATH, runs the shellHook
+container's, as `chase run shell` runs it. It orders PATH, runs the shellHook
 when there is one, and execs the agent, which it finds on the container's
 PATH before the devShell's is added: a devShell's own `claude` or `bash` is
 never what runs. The hook runs in a subshell, with the devShell's functions

@@ -101,11 +101,12 @@ var VarName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // ends the session with its status, as it ends nix develop's, and so,
 // said, does anything else that leaves the subshell handing back nothing
 // whole -- a hook that replaces the builtins the subshell hands back with.
-var devShellScript = `__chase_front=$1 __chase_path=$2 __chase_data=$3 __chase_keep=$4 __chase_hook=$5 __chase_n=$6
-builtin shift 6
+var devShellScript = `__chase_front=$1 __chase_path=$2 __chase_data=$3 __chase_keep=$4 __chase_hook=$5 __chase_late=$6 __chase_n=$7
+builtin shift 7
 __chase_decls=("${@:1:__chase_n}")
 builtin shift "$__chase_n"
-__chase_prog=$(builtin type -P -- "$1") || { builtin echo "chase: $1: not found" >&2; builtin exit 127; }
+__chase_find() { __chase_prog=$(builtin type -P -- "$1") || { builtin echo "chase: $1: not found" >&2; builtin exit 127; }; }
+[[ -n $__chase_late ]] || __chase_find "$1"
 __chase_order() {
   builtin local __chase_p __chase_all=$__chase_front __chase_have
   [[ -n $1 ]] && __chase_all+=${__chase_all:+:}$1
@@ -152,6 +153,7 @@ if [[ -n $__chase_hook ]]; then
   done
   __chase_order ""
 fi
+[[ -z $__chase_late ]] || __chase_find "$1"
 builtin exec -a "$1" "$__chase_prog" "${@:2}"
 `
 
@@ -171,11 +173,14 @@ func init() {
 }
 
 // wrap is argv run inside ds's environment by devShellScript: the
-// container's bash, as `chase shell` runs it, given the script and its
-// data. keep are the names a shellHook may not change: flong's own, the
+// container's bash, as `chase run shell` runs it, given the script and its
+// data. An agent's program is found on the container's PATH before the
+// devShell's is added, so a devShell's own `claude` or `bash` is never
+// what runs; with late, a program `chase run` names is found once PATH is
+// ordered, the devShell's first, as `nix develop -c` finds it. keep are the names a shellHook may not change: flong's own, the
 // container's and chase's, never PATH or XDG_DATA_DIRS, which the script
 // orders itself.
-func wrap(argv []string, ds *DevShell, front, keep []string) []string {
+func wrap(argv []string, ds *DevShell, front, keep []string, late bool) []string {
 	var names []string
 	for _, k := range keep {
 		if VarName.MatchString(k) && k != "PATH" && k != "XDG_DATA_DIRS" {
@@ -186,9 +191,16 @@ func wrap(argv []string, ds *DevShell, front, keep []string) []string {
 	names = slices.Compact(names)
 	out := []string{"bash", "--noprofile", "--norc", "-c", devShellScript, "chase-devshell",
 		strings.Join(front, ":"), strings.Join(ds.Path, ":"), strings.Join(ds.DataDirs, ":"),
-		strings.Join(names, " "), ds.Hook, strconv.Itoa(len(ds.Declarations))}
+		strings.Join(names, " "), ds.Hook, lateArg(late), strconv.Itoa(len(ds.Declarations))}
 	out = append(out, ds.Declarations...)
 	return append(out, argv...)
+}
+
+func lateArg(late bool) string {
+	if late {
+		return "1"
+	}
+	return ""
 }
 
 // keepOf is every name a hook may not change: flong's, the container's,

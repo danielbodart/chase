@@ -220,7 +220,7 @@ in
 
       def launch(launcher, name, run="ran", shell="shell"):
           """The session's report and what the launch said, or None for a refusal."""
-          # The program chase shell's own bash is, not the report's, which
+          # The program chase run shell's own bash is, not the report's, which
           # is whichever bash is first on its PATH; nor $BASH, which bash
           # finds on PATH too.
           cmd = f"cd ${home}/{name} && {launcher} {shell} -c {shlex.quote('bash ${report} ' + run + ' \"$(readlink /proc/$$/exe)\"')} > /tmp/out 2> /tmp/err; echo $? > /tmp/rc"
@@ -363,15 +363,27 @@ in
           launch("${own}", "mine", "after")
           machine.fail("grep -l '\"workspace\":\"${home}/gone\"' ${home}/.local/state/chase/checkouts/*/devshell/state.json")
 
-      with subtest("chase shell --tier runs a checkout in the tier chosen, which a launcher of it alone is refused"):
+      with subtest("chase run --tier runs a checkout in the tier chosen, which a launcher of it alone is refused"):
           s, said = launch("${theirs}", "mine", "unchosen")
           assert s is None and "refusing a 'theirs' session, this checkout is 'own'" in said, said
-          s, said = launch("${chase}", "mine", "chosen", shell="shell --tier theirs")
+          s, said = launch("${chase}", "mine", "chosen", shell="run --tier theirs shell")
           assert s is not None, said
           assert "a 'theirs' session, as chosen; this checkout is 'own'" in said, said
           # theirs', with no mise: its shims are own's alone.
           assert "${home}/.local/share/mise/shims" not in s["PATH"].split(":"), s
-          s, said = launch("${chase}", "mine", "nope", shell="shell --tier nope")
+          s, said = launch("${chase}", "mine", "nope", shell="run --tier nope shell")
           assert s is None and "no tier 'nope'; the tiers are others, own, theirs" in said, said
+
+      with subtest("chase run --with binds another checkout beside the workspace, and runs any program"):
+          # bash itself, not the shell alias: a program found on the
+          # session's PATH, and its words after it are its own.
+          s, said = launch("${chase}", "mine", "with", shell="run --with ../bashrc bash")
+          assert s is not None, said
+          assert "chase: mounting ${home}/bashrc (own, rw)" in said, said
+          s, said = launch("${chase}", "mine", "withro", shell="run --with ${home}/bashrc:ro bash")
+          assert s is not None and "chase: mounting ${home}/bashrc (own, ro)" in said, said
+          # A wrapper takes no option: --tier is the agent's word, not chase's.
+          s, said = launch("${chase}", "mine", "nooption", shell="run shell --tier theirs")
+          assert s is None, said
     '';
 }

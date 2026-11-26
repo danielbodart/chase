@@ -181,7 +181,7 @@ func TestADevShellWrapsTheAgentInItsPath(t *testing.T) {
 	ds := &DevShell{Path: []string{"/nix/store/a/bin", "/nix/store/b/bin"}, DataDirs: []string{"/nix/store/a/share"}, Hook: "echo hi", Declarations: []string{"declare -- a='1'", "f () {\n:\n}"}}
 	keep := "CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN COLORTERM FLONG_BINDS HOME LOGNAME PWD SHELL SSL_CERT_FILE TERM TMPDIR USER XDG_RUNTIME_DIR container"
 	prefix := []string{"bash", "--noprofile", "--norc", "-c", devShellScript, "chase-devshell",
-		"/run/wrappers/bin:/mise/shims", "/nix/store/a/bin:/nix/store/b/bin", "/nix/store/a/share", keep, "echo hi", "2",
+		"/run/wrappers/bin:/mise/shims", "/nix/store/a/bin:/nix/store/b/bin", "/nix/store/a/share", keep, "echo hi", "", "2",
 		"declare -- a='1'", "f () {\n:\n}"}
 	for _, args := range [][]string{{"claude", "-p", "hi"}, {"codex"}, {"shell"}} {
 		bare, _ := f.run(t, "trusted", "/w/shop", "", Given{}, args...)
@@ -192,6 +192,21 @@ func TestADevShellWrapsTheAgentInItsPath(t *testing.T) {
 		if bare.argv[0] == "bash" && args[0] != "shell" {
 			t.Errorf("%q without a devShell is wrapped: %q", args, bare.argv)
 		}
+	}
+}
+
+// A program `chase run` names, not an agent, is found once PATH is
+// ordered, the devShell's first: the script is told so, late.
+func TestADevShellFindsAProgramOnItsOwnPath(t *testing.T) {
+	f := newFixture(t)
+	ds := &DevShell{Path: []string{"/nix/store/a/bin"}}
+	wrapped, _ := f.run(t, "trusted", "/w/shop", "", Given{DevShell: ds}, "make", "test")
+	if i := slices.Index(wrapped.argv, "chase-devshell"); i < 0 || wrapped.argv[i+6] != "1" || !slices.Equal(wrapped.argv[len(wrapped.argv)-2:], []string{"make", "test"}) {
+		t.Errorf("make is run as %q", wrapped.argv)
+	}
+	agent, _ := f.run(t, "trusted", "/w/shop", "", Given{DevShell: ds}, "shell")
+	if i := slices.Index(agent.argv, "chase-devshell"); i < 0 || agent.argv[i+6] != "" {
+		t.Errorf("shell is run as %q", agent.argv)
 	}
 }
 

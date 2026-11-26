@@ -24,6 +24,8 @@ import (
 
 	"github.com/danielbodart/chase/internal/files"
 	"github.com/danielbodart/chase/internal/grant"
+	"github.com/danielbodart/chase/internal/selector"
+	"github.com/danielbodart/chase/internal/session"
 	"github.com/danielbodart/chase/internal/term"
 )
 
@@ -128,7 +130,7 @@ func ParseArgs(args []string) (Args, error) {
 		return Args{}, errors.New("--default refuse learns no syscalls, so --base none would only refuse every call the session makes")
 	}
 	if len(args) == 0 || args[0] == "" || strings.HasPrefix(args[0], "-") {
-		return Args{}, errors.New("no agent: name claude, codex, deepsec or shell")
+		return Args{}, errors.New("no program: name claude, codex, deepsec, shell or any other")
 	}
 	a.Agent, a.Args = args[0], args[1:]
 	return a, nil
@@ -195,7 +197,11 @@ func Run(s Session) int {
 		col = c
 	}
 
-	env := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "CHASE_RECORD_") })
+	// A recording is the checkout's own tier, with only its own binds:
+	// neither a tier nor a directory a `chase run` chose reaches it.
+	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		return strings.HasPrefix(kv, "CHASE_RECORD_") || strings.HasPrefix(kv, selector.ChosenTier+"=") || strings.HasPrefix(kv, session.With+"=")
+	})
 	env = append(env, grant.EnvDefault+"="+s.Args.Default, grant.EnvBase+"="+s.Args.Base, grant.EnvToken+"="+tok)
 	cmd := exec.Command(s.Launcher, append([]string{s.Args.Agent}, s.Args.Args...)...)
 	cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr = env, s.Stdin, s.Stdout, s.Stderr

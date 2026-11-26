@@ -3,7 +3,7 @@
 // chase.order, and chase.fallback for whatever none of them claims or the
 // selector cannot sort. It is also the two things that act on its answer:
 // the guard each sandbox runs before a session starts, and the wrapper
-// (`claude`, `codex`, `chase shell`) that picks what to run.
+// (`claude`, `codex`, `chase run`) that picks what to run.
 //
 // How far each predicate is believed is the tier's author's to judge, not
 // the selector's. A path is the one signal a checkout cannot forge; a

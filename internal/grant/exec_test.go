@@ -69,7 +69,7 @@ func TestTheExecHookAppliesTheGrantAndPrintsItsPayload(t *testing.T) {
 	// stage is consumed: nothing is prepared, no directory made, no policy
 	// written.
 	h.approved(ws, "m1", "trusted", given)
-	for args, said := range map[string]string{"claude": "unknown agent 'claude': trusted runs shell", "sh -c id": "unknown agent 'sh'", "": "no agent named"} {
+	for args, said := range map[string]string{"claude": "trusted runs no claude: it runs shell", "": "no program named"} {
 		args := strings.Fields(args)
 		if rc := h.exec(s, true, "trusted", ws, "m1", args...); rc != 1 || h.out != "" {
 			t.Errorf("%q: status %d, printed %q", args, rc, h.out)

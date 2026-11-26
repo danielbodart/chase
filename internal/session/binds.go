@@ -15,13 +15,37 @@ import (
 	"github.com/danielbodart/chase/internal/term"
 )
 
+// With is the variable `chase run --with` sets for the launch it starts:
+// the directories the caller chose to give the session beside its
+// workspace, one PATH:ro or PATH:rw a line, each absolute and resolved.
+// Every launch drops one it inherited, as it does ChosenTier, so only the
+// launch's own choice reaches the binds hook.
+const With = "CHASE_WITH"
+
 // Binds is flong's binds hook for tier, as the caller: each directory the
 // session is given beside its workspace, one PATH or PATH:rw a line on out,
-// the directories it needs made first. A failure ends the launch: flong
-// refuses a session whose bind source is missing anyway.
-func Binds(c Config, tier, workspace string, out io.Writer) error {
+// the directories it needs made first. with is With's value: the caller's
+// own directories, first. A failure ends the launch: flong refuses a
+// session whose bind source is missing anyway.
+func Binds(c Config, tier, workspace, with string, out io.Writer) error {
 	t := c.Tiers[tier]
 	var lines []string
+
+	// The caller's own, as `chase run --with` checked them; flong checks
+	// each again, as it does every bind.
+	for _, l := range strings.Split(with, "\n") {
+		if l == "" {
+			continue
+		}
+		p, ok := strings.CutSuffix(l, ":rw")
+		if !ok {
+			p, ok = strings.CutSuffix(l, ":ro")
+		}
+		if !ok || !filepath.IsAbs(p) {
+			return fmt.Errorf("%s: %s, an absolute PATH:ro or PATH:rw, not %q", With, "each line", term.Clean(l))
+		}
+		lines = append(lines, l)
+	}
 
 	// The other members of every group the workspace is in, read-write:
 	// not transitive, sorted, each once, and only those that exist.

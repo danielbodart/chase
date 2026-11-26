@@ -46,10 +46,14 @@ var version = "dev"
 
 const usage = `chase -- which sandbox a checkout gets, and which credential each app is given
 
-  chase shell [--tier TIER] [ARG...]
-        A shell where an agent would run in this checkout: in its tier's
-        sandbox, or on the host for a bare tier; --tier, in TIER's instead,
-        as for claude, codex and deepsec.
+  chase run [--tier TIER] [--with DIR[:ro|:rw]]... [--] PROGRAM [ARG...]
+        PROGRAM where an agent would run in this checkout: in its tier's
+        sandbox, or on the host for a bare tier. claude, codex and deepsec
+        run as the tier sets them up, shell is the tier's login shell, and
+        any other program is found on the session's PATH. --tier runs it
+        in TIER's instead; --with gives the session DIR beside the
+        checkout, read-write unless it ends :ro. Options end at PROGRAM:
+        every word after it is the program's.
 
   chase tier [DIR] | --if-gone DIR | --dry-run DIR...
         The tier a checkout is sorted into; --if-gone, the tier it would be
@@ -109,7 +113,8 @@ const usage = `chase -- which sandbox a checkout gets, and which credential each
 
   claude [ARG...], codex [ARG...], deepsec [ARG...]
         The agents, as the links the module installs: each picks the tier
-        of the checkout it is run in and runs there.
+        of the checkout it is run in and runs there, as chase run does
+        with no options. Every argument is the agent's.
 
 What the module runs, rather than a person:
 
@@ -160,7 +165,9 @@ func main() {
 	cfgPath := config.Default
 	switch name {
 	case "claude", "codex", "deepsec":
-		exit(wrap(ctx, cfgPath, name, args))
+		// The wrappers take no options: every argument is the agent's.
+		// Choosing a tier or a directory is `chase run`'s.
+		exit(wrap(ctx, cfgPath, name, name, runOptions{}, args))
 	}
 
 	if len(args) >= 2 && args[0] == "-config" {
@@ -173,8 +180,18 @@ func main() {
 	command, args := args[0], args[1:]
 	var err error
 	switch command {
-	case "shell":
-		exit(wrap(ctx, cfgPath, "shell", args))
+	case "run":
+		pwd, perr := os.Getwd()
+		if perr != nil {
+			err = perr
+			break
+		}
+		o, program, rest, perr := parseRun(args, pwd)
+		if perr != nil {
+			fmt.Fprintf(os.Stderr, "chase run: %v\n", perr)
+			os.Exit(2)
+		}
+		exit(wrap(ctx, cfgPath, "chase run", program, o, rest))
 	case "tier":
 		exit(runTier(ctx, cfgPath, args))
 	case "workspace":
@@ -382,56 +399,72 @@ func runCheckout(ctx context.Context, cfgPath, command string, args []string) in
 	}
 }
 
-// wrap runs an agent where the checkout it is run in belongs: on the host
+// agents are the programs a session sets up for, rather than only runs:
+// their wrappers' names, and `shell`.
+var agents = []string{"claude", "codex", "deepsec", "shell"}
+
+// wrap runs program where the checkout it is run in belongs: on the host
 // for a bare tier, in the tier's sandbox otherwise, and in the fallback's
-// for anything unexpected. --tier TIER runs it in TIER instead, whatever
-// the checkout's -- `claude --tier host` as much as `chase shell --tier
-// ops`: the caller has all a sandbox could give and more, so any tier is
-// theirs to choose. It never returns but to refuse.
-func wrap(ctx context.Context, cfgPath, agent string, args []string) int {
+// for anything unexpected; with o.tier, in that tier instead, whatever the
+// checkout's. The caller has all a sandbox could give and more, so any tier
+// is theirs to choose, and so is any directory beside the workspace
+// (o.with) and any program: `shell -c` runs whatever a program could. An
+// agent -- claude, codex, deepsec -- runs as the tier sets it up, `shell`
+// is the tier's login shell, and anything else is found on the session's
+// PATH, or the host's for a bare tier. It never returns but to refuse.
+func wrap(ctx context.Context, cfgPath, name, program string, o runOptions, args []string) int {
 	cfg, s, err := selectorOf(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", agent, err)
+		fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
 		return 1
 	}
-	chosen, args, err := tierFlag(args, s.Tiers(), agent == "shell")
-	if err != nil {
+	if o.tier != "" && !slices.Contains(s.Tiers(), o.tier) {
 		s.Close()
-		name := agent
-		if agent == "shell" {
-			name = "chase shell"
-		}
-		fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
+		fmt.Fprintf(os.Stderr, "%s: no tier '%s'; the tiers are %s\n", name, term.Clean(o.tier), strings.Join(s.Tiers(), ", "))
 		return 2
 	}
-	w := selector.Wrapper{Agent: agent, HostCommand: selector.ShellHostCommand()}
-	if agent != "shell" {
-		hc, ok := cfg.Wrappers[agent]
+	w := selector.Wrapper{Agent: program, HostCommand: []string{program}}
+	switch program {
+	case "shell":
+		w.HostCommand = selector.ShellHostCommand()
+	case "claude", "codex", "deepsec":
+		hc, ok := cfg.Wrappers[program]
 		if !ok {
-			fmt.Fprintf(os.Stderr, "%s: the module configures no %s\n", agent, agent)
+			s.Close()
+			fmt.Fprintf(os.Stderr, "%s: the module configures no %s\n", name, program)
 			return 1
 		}
 		w.HostCommand = hc.HostCommand
 	}
 	pwd, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", agent, err)
+		s.Close()
+		fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
 		return 1
 	}
-	tier := chosen
+	tier := o.tier
 	if tier == "" {
 		tier = s.Tier(ctx, pwd)
 	}
 	argv := s.For(tier, w, args)
-	// Only this launch's choice: one inherited, from a shell a chosen bare
-	// tier started, would have the guard pass what it should catch.
+	// Only this launch's choices: one inherited, from a shell a chosen bare
+	// tier started, would have the guard pass what it should catch, or bind
+	// a directory nobody named here.
 	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
-		return strings.HasPrefix(kv, selector.ChosenTier+"=")
+		return strings.HasPrefix(kv, selector.ChosenTier+"=") || strings.HasPrefix(kv, session.With+"=")
 	})
-	if chosen != "" {
-		env = append(env, selector.ChosenTier+"="+chosen)
+	if o.tier != "" {
+		env = append(env, selector.ChosenTier+"="+o.tier)
 	}
-	if t, bare := s.Bare(tier); bare && t.Trust != nil {
+	t, bare := s.Bare(tier)
+	if len(o.with) > 0 {
+		if bare {
+			term.Say(os.Stderr, "%s: --with is a sandbox's: '%s' runs on the host, where %s is yours already", name, tier, strings.Join(o.with, ", "))
+		} else {
+			env = append(env, session.With+"="+strings.Join(o.with, "\n"))
+		}
+	}
+	if bare && t.Trust != nil {
 		// A bare tier that trusts its checkouts trusts this one -- its root,
 		// as a sandbox's workspace is -- in the apps it says, as the person
 		// would by answering each app's dialog.
@@ -440,58 +473,125 @@ func wrap(ctx context.Context, cfgPath, agent string, args []string) int {
 		if cfg.Claude != nil {
 			claudeJSON = cfg.Claude.ClaudeJSON
 		}
-		argv, env, err = t.Trust.OnHost(agent, claudeJSON, len(w.HostCommand), ws, argv, env)
+		argv, env, err = t.Trust.OnHost(program, claudeJSON, len(w.HostCommand), ws, argv, env)
 		if err != nil {
 			s.Close()
-			fmt.Fprintf(os.Stderr, "%s: %v\n", agent, err)
+			fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
 			return 1
 		}
 	}
 	s.Close()
 	prog := argv[0]
-	if filepath.Base(prog) == prog {
-		// Only `chase shell`'s $SHELL, or bash, is ever looked up.
+	if !strings.Contains(prog, "/") {
+		// A bare tier's program, `chase run`'s own or $SHELL's, as a shell
+		// would find it; a launcher and an agent's are absolute.
 		if prog, err = exec.LookPath(prog); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: %v\n", agent, err)
+			fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
 			return 127
 		}
 	}
 	err = syscall.Exec(prog, argv, env)
-	fmt.Fprintf(os.Stderr, "%s: %s: %v\n", agent, prog, err)
+	fmt.Fprintf(os.Stderr, "%s: %s: %v\n", name, prog, err)
 	return 126
 }
 
-// tierFlag is a wrapper's --tier TIER (or --tier=TIER), one of tiers, and
-// the arguments without it, which are the agent's or the shell's. For
-// `chase shell` it is only the first argument, since the rest are the
-// shell's own words. For an agent it is any argument before a `--`: what
-// starts the wrapper may put arguments of its own first -- home-manager's
-// `claude` is `claude --plugin-dir DIR "$@"` -- and no agent takes a
-// --tier of its own.
-func tierFlag(args, tiers []string, leading bool) (string, []string, error) {
-	for i, a := range args {
-		if a == "--" || (leading && i > 0) {
-			break
+// runOptions are what `chase run`'s options choose for one launch.
+type runOptions struct {
+	// tier is --tier's, or "" for the checkout's own.
+	tier string
+	// with are --with's directories, each PATH:ro or PATH:rw, the path
+	// absolute and with no link in it, as flong's binds hook prints them.
+	with []string
+}
+
+const runUsage = "usage: chase run [--tier TIER] [--with DIR[:ro|:rw]]... [--] PROGRAM [ARG...]"
+
+// parseRun is `chase run`'s arguments: its options, up to the first word
+// that is not one or a `--`, then the program and its arguments, which are
+// the program's whatever they look like. Nothing after the program is
+// read, so no option of chase's can meet one of the program's. A --with
+// directory is relative to pwd, read-write unless it ends :ro.
+func parseRun(args []string, pwd string) (runOptions, string, []string, error) {
+	var o runOptions
+	value := func(i int, flag string) (string, int, error) {
+		a := args[i]
+		if v, ok := strings.CutPrefix(a, flag+"="); ok {
+			return v, i, nil
 		}
-		var tier string
-		rest := args[i+1:]
-		switch {
-		case a == "--tier":
-			if len(rest) == 0 {
-				return "", nil, fmt.Errorf("--tier needs a tier: %s", strings.Join(tiers, ", "))
-			}
-			tier, rest = rest[0], rest[1:]
-		case strings.HasPrefix(a, "--tier="):
-			tier = strings.TrimPrefix(a, "--tier=")
-		default:
-			continue
+		if i+1 >= len(args) {
+			return "", i, fmt.Errorf("%s needs a value\n%s", flag, runUsage)
 		}
-		if !slices.Contains(tiers, tier) {
-			return "", nil, fmt.Errorf("no tier '%s'; the tiers are %s", term.Clean(tier), strings.Join(tiers, ", "))
-		}
-		return tier, append(slices.Clone(args[:i]), rest...), nil
+		return args[i+1], i + 1, nil
 	}
-	return "", args, nil
+	i := 0
+	for ; i < len(args); i++ {
+		a := args[i]
+		var err error
+		switch {
+		case a == "--":
+			i++
+			goto program
+		case a == "--tier" || strings.HasPrefix(a, "--tier="):
+			if o.tier != "" {
+				return o, "", nil, errors.New("--tier is given twice")
+			}
+			if o.tier, i, err = value(i, "--tier"); err != nil {
+				return o, "", nil, err
+			}
+			if o.tier == "" {
+				return o, "", nil, errors.New("--tier needs a tier")
+			}
+		case a == "--with" || strings.HasPrefix(a, "--with="):
+			var dir string
+			if dir, i, err = value(i, "--with"); err != nil {
+				return o, "", nil, err
+			}
+			bind, err := withDir(dir, pwd)
+			if err != nil {
+				return o, "", nil, err
+			}
+			o.with = append(o.with, bind)
+		case strings.HasPrefix(a, "-"):
+			return o, "", nil, fmt.Errorf("unknown option '%s'\n%s", term.Clean(a), runUsage)
+		default:
+			goto program
+		}
+	}
+program:
+	if i >= len(args) || args[i] == "" {
+		return o, "", nil, fmt.Errorf("no program: %s, or any other\n%s", strings.Join(agents, ", "), runUsage)
+	}
+	return o, args[i], args[i+1:], nil
+}
+
+// withDir is --with's dir as a bind line: relative to pwd, resolved, a
+// directory, and read-write unless it ends :ro. flong refuses a path with
+// a ':' or a newline in it, since its lines would read two ways, and so
+// does this, before anything is started.
+func withDir(dir, pwd string) (string, error) {
+	mode := "rw"
+	if d, ok := strings.CutSuffix(dir, ":ro"); ok {
+		dir, mode = d, "ro"
+	} else if d, ok := strings.CutSuffix(dir, ":rw"); ok {
+		dir = d
+	}
+	if dir == "" {
+		return "", errors.New("--with needs a directory")
+	}
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(pwd, dir)
+	}
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", fmt.Errorf("--with: %w", err)
+	}
+	if fi, err := os.Stat(real); err != nil || !fi.IsDir() {
+		return "", fmt.Errorf("--with: %s is not a directory", term.Clean(real))
+	}
+	if strings.ContainsAny(real, ":\n") {
+		return "", fmt.Errorf("--with: %s has a ':' or a newline in it, which a bind's line cannot carry", term.Clean(real))
+	}
+	return real + ":" + mode, nil
 }
 
 // runHook is one of flong's hooks for a sandbox tier. flong runs each as a
@@ -514,7 +614,7 @@ func runHook(ctx context.Context, cfgPath string, args []string) int {
 	takes := cfg.Grant != nil && slices.Contains(cfg.GrantTiers, tier)
 	switch hook {
 	case "binds":
-		if err := session.Binds(cfg.Session, tier, ws, os.Stdout); err != nil {
+		if err := session.Binds(cfg.Session, tier, ws, os.Getenv(session.With), os.Stdout); err != nil {
 			term.Say(os.Stderr, "%s: %v", ws, err)
 			return 1
 		}

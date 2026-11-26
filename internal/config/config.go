@@ -51,7 +51,7 @@ type Config struct {
 
 	// Wrappers are the agents a person runs on the host, by the name they
 	// run them as (claude, codex, deepsec): what runs for a bare tier.
-	// `chase shell` is one too, and needs no entry.
+	// `chase run shell` and any other program need no entry.
 	Wrappers map[string]Wrapper `json:"wrappers,omitempty"`
 
 	// Claude is Claude Code's login refresher and its workspace trust, when

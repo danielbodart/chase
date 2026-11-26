@@ -7,18 +7,19 @@ import (
 	"slices"
 )
 
-// Wrapper is one of the commands mkWrapper made: `claude`, `codex` or
-// `deepsec` on the host, or `chase shell`. It picks the tier, then runs
+// Wrapper is one of the commands mkWrapper made -- `claude`, `codex` or
+// `deepsec` on the host -- or `chase run`. It picks the tier, then runs
 // bare or in its container.
 type Wrapper struct {
-	// Agent is the name the launcher's command is given: claude, codex,
-	// deepsec or shell.
+	// Agent is the program the launcher is given: claude, codex, deepsec,
+	// shell, or any other `chase run` names.
 	Agent string
 	// HostCommand is what a bare tier runs, with the wrapper's arguments
 	// after it: the agent itself as it runs on the host, e.g.
-	// [".../bin/claude", "--allow-dangerously-skip-permissions"]. For `chase
-	// shell` it is the caller's $SHELL, or bash when that is unset or
-	// empty.
+	// [".../bin/claude", "--allow-dangerously-skip-permissions"]. For
+	// shell it is the caller's $SHELL, or bash when that is unset or
+	// empty; for any other program, the program, found on the host's
+	// PATH.
 	HostCommand []string
 }
 
@@ -29,7 +30,7 @@ func (s *Selector) Bare(tier string) (Tier, bool) {
 	return t, ok && t.Bare
 }
 
-// Tiers is every tier's name, sorted: what a wrapper's --tier may name.
+// Tiers is every tier's name, sorted: what `chase run --tier` may name.
 func (s *Selector) Tiers() []string {
 	return slices.Sorted(maps.Keys(s.cfg.Tiers))
 }
@@ -85,7 +86,7 @@ func (s *Selector) TierOrFallback(ctx context.Context, dir string) string {
 	return s.Tier(ctx, dir)
 }
 
-// ShellHostCommand is `chase shell`'s host command: "${SHELL:-bash}".
+// ShellHostCommand is `chase run shell`'s host command: "${SHELL:-bash}".
 func ShellHostCommand() []string {
 	if sh := os.Getenv("SHELL"); sh != "" {
 		return []string{sh}

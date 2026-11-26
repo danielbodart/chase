@@ -10,7 +10,7 @@ which apps run in it, and which credentials they use.
 > [frisket](https://github.com/danielbodart/frisket) masks what the sheet
 > takes, and chase holds the page.
 
-You start `claude`, `codex`, `deepsec` or `chase shell` in a checkout.
+You start `claude`, `codex`, `deepsec` or `chase run PROGRAM` in a checkout.
 chase picks the checkout's tier and runs the agent either on the host or in
 a flong container whose network goes through frisket. The container holds
 placeholders, never credentials: frisket swaps in the real one on each
@@ -93,8 +93,8 @@ for each choice.
 
 | Command | Does |
 |---|---|
-| `claude`, `codex`, `deepsec` `[--tier TIER]` | Run the agent in the current directory's tier; with `--tier`, in TIER's, as `chase shell --tier` does -- `claude --tier host` in an ops checkout to work on the machine itself. |
-| `chase shell [--tier TIER]` | A login shell in that tier's sandbox, as an agent gets it; with `--tier`, in TIER's whatever the checkout's, since whoever runs it already has more than any sandbox gives. The checkout's own tier is said beside it. |
+| `claude`, `codex`, `deepsec` | Run the agent in the current directory's tier. Every argument is the agent's: the wrappers take no option of their own. |
+| `chase run [--tier TIER] [--with DIR[:ro\|:rw]]… [--] PROGRAM [ARG…]` | Run PROGRAM in the current directory's tier. `claude`, `codex` and `deepsec` run as the tier sets them up, `shell` is the tier's login shell, and any other program is found on the session's PATH. `--tier` runs it in TIER's whatever the checkout's -- `chase run --tier host claude` in an ops checkout to work on the machine itself -- and the checkout's own tier is said beside it. `--with` mounts DIR beside the checkout, read-write unless it ends `:ro`, for this launch only. Options end at PROGRAM, so no option of chase's meets one of the program's. Whoever runs it already has more than any sandbox gives, so each choice is theirs. |
 | `chase tier --dry-run DIR…` | Show each directory's tier and why. |
 | `chase docker [DIR]` | Show a checkout's project, its address and name, and its approved Docker ports. |
 | `chase record [--default allow\|ask\|refuse] [--base tier\|none] [--by-operation] AGENT` | Run the agent in its tier as a recording: what the tier would refuse or ask about is answered, by you or `--default`, and written down; at the end, a report and a proposal of the grant entries it needed, a route's requests by their exact paths or, with `--by-operation`, by the operations they matched. See [docs/record.md](docs/record.md). |

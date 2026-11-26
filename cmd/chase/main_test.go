@@ -1,41 +1,39 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 )
 
-// A wrapper's --tier: anywhere before `--` for an agent, since what starts
-// it may put its own arguments first, and only first for `chase shell`,
-// whose later words are the shell's.
-func TestTierFlag(t *testing.T) {
-	tiers := []string{"host", "ops"}
-	got := func(args []string, leading bool) (string, []string, error) {
-		return tierFlag(args, tiers, leading)
+// `chase run`'s options end at the program or a `--`; every word after
+// the program is the program's, an option of chase's spelling included.
+func TestParseRun(t *testing.T) {
+	pwd := t.TempDir()
+	other := filepath.Join(pwd, "other")
+	os.Mkdir(other, 0o755)
+	if o, p, rest, err := parseRun([]string{"--tier", "ops", "claude", "--tier", "host", "--resume"}, pwd); err != nil || o.tier != "ops" || p != "claude" || !slices.Equal(rest, []string{"--tier", "host", "--resume"}) {
+		t.Errorf("an agent's own words: %+v %q %q %v", o, p, rest, err)
 	}
-	if tier, args, err := got([]string{"--plugin-dir", "/p", "--tier", "host", "-p", "hi"}, false); err != nil || tier != "host" || !slices.Equal(args, []string{"--plugin-dir", "/p", "-p", "hi"}) {
-		t.Errorf("after home-manager's arguments: %q %q %v", tier, args, err)
+	if o, p, rest, err := parseRun([]string{"--tier=ops", "--with", "other", "--with=" + other + ":ro", "--", "docker", "ps"}, pwd); err != nil || o.tier != "ops" || p != "docker" || !slices.Equal(rest, []string{"ps"}) || !slices.Equal(o.with, []string{other + ":rw", other + ":ro"}) {
+		t.Errorf("--with and --: %+v %q %q %v", o, p, rest, err)
 	}
-	if tier, args, err := got([]string{"--tier=ops", "-p", "hi"}, false); err != nil || tier != "ops" || !slices.Equal(args, []string{"-p", "hi"}) {
-		t.Errorf("--tier=: %q %q %v", tier, args, err)
+	if _, p, rest, err := parseRun([]string{"--", "--tier"}, pwd); err != nil || p != "--tier" || len(rest) != 0 {
+		t.Errorf("a program after --: %q %q %v", p, rest, err)
 	}
-	if tier, args, err := got([]string{"-p", "--", "--tier", "host"}, false); err != nil || tier != "" || !slices.Equal(args, []string{"-p", "--", "--tier", "host"}) {
-		t.Errorf("after --: %q %q %v", tier, args, err)
-	}
-	if tier, args, err := got([]string{"--tier", "ops", "-c", "id"}, true); err != nil || tier != "ops" || !slices.Equal(args, []string{"-c", "id"}) {
-		t.Errorf("chase shell's: %q %q %v", tier, args, err)
-	}
-	if tier, args, err := got([]string{"-c", "--tier", "ops"}, true); err != nil || tier != "" || !slices.Equal(args, []string{"-c", "--tier", "ops"}) {
-		t.Errorf("a shell's own word: %q %q %v", tier, args, err)
-	}
-	if _, _, err := got([]string{"-p", "--tier"}, false); err == nil || !strings.Contains(err.Error(), "--tier needs a tier: host, ops") {
-		t.Errorf("no tier: %v", err)
-	}
-	if _, _, err := got([]string{"--tier", "nope"}, false); err == nil || err.Error() != "no tier 'nope'; the tiers are host, ops" {
-		t.Errorf("an unknown tier: %v", err)
-	}
-	if tier, args, err := got(nil, false); err != nil || tier != "" || len(args) != 0 {
-		t.Errorf("none: %q %q %v", tier, args, err)
+	for args, want := range map[string]string{
+		"":                             "no program",
+		"--tier":                       "--tier needs a value",
+		"--tier ops":                   "no program",
+		"--tier a --tier b":            "given twice",
+		"-x claude":                    "unknown option '-x'",
+		"--with nope shell":            "--with:",
+		"--with " + pwd + "/a:b shell": "--with:",
+	} {
+		if _, _, _, err := parseRun(strings.Fields(args), pwd); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v, want %q", args, err, want)
+		}
 	}
 }

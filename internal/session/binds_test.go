@@ -11,7 +11,7 @@ import (
 func binds(t *testing.T, c Config, tier, ws string) []string {
 	t.Helper()
 	var out bytes.Buffer
-	if err := Binds(c, tier, ws, &out); err != nil {
+	if err := Binds(c, tier, ws, "", &out); err != nil {
 		t.Fatal(err)
 	}
 	return strings.FieldsFunc(out.String(), func(r rune) bool { return r == '\n' })
@@ -189,6 +189,26 @@ func TestMungeIsClaudeCodes(t *testing.T) {
 	} {
 		if got := Munge(in); got != want {
 			t.Errorf("Munge(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The caller's own directories, from `chase run --with`, come first and
+// keep their mode; a line that is not an absolute PATH:ro or PATH:rw
+// refuses the launch.
+func TestWithIsBoundFirstAsTheCallerChose(t *testing.T) {
+	root := t.TempDir()
+	c := Config{Home: root, Tiers: map[string]Tier{"strict": {}}}
+	var out bytes.Buffer
+	if err := Binds(c, "strict", root, "/a:rw\n/b:ro\n", &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "/a:rw\n/b:ro\n" {
+		t.Errorf("got %q", out.String())
+	}
+	for _, bad := range []string{"/a", "a:rw", "/a:rx"} {
+		if err := Binds(c, "strict", root, bad, &out); err == nil {
+			t.Errorf("%q was bound", bad)
 		}
 	}
 }

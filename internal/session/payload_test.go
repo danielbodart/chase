@@ -346,27 +346,27 @@ func TestDeepsecInitIsGivenTheTiersBackendUnlessItNamesOne(t *testing.T) {
 	if len(p.env) != 0 || len(p.files) != 2 || p.files[0].Path != f.home+"/.claude/.credentials.json" || p.files[1].Path != f.home+"/.claude.json" {
 		t.Errorf("deepsec was given %q and %+v, not Claude Code's login and onboarding", p.env, p.files)
 	}
-	if err := Agent(f.c, "scan", []string{"codex"}); err == nil || err.Error() != "unknown agent 'codex': scan runs claude, deepsec, shell" {
+	if err := Agent(f.c, "scan", []string{"codex"}); err == nil || err.Error() != "scan runs no codex: it runs claude, deepsec, shell" {
 		t.Errorf("Agent(scan, codex): %v", err)
 	}
 }
 
-// A CLOSED LIST: an agent the tier does not run, an agent that is not one,
-// and no agent at all are refused, so no launcher's argument runs anything
-// else on the container's PATH. So is a tier that is not a sandbox's.
-func TestOnlyTheTiersAgentsRun(t *testing.T) {
+// AGENTS AND PROGRAMS: an agent the tier does not run, no program at
+// all, and a tier that is not a sandbox's are refused; any other program
+// runs as it is, on the session's PATH, since the launcher's caller could
+// run it from `shell -c` anyway.
+func TestTheTiersAgentsAndAnyProgramRun(t *testing.T) {
 	f := newFixture(t)
 	for _, c := range []struct {
 		tier string
 		args []string
 		want string
 	}{
-		{"plain", []string{"claude"}, "unknown agent 'claude': plain runs shell"},
-		{"plain", []string{"codex", "x"}, "unknown agent 'codex': plain runs shell"},
-		{"strict", []string{"sh", "-c", "id"}, "unknown agent 'sh': strict runs claude, codex, shell"},
-		{"strict", []string{"/bin/bash"}, "unknown agent '/bin/bash': strict runs claude, codex, shell"},
-		{"strict", []string{"deepsec", "init"}, "unknown agent 'deepsec': strict runs claude, codex, shell"},
-		{"strict", nil, "no agent named: the launcher's first argument is the agent, one of claude, codex, shell"},
+		{"plain", []string{"claude"}, "plain runs no claude: it runs shell"},
+		{"plain", []string{"codex", "x"}, "plain runs no codex: it runs shell"},
+		{"strict", []string{"deepsec", "init"}, "strict runs no deepsec: it runs claude, codex, shell"},
+		{"strict", nil, "no program named: the launcher's first argument is the program, claude, codex, shell or any other"},
+		{"strict", []string{""}, "no program named: the launcher's first argument is the program, claude, codex, shell or any other"},
 		{"host", []string{"shell"}, "host is not a sandbox tier"},
 	} {
 		if got := f.refused(t, c.tier, "/w", "", Given{}, c.args...); got != c.want {
@@ -381,10 +381,13 @@ func TestOnlyTheTiersAgentsRun(t *testing.T) {
 	for _, c := range []struct {
 		tier string
 		args []string
-	}{{"plain", []string{"shell"}}, {"strict", []string{"claude", "x"}}, {"strict", []string{"codex"}}, {"trusted", []string{"shell", "-c", "id"}}} {
+	}{{"plain", []string{"shell"}}, {"strict", []string{"claude", "x"}}, {"strict", []string{"codex"}}, {"trusted", []string{"shell", "-c", "id"}}, {"strict", []string{"sh", "-c", "id"}}, {"plain", []string{"/bin/bash"}}} {
 		if err := Agent(f.c, c.tier, c.args); err != nil {
 			t.Errorf("Agent(%s, %q): %v", c.tier, c.args, err)
 		}
+	}
+	if p, _ := f.run(t, "plain", "/w", "", Given{}, "make", "test"); !slices.Equal(p.argv, []string{"make", "test"}) {
+		t.Errorf("a program ran as %q", p.argv)
 	}
 }
 
