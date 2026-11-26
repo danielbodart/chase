@@ -88,7 +88,7 @@ func (s *Selector) Guard(ctx context.Context, tier, workspace, binds string, cho
 	return nil
 }
 
-// RunGuard is the guard flong runs for a sandbox tier, `chase guard TIER`,
+// RunGuard is the guard flong runs for a sandbox tier, `chase internal guard TIER`,
 // with workspace and binds in the environment as flong sets them: 0, or a
 // refusal on stderr and 1. An unset workspace or binds stops it, as it
 // stopped the script under set -u. TIER is the caller's own choice when the
@@ -97,7 +97,7 @@ func (s *Selector) Guard(ctx context.Context, tier, workspace, binds string, cho
 func RunGuard(ctx context.Context, s *Selector, args []string, env func(string) (string, bool), stderr io.Writer) int {
 	defer s.Close()
 	if len(args) != 1 {
-		term.Say(stderr, "usage: chase guard TIER")
+		term.Say(stderr, "usage: chase internal guard TIER")
 		return 2
 	}
 	workspace, ok := env("workspace")

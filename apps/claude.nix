@@ -174,7 +174,7 @@ in
         Service = {
           Restart = "always";
           RestartSec = 60;
-          ExecStart = "${lib.getExe cfg.package} claude-refresh";
+          ExecStart = "${lib.getExe cfg.package} internal claude-refresh";
         };
       };
 

@@ -47,7 +47,7 @@ in
     # A consistency check and, for every sandbox, one gate: see
     # internal/selector's Guard. A command, never shell.
     flong = lib.mapAttrs' (name: _: lib.nameValuePair "chase-${name}" {
-      guard = [ [ chase "guard" name ] ];
+      guard = [ [ chase "internal" "guard" name ] ];
     }) sandboxes;
 
     home-manager.users.${cfg.user}.home.packages = [ links ];

@@ -6,13 +6,13 @@ in
 {
   config.home-manager.users.${cfg.user} = lib.mkIf (lib.any (t: t.apps.gcloud.enable) (lib.attrValues cfg.tiers)) {
     # One per session, started by its launch and stopped before its run
-    # directory is removed: `chase gcloud-renew loop` mints the session's
+    # directory is removed: `chase internal gcloud-renew loop` mints the session's
     # Google token from its service-account key, ten minutes before the last
     # one expires (internal/gcloud).
     systemd.user.services."chase-gcloud-renew@" = {
       Unit.Description = "Renew session %i's Google Cloud token";
       Service = {
-        ExecStart = "${lib.getExe cfg.package} gcloud-renew loop %t/chase/%i";
+        ExecStart = "${lib.getExe cfg.package} internal gcloud-renew loop %t/chase/%i";
         Restart = "on-failure";
         RestartSec = 60;
         UMask = "0077";

@@ -169,7 +169,7 @@ pattern and glob one frisket loads. Its categories are its own topics, kebab-cas
 Linux catalogue's are not there: a machine's lists name the operations and
 categories of its own catalogue. Each is copied into the store, and checked
 with every tier's own machines when the system is built, by the binary that
-launches them (`chase ssh-check`, a `system.checks` derivation), so a
+launches them (`chase internal ssh-check`, a `system.checks` derivation), so a
 catalogue that would not load fails the build rather than a session; and
 again at every launch and approval, by the store's copy the system was built
 with.

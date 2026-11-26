@@ -100,7 +100,7 @@ func newFixture(t *testing.T) fixture {
 	return f
 }
 
-// run is `chase hook exec TIER ARGS...` for workspace ws with binds: what
+// run is `chase internal hook exec TIER ARGS...` for workspace ws with binds: what
 // it printed, read back, and what it said.
 func (f fixture) run(t *testing.T, tier, ws, binds string, given Given, args ...string) (printed, string) {
 	t.Helper()

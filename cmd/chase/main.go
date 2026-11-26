@@ -17,6 +17,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -112,42 +113,52 @@ const usage = `chase -- which sandbox a checkout gets, and which credential each
         of the checkout it is run in and runs there, as chase run does
         with no options. Every argument is the agent's.
 
-What the module runs, rather than a person:
+What the module, systemd and the build run, rather than a person, each as
+chase internal COMMAND:
 
-  chase workspace                  flong's workspace: the checkout's root
-  chase guard TIER                 flong's guard for a sandbox tier
-  chase hook binds TIER            flong's binds: what is bound beside it
-  chase hook approve TIER          flong's approve: the guard's refusals,
-                                   then approve the grant and stage it
-  chase hook record-approve TIER   a record launcher's: the same, and learn
-                                   what the session calls
-  chase hook seccomp TIER          flong's seccompPolicy: the staged lines
-  chase hook record-exec TIER AGENT [ARG...]
-                                   a record launcher's exec: the same, the
-                                   session's document a recording's
-  chase hook exec TIER AGENT [ARG...]
-                                   flong's exec: apply what was approved, and
-                                   print the payload, its environment and the
-                                   files seeded into its home
-  chase hook poststop TIER         flong's postStop: release and remove it
-  chase grant approve|project|docker ...
-                                   the grant's steps, as a person uses them
-  chase checkout [--ignoring ROOT] [DIR]
-  chase origin DIR
-  chase ls-files DIR               a checkout read without running its git
-  chase copy-tracked WS DEST       the snapshot copier, paths on stdin
-  chase claude-refresh             systemd: keep Claude Code's login fresh
-  chase codex-refresh              systemd: keep Codex's login fresh
-  chase codex-placeholder          activation: Codex's placeholder login
-  chase gcloud-renew mint|loop RUN a session's Google Cloud token
-  chase ssh-check                  the system's build: its SSH catalogues
-                                   and each tier's own machines, as a
-                                   launch would check them
+  workspace                    flong's workspace: the checkout's root
+  guard TIER                   flong's guard for a sandbox tier
+  hook approve TIER            flong's approve: the guard's refusals, then
+                               approve the grant and stage it
+  hook binds TIER              flong's binds: what is bound beside it
+  hook seccomp TIER            flong's seccompPolicy: the staged lines
+  hook exec TIER PROGRAM [ARG...]
+                               flong's exec: apply what was approved, and
+                               print the payload, its environment and the
+                               files seeded into its home
+  hook poststop TIER           flong's postStop: release and remove it
+  hook record-approve TIER     a record launcher's approve: the same, and
+                               learn what the session calls
+  hook record-exec TIER PROGRAM [ARG...]
+                               a record launcher's exec: the same, the
+                               session's document a recording's
+  grant approve|project|docker ...
+                               the grant's steps, one at a time
+  checkout [--ignoring ROOT] [DIR]
+  origin DIR
+  ls-files DIR                 a checkout read without running its git
+  copy-tracked WS DEST         the snapshot copier, paths on stdin
+  claude-refresh               systemd: keep Claude Code's login fresh
+  codex-refresh                systemd: keep Codex's login fresh
+  codex-placeholder            activation: Codex's placeholder login
+  gcloud-renew mint|loop RUN   systemd: a session's Google Cloud token
+  ssh-check                    the system's build: its SSH catalogues and
+                               each tier's own machines, as a launch
+                               would check them
 
 Every command that needs the module's configuration reads
 /etc/chase/config.json, or the file given before the command as
 -config FILE.
 `
+
+// systemCommands are what the module, systemd and the build run, rather
+// than a person: each only as `chase internal COMMAND`.
+var systemCommands = map[string]bool{
+	"workspace": true, "guard": true, "hook": true, "grant": true,
+	"checkout": true, "origin": true, "ls-files": true, "copy-tracked": true,
+	"claude-refresh": true, "codex-refresh": true, "codex-placeholder": true,
+	"gcloud-renew": true, "ssh-check": true,
+}
 
 func main() {
 	// Every git call re-executes this binary to set its own resource limits
@@ -176,6 +187,19 @@ func main() {
 		os.Exit(2)
 	}
 	command, args := args[0], args[1:]
+	// What the module, systemd and the build run sit under `chase
+	// internal`, so that a person's commands are the top level's alone and
+	// none of the system's can be taken for one.
+	if command == "internal" {
+		if len(args) == 0 || !systemCommands[args[0]] {
+			fmt.Fprintf(os.Stderr, "chase internal: one of %s\n", strings.Join(slices.Sorted(maps.Keys(systemCommands)), ", "))
+			os.Exit(2)
+		}
+		command, args = args[0], args[1:]
+	} else if systemCommands[command] {
+		fmt.Fprintf(os.Stderr, "chase: %s is the system's: chase internal %s\n", command, command)
+		os.Exit(2)
+	}
 	var err error
 	switch command {
 	case "run":
@@ -340,7 +364,7 @@ func runTier(ctx context.Context, cfgPath string, args []string) int {
 func runGuard(ctx context.Context, cfgPath string, args []string) int {
 	_, s, err := selectorOf(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "chase guard: %v\n", err)
+		fmt.Fprintf(os.Stderr, "chase internal guard: %v\n", err)
 		return 1
 	}
 	// flong gives every hook the launcher's arguments after its own; the
@@ -360,7 +384,7 @@ func runGuard(ctx context.Context, cfgPath string, args []string) int {
 func guardFirst(ctx context.Context, cfgPath, tier, ws string) int {
 	_, s, err := selectorOf(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "chase hook approve: %v\n", err)
+		fmt.Fprintf(os.Stderr, "chase internal hook approve: %v\n", err)
 		return 1
 	}
 	defer s.Close()
@@ -616,13 +640,13 @@ func withDir(dir, pwd string) (string, error) {
 // and its arguments.
 func runHook(ctx context.Context, cfgPath string, args []string) int {
 	if len(args) < 2 {
-		fmt.Fprint(os.Stderr, "usage: chase hook binds|approve|exec|record-approve|record-exec|poststop TIER\n")
+		fmt.Fprint(os.Stderr, "usage: chase internal hook binds|approve|seccomp|exec|record-approve|record-exec|poststop TIER\n")
 		return 2
 	}
 	hook, tier := args[0], args[1]
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "chase hook %s: %v\n", hook, err)
+		fmt.Fprintf(os.Stderr, "chase internal hook %s: %v\n", hook, err)
 		return 1
 	}
 	ws, machine := os.Getenv("workspace"), os.Getenv("machine")
@@ -650,7 +674,7 @@ func runHook(ctx context.Context, cfgPath string, args []string) int {
 	case "seccomp":
 		// flong's seccompPolicy: the lines approve staged.
 		if !takes {
-			fmt.Fprintf(os.Stderr, "chase hook %s: %s takes no grant\n", hook, tier)
+			fmt.Fprintf(os.Stderr, "chase internal hook %s: %s takes no grant\n", hook, tier)
 			return 1
 		}
 		l, err := grant.Lines(*cfg.Grant, machine)
@@ -664,7 +688,7 @@ func runHook(ctx context.Context, cfgPath string, args []string) int {
 		return runExec(ctx, cfg, tier, ws, machine, takes, args[2:])
 	case "record-exec", "record-approve":
 		if !takes {
-			fmt.Fprintf(os.Stderr, "chase hook %s: %s takes no grant, so it does not record\n", hook, tier)
+			fmt.Fprintf(os.Stderr, "chase internal hook %s: %s takes no grant, so it does not record\n", hook, tier)
 			return 1
 		}
 		// What to record is the person's who ran `chase record`, from their
@@ -691,11 +715,11 @@ func runHook(ctx context.Context, cfgPath string, args []string) int {
 		return 0
 	case "approve", "poststop":
 		if !takes {
-			fmt.Fprintf(os.Stderr, "chase hook %s: %s takes no grant\n", hook, tier)
+			fmt.Fprintf(os.Stderr, "chase internal hook %s: %s takes no grant\n", hook, tier)
 			return 1
 		}
 	default:
-		fmt.Fprintf(os.Stderr, "chase hook: unknown hook %q\n", hook)
+		fmt.Fprintf(os.Stderr, "chase internal hook: unknown hook %q\n", hook)
 		return 2
 	}
 	e := *cfg.Grant

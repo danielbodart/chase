@@ -174,7 +174,7 @@ func newHarness(t *testing.T) *harness {
 // root is where the test's checkouts are, every link in its path resolved.
 func (h *harness) root() string { return h.dir + "/root" }
 
-// run is `chase grant ARGS`: its status, with what it printed kept.
+// run is `chase internal grant ARGS`: its status, with what it printed kept.
 func (h *harness) run(args ...string) int {
 	h.t.Helper()
 	var out, errb bytes.Buffer
@@ -184,7 +184,7 @@ func (h *harness) run(args ...string) int {
 	return rc
 }
 
-// launch is the grant's half of `chase hook exec TIER` for machine: its
+// launch is the grant's half of `chase internal hook exec TIER` for machine: its
 // status, as the hook's would be, with what it said kept, and what it gave
 // the session kept in h.given.
 func (h *harness) launch(tier, ws, machine string) int {
@@ -214,7 +214,7 @@ func (h *harness) env() []string {
 	return out
 }
 
-// approve is `chase grant approve WS MACHINE TIER` with file, when it is
+// approve is `chase internal grant approve WS MACHINE TIER` with file, when it is
 // not "", written to WS's chase.json and signed as `chase sign` signs it,
 // with what it derives of the checkout: the sops file's digest, the Docker
 // project. The signer is asked only when that differs from what it signed

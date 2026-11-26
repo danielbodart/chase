@@ -143,7 +143,7 @@ in
 
       # The placeholder is a bind source: flong refuses to start without it.
       home.activation.codexPlaceholder = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        ${lib.getExe cfg.package} codex-placeholder || echo "codex: no placeholder login written"
+        ${lib.getExe cfg.package} internal codex-placeholder || echo "codex: no placeholder login written"
       '';
 
       systemd.user.services.codex-refresh = {
@@ -152,7 +152,7 @@ in
         Service = {
           Restart = "always";
           RestartSec = 60;
-          ExecStart = "${lib.getExe cfg.package} codex-refresh";
+          ExecStart = "${lib.getExe cfg.package} internal codex-refresh";
         };
       };
     };

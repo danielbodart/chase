@@ -16,7 +16,7 @@ import (
 	"github.com/danielbodart/chase/internal/session"
 )
 
-// exec is `chase hook exec TIER ARGS...` for machine, as flong runs it, the
+// exec is `chase internal hook exec TIER ARGS...` for machine, as flong runs it, the
 // grant's configuration given when takes: its status, with what it
 // printed and said kept in h.out and h.err.
 func (h *harness) exec(s session.Config, takes bool, tier, ws, machine string, args ...string) int {
@@ -170,7 +170,7 @@ func TestTheExecHookBindsPublishedPortsToTheProjectsAddress(t *testing.T) {
 // A LINKED WORKTREE is served as a project of its own, <worktree>.<repo> of
 // the same owner: its forwards, and its Docker, at an address and a name of
 // its own, so two worktrees' dev servers on one port do not meet. Its grant
-// stays the repository's: `chase grant project` and the approval's diff say
+// stays the repository's: `chase internal grant project` and the approval's diff say
 // example/shop.
 func TestAWorktreeIsServedAsAProjectOfItsOwn(t *testing.T) {
 	h, _, ws := newProjectLaunch(t)

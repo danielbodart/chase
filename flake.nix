@@ -426,8 +426,9 @@
               lib.all (a: a.assertion) config.assertions
               && l.container == "chase-trusted" && l.network == null && t.network != null
               && l.guard == t.guard && l.binds == t.binds && l.workspace == t.workspace && l.seccomp == t.seccomp
-              && lib.elem [ "record-approve" "trusted" ] (map (h: lib.drop 2 h) l.seccompPolicy)
-              && lib.drop 1 l.exec == [ "hook" "record-exec" "trusted" ]
+              && lib.elem [ "internal" "hook" "record-approve" "trusted" ] (map (h: lib.drop 1 h) l.approve)
+              && lib.elem [ "internal" "hook" "seccomp" "trusted" ] (map (h: lib.drop 1 h) l.seccompPolicy)
+              && lib.drop 1 l.exec == [ "internal" "hook" "record-exec" "trusted" ]
               && f.chase-trusted-record.set == "all" && f.chase-trusted.set == "service"
               && f.chase-trusted-record.policyFile == f.chase-trusted.policyFile
               && lib.hasSuffix "/bin/chase-trusted-record" c.selector.tiers.trusted.recordLauncher
@@ -1125,7 +1126,7 @@
               # apps wrote: Claude Code with the tier's settings and the one
               # writable bind, an isolated codex's home, and the placeholder
               # login and trust seeded into the home.
-              workspace=/w binds=$'/p:rw\n/q:ro' chase -config ${file} hook exec strict claude -p hi > payload \
+              workspace=/w binds=$'/p:rw\n/q:ro' chase -config ${file} internal hook exec strict claude -p hi > payload \
                 || fail "strict's exec printed no payload"
               tr '\0' '\n' < payload > fields
               settings=$(jq -r .session.tiers.strict.claude.settings ${file})
@@ -1146,9 +1147,9 @@
                 || fail "strict's environment is not flong's: $(jq -c .session.tiers.strict.environment ${file})"
               # Any program runs as it is, its words its own; no program
               # at all is refused.
-              workspace=/w chase -config ${file} hook exec strict sh -c id > program 2> said || fail "strict did not run sh: $(cat said)"
+              workspace=/w chase -config ${file} internal hook exec strict sh -c id > program 2> said || fail "strict did not run sh: $(cat said)"
               tr '\0' '\n' < program | grep -qx 'arg:sh' || fail "sh ran as $(tr '\0' ' ' < program)"
-              ! workspace=/w chase -config ${file} hook exec strict "" > /dev/null 2>&1 || fail "strict ran no program"
+              ! workspace=/w chase -config ${file} internal hook exec strict "" > /dev/null 2>&1 || fail "strict ran no program"
               for section in selector session grant wrappers claude codex; do
                 jq -e --arg s "$section" 'has($s)' ${file} >/dev/null || fail "no $section section"
               done

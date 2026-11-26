@@ -803,15 +803,15 @@ in
       # runs its shellHook and execs the agent, found on the container's
       # PATH. A tier that takes grants applies the approved one here first
       # (./grant.nix).
-      exec = [ (lib.getExe cfg.package) "hook" "exec" name ];
+      exec = [ (lib.getExe cfg.package) "internal" "hook" "exec" name ];
       # The checkout's root, so all of it is mounted wherever you start;
       # otherwise the directory itself, which only a `paths` rule can place.
       # The root the selector sorted, never git's own answer, which a
       # session's core.worktree would steer. See internal/checkout.
-      workspace = [ (lib.getExe cfg.package) "workspace" ];
+      workspace = [ (lib.getExe cfg.package) "internal" "workspace" ];
       # What is bound beside the workspace: a group's other members, and
       # what the tier's apps make on the host for it (internal/session).
-      binds = [ [ (lib.getExe cfg.package) "hook" "binds" name ] ];
+      binds = [ [ (lib.getExe cfg.package) "internal" "hook" "binds" name ] ];
     } // lib.optionalAttrs (tier.egress == "direct") {
       network = {
         inherit (tier) forwardPorts;

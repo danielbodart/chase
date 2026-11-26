@@ -129,7 +129,7 @@ func TestWhatApproveNeedsFirst(t *testing.T) {
 	// The launch, and the steps that went with the env file and frisket's
 	// policy word, are no subcommands.
 	for _, gone := range []string{"bogus", "launch", "env-dir", "policy"} {
-		if rc := h.run(gone); rc != 1 || h.err != "chase: usage: chase grant approve WS MACHINE TIER | project WS TIER | docker WS TIER\n" {
+		if rc := h.run(gone); rc != 1 || h.err != "chase: usage: chase internal grant approve WS MACHINE TIER | project WS TIER | docker WS TIER\n" {
 			t.Errorf("%s: %d %q", gone, rc, h.err)
 		}
 	}

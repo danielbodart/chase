@@ -12,7 +12,7 @@ import (
 	"github.com/danielbodart/chase/internal/term"
 )
 
-// Exec is `chase hook exec TIER`, flong's exec for a sandbox tier: the
+// Exec is `chase internal hook exec TIER`, flong's exec for a sandbox tier: the
 // payload, printed on stdout as flong reads it, for the launcher's
 // arguments args, and its status. e is the grant's configuration when
 // tier takes grants, nil when it takes none; a nil registry is

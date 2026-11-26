@@ -41,7 +41,7 @@
 # wrong on the way ends the launch: a grant is applied whole or the session
 # does not start.
 #
-# Each step is `chase hook ... TIER` (internal/grant); what is here is its
+# Each step is `chase internal hook ... TIER` (internal/grant); what is here is its
 # configuration.
 { config, lib, pkgs, ... }:
 
@@ -133,9 +133,9 @@ in
       # session is given, its binds among it, is only ever what was
       # approved. The filter's lines are staged with it and printed after
       # the guard, and the rest applied in the tier's exec, module.nix's.
-      approve = [ [ chase "hook" "approve" name ] ];
-      seccompPolicy = [ [ chase "hook" "seccomp" name ] ];
-      postStop = [ [ chase "hook" "poststop" name ] ];
+      approve = [ [ chase "internal" "hook" "approve" name ] ];
+      seccompPolicy = [ [ chase "internal" "hook" "seccomp" name ] ];
+      postStop = [ [ chase "internal" "hook" "poststop" name ] ];
     }) tiers;
 
     # The session's own document, which exec writes for every launch, the

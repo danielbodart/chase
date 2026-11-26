@@ -362,7 +362,7 @@ in
     # system's build instead, by the binary that launches it, rather than
     # by a session that does not start.
     system.checks = lib.optional (enabled != { }) (pkgs.runCommand "chase-ssh-check" { } ''
-      ${lib.getExe cfg.package} -config ${config.environment.etc."chase/config.json".source} ssh-check
+      ${lib.getExe cfg.package} -config ${config.environment.etc."chase/config.json".source} internal ssh-check
       touch $out
     '');
 
